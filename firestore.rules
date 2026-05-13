@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: Firebase Auth UID
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth UID.
+    //   - displayName: string or null (required, max 100 chars).
+    //   - email: string or null (required, max 320 chars).
+    //   - photoURL: string or null (required, http/https URL, max 2048 chars).
+    //   - providerIds: list (required, max 10, known Firebase Auth provider IDs).
+    //   - createdAt: timestamp (required, immutable).
+    //   - updatedAt: timestamp (required).
+    //
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasOnlyAllowedUserProfileFields(data) {
+      return data.keys().hasOnly([
+        'uid',
+        'displayName',
+        'email',
+        'photoURL',
+        'providerIds',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function hasRequiredUserProfileFields(data) {
+      return data.keys().hasAll([
+        'uid',
+        'displayName',
+        'email',
+        'photoURL',
+        'providerIds',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function isNullableString(value, maxLength) {
+      return value == null || (value is string && value.size() <= maxLength);
+    }
+
+    function isNullableEmail(value) {
+      return value == null ||
+        (
+          value is string &&
+          value.size() <= 320 &&
+          value.matches('^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$')
+        );
+    }
+
+    function isNullableUrl(value) {
+      return value == null ||
+        (
+          value is string &&
+          value.size() <= 2048 &&
+          (value.matches('^https://.*') || value.matches('^http://.*'))
+        );
+    }
+
+    function hasValidProviderIds(data) {
+      return data.providerIds is list &&
+        data.providerIds.size() <= 10 &&
+        data.providerIds.hasOnly(['google.com', 'password']);
+    }
+
+    function isValidUserProfile(data, userId) {
+      return hasOnlyAllowedUserProfileFields(data) &&
+        hasRequiredUserProfileFields(data) &&
+        data.uid == userId &&
+        data.uid == request.auth.uid &&
+        data.uid is string &&
+        data.uid.size() > 0 &&
+        data.uid.size() <= 128 &&
+        isNullableString(data.displayName, 100) &&
+        isNullableEmail(data.email) &&
+        isNullableUrl(data.photoURL) &&
+        hasValidProviderIds(data) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidVoiceprint(data) {
+      return data.keys().hasOnly([
+        'name', 'centroid', 'sampleCount', 'createdAt', 'updatedAt'
+      ]) &&
+        data.name is string &&
+        data.name.size() > 0 && data.name.size() <= 100 &&
+        data.centroid is list &&
+        data.centroid.size() > 0 && data.centroid.size() <= 1024 &&
+        data.sampleCount is number &&
+        data.sampleCount >= 1 && data.sampleCount <= 100000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) &&
+        isValidUserProfile(request.resource.data, userId) &&
+        request.resource.data.createdAt == request.time &&
+        request.resource.data.updatedAt == request.time;
+      allow update: if isOwner(userId) &&
+        isValidUserProfile(request.resource.data, userId) &&
+        resource.data.uid == userId &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.updatedAt == request.time;
+      allow delete: if false;
+
+      match /voiceprints/{voiceprintId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) &&
+          isValidVoiceprint(request.resource.data) &&
+          request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,46 @@
+--- src/app/api/ask/route.ts
++++ src/app/api/ask/route.ts
+@@ -10,12 +10,12 @@
+ export const maxDuration = 60;
+ 
+ const BodySchema = z.object({
+   transcript: z.string(),
+   question: z.string().min(1),
+ });
+ 
+-export async function POST(req: NextRequest) {
++export async function GET(req: NextRequest) {
+   let env;
+   try {
+     env = getServerEnv();
+   } catch (err) {
+@@ -25,12 +25,12 @@
+       { status: 500, headers: { "Content-Type": "application/json" } }
+     );
+   }
+ 
+-  let body;
++  let transcript: string;
++  let question: string;
+   try {
+-    body = BodySchema.parse(await req.json());
++    const { searchParams } = new URL(req.url);
++    transcript = searchParams.get("transcript") || "";
++    question = searchParams.get("question") || "";
++    if (!question) throw new Error("Missing question");
+   } catch {
+     return new Response(JSON.stringify({ error: "Invalid request body" }), {
+       status: 400,
+@@ -39,10 +39,10 @@
+   }
+ 
+   const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+ 
+   try {
+     const text = await runAriaAgent({
+-      transcript: body.transcript,
+-      question: body.question,
++      transcript,
++      question,
+       env,
+       signal: req.signal,

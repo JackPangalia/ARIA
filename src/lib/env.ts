@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const ServerEnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL: z.string().default("gpt-5.5"),
+  OPENAI_MODEL: z.string().default("gpt-5.4-mini"),
   OPENAI_TTS_MODEL: z.string().default("gpt-4o-mini-tts"),
   OPENAI_TTS_VOICE: z
     .enum([

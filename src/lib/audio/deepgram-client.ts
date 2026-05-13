@@ -130,6 +130,7 @@ export class DeepgramLiveClient {
 
     const baseId = `${msg.start ?? 0}`;
     const isFinal = msg.is_final === true;
+    const speechFinal = msg.speech_final === true;
 
     for (let i = 0; i < groups.length; i++) {
       const g = groups[i];
@@ -149,6 +150,7 @@ export class DeepgramLiveClient {
         start: firstWord.start,
         end: lastWord.end,
         isFinal,
+        speechFinal,
       };
       this.callbacks.onUtterance(utterance);
     }

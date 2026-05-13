@@ -25,57 +25,152 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Irregular bounce while listening — feels more like live fluctuation */
-@keyframes voice-bar-bounce {
-  0% {
-    transform: scaleY(0.18);
-  }
-  12% {
-    transform: scaleY(0.95);
-  }
-  28% {
-    transform: scaleY(0.32);
-  }
-  44% {
-    transform: scaleY(1);
-  }
-  58% {
-    transform: scaleY(0.4);
-  }
-  72% {
-    transform: scaleY(0.88);
-  }
-  86% {
-    transform: scaleY(0.28);
-  }
-  100% {
-    transform: scaleY(0.65);
+/* ---- Orb visualizer ---- */
+
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-/* Smoother, slower pulse while ARIA speaks */
-@keyframes voice-bar-speak {
+.orb-spin {
+  animation: orb-spin 14s linear infinite;
+}
+.orb-spin-fast {
+  animation: orb-spin 9s linear infinite;
+}
+.orb-spin-fastest {
+  animation: orb-spin 5.5s linear infinite;
+}
+.orb-spin-slow {
+  animation: orb-spin 38s linear infinite;
+}
+
+/* Gentle "thinking" breathing — slow, low amplitude. */
+@keyframes orb-pulse-think {
   0%,
   100% {
-    transform: scaleY(0.38);
+    transform: scale(0.97);
+    filter: brightness(0.95);
   }
-  33% {
-    transform: scaleY(0.92);
-  }
-  66% {
-    transform: scaleY(0.55);
+  50% {
+    transform: scale(1.04);
+    filter: brightness(1.1);
   }
 }
-
-.voice-bar {
-  transform-origin: bottom center;
+.orb-pulse-think {
+  animation: orb-pulse-think 1.4s ease-in-out infinite;
+  transform-origin: center;
 }
 
-.voice-bar-listen {
-  animation: voice-bar-bounce 0.42s cubic-bezier(0.45, 0.05, 0.55, 0.95)
-    infinite;
+/* Lively "speaking" wobble — bigger amplitude, faster. */
+@keyframes orb-pulse-speak {
+  0%,
+  100% {
+    transform: scale(0.94);
+    filter: brightness(1);
+  }
+  35% {
+    transform: scale(1.08);
+    filter: brightness(1.18);
+  }
+  65% {
+    transform: scale(0.98);
+    filter: brightness(1.05);
+  }
+}
+.orb-pulse-speak {
+  animation: orb-pulse-speak 0.7s ease-in-out infinite;
+  transform-origin: center;
 }
 
-.voice-bar-speak {
-  animation: voice-bar-speak 0.72s ease-in-out infinite;
+/* Open, inviting pulse for the follow-up window — slow soft breath with
+   a small brightness lift to read as "still listening, keep going". */
+@keyframes orb-pulse-followup {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1.05);
+  }
+  50% {
+    transform: scale(1.05);
+    filter: brightness(1.2);
+  }
+}
+.orb-pulse-followup {
+  animation: orb-pulse-followup 1.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Name assignment mode: attentive, warmer pulse while ARIA listens for names. */
+@keyframes orb-pulse-intro {
+  0%,
+  100% {
+    transform: scale(0.98);
+    filter: brightness(1.08) saturate(1.08);
+  }
+  50% {
+    transform: scale(1.07);
+    filter: brightness(1.25) saturate(1.2);
+  }
+}
+.orb-pulse-intro {
+  animation: orb-pulse-intro 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Brief flash on wake / capturing-question. */
+@keyframes orb-pulse-wake {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.06);
+    filter: brightness(1.25);
+  }
+}
+.orb-pulse-wake {
+  animation: orb-pulse-wake 0.9s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Outward-emanating ring for wake / speak. */
+@keyframes orb-ripple {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.7;
+    border-width: 2px;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+    border-width: 1px;
+  }
+}
+.orb-ripple {
+  border-style: solid;
+  border-width: 2px;
+  border-radius: 9999px;
+  animation: orb-ripple 1.6s ease-out infinite;
+}
+
+@keyframes orb-ellipsis {
+  0%,
+  20% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+}
+.orb-ellipsis {
+  display: inline-block;
+  margin-left: 4px;
+  animation: orb-ellipsis 1.2s ease-in-out infinite;
 }

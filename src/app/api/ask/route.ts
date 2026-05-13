@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
-import { getServerEnv } from "@/lib/env";
+import { runAriaAgentStream } from "@/lib/aria/agent";
+import { getServerEnv, type ServerEnv } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Allow this function to stream long enough for a full ARIA reply.
 export const maxDuration = 60;
 
 const BodySchema = z.object({
@@ -13,30 +13,25 @@ const BodySchema = z.object({
   question: z.string().min(1),
 });
 
-const SYSTEM_PROMPT = `You are ARIA — an AI Interactive Real-Time Assistant participating in a live conversation.
+const TTS_INSTRUCTIONS =
+  "Speak as ARIA. Use a warm, highly conversational tone with natural intonation, slight emotional range, and natural pauses. Do not sound robotic.";
 
-You will be given:
-1) A speaker-attributed transcript of the conversation so far.
-2) A direct question someone in the room just asked you.
+const SENTENCE_BOUNDARY = /[.!?]+["')\]]*\s+|\n+/;
+const FIRST_CHUNK_MIN_CHARS = 24;
+const NEXT_CHUNK_MIN_CHARS = 60;
 
-Rules:
-- Be concise. Speak like someone in the room, not like a chatbot. 1-3 sentences unless the question genuinely demands more.
-- Ground your answer in the transcript when relevant. Cite who said what naturally ("Like Speaker 2 mentioned...").
-- Stay neutral. No advocacy, no flattery, no filler.
-- Never read the transcript back. Synthesize.
-- Plain prose only. No markdown, no bullet points, no headings — your output will be spoken aloud.`;
+let openaiSingleton: OpenAI | null = null;
+function getOpenAI(apiKey: string) {
+  if (!openaiSingleton) openaiSingleton = new OpenAI({ apiKey });
+  return openaiSingleton;
+}
 
 export async function POST(req: NextRequest) {
-  let env;
+  let env: ServerEnv;
   try {
     env = getServerEnv();
   } catch (err) {
-    return new Response(
-      JSON.stringify({
-        error: err instanceof Error ? err.message : "env error",
-      }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return jsonError(err, 500);
   }
 
   let body;
@@ -49,51 +44,142 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  const openai = getOpenAI(env.OPENAI_API_KEY);
 
-  const userPrompt = `# Conversation transcript so far\n\n${
-    body.transcript || "(no prior conversation)"
-  }\n\n# Question directed to you\n\n${body.question}`;
-
+  let textStream: ReadableStream<string>;
   try {
-    const answer = await openai.responses.create(
-      {
-        model: env.OPENAI_MODEL,
-        instructions: SYSTEM_PROMPT,
-        input: userPrompt,
-        reasoning: { effort: "none" },
-      },
-      { signal: req.signal }
-    );
-
-    const text = answer.output_text.trim();
-    if (!text) {
-      throw new Error("OpenAI returned an empty answer");
-    }
-
-    const speech = await openai.audio.speech.create(
-      {
-        model: env.OPENAI_TTS_MODEL,
-        voice: env.OPENAI_TTS_VOICE,
-        input: text.slice(0, 4096),
-        response_format: "mp3",
-        instructions:
-          "Speak as ARIA: calm, concise, thoughtful, and natural in a live conversation.",
-      },
-      { signal: req.signal }
-    );
-
-    return new Response(speech.body, {
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Cache-Control": "no-store",
-      },
+    textStream = await runAriaAgentStream({
+      transcript: body.transcript,
+      question: body.question,
+      env,
+      signal: req.signal,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "unknown error";
-    return new Response(JSON.stringify({ error: `Ask failed: ${msg}` }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonError(err, 500);
   }
+
+  const audioStream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      // Queue of in-flight TTS responses, drained in submission order so the
+      // listener hears sentences in the order the model produced them.
+      const ttsQueue: Promise<ReadableStream<Uint8Array> | null>[] = [];
+      let chunkCount = 0;
+      let textStreamDone = false;
+
+      const enqueueChunk = (text: string) => {
+        const t = text.trim();
+        if (!t) return;
+        chunkCount += 1;
+        ttsQueue.push(
+          (async () => {
+            const speech = await openai.audio.speech.create(
+              {
+                model: env.OPENAI_TTS_MODEL,
+                voice: env.OPENAI_TTS_VOICE,
+                input: t.slice(0, 4096),
+                response_format: "mp3",
+                instructions: TTS_INSTRUCTIONS,
+              },
+              { signal: req.signal }
+            );
+            return speech.body as ReadableStream<Uint8Array> | null;
+          })()
+        );
+      };
+
+      const drain = (async () => {
+        let drainPos = 0;
+        // Wait until at least one chunk has been enqueued; otherwise we'd
+        // close the controller before any audio is produced.
+        while (true) {
+          if (drainPos >= ttsQueue.length) {
+            if (textStreamDone) break;
+            await new Promise((r) => setTimeout(r, 10));
+            continue;
+          }
+          const stream = await ttsQueue[drainPos++];
+          if (!stream) continue;
+          const reader = stream.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) controller.enqueue(value);
+          }
+        }
+      })();
+
+      try {
+        const reader = textStream.getReader();
+        let buffer = "";
+        let pending = "";
+
+        const flushPending = () => {
+          if (!pending.trim()) {
+            pending = "";
+            return;
+          }
+          enqueueChunk(pending);
+          pending = "";
+        };
+
+        const minCharsForNext = () =>
+          chunkCount === 0 && !pending
+            ? FIRST_CHUNK_MIN_CHARS
+            : NEXT_CHUNK_MIN_CHARS;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          buffer += value;
+
+          // Peel off complete sentences as they appear. Hold them in `pending`
+          // until we have enough characters to justify a separate TTS call.
+          while (true) {
+            const match = SENTENCE_BOUNDARY.exec(buffer);
+            if (!match) break;
+            const end = match.index + match[0].length;
+            pending += buffer.slice(0, end);
+            buffer = buffer.slice(end);
+            if (pending.trim().length >= minCharsForNext()) flushPending();
+          }
+        }
+
+        // Final flush: anything still pending plus the unterminated tail.
+        pending += buffer;
+        flushPending();
+
+        if (chunkCount === 0) {
+          throw new Error("ARIA produced no output");
+        }
+      } catch (err) {
+        controller.error(err);
+        return;
+      } finally {
+        textStreamDone = true;
+      }
+
+      try {
+        await drain;
+        controller.close();
+      } catch (err) {
+        controller.error(err);
+      }
+    },
+  });
+
+  return new Response(audioStream, {
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+function jsonError(err: unknown, status: number) {
+  const msg = err instanceof Error ? err.message : "unknown error";
+  return new Response(JSON.stringify({ error: `Ask failed: ${msg}` }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
