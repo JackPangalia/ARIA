@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useAuth } from "@/components/firebase/AuthProvider";
 import { useAriaStore } from "@/lib/store";
 import { AriaEngine } from "@/lib/audio/aria-engine";
 
 export function Controls() {
   const status = useAriaStore((s) => s.status);
-  const { user } = useAuth();
   const engineRef = useRef<AriaEngine | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -24,7 +22,7 @@ export function Controls() {
     setBusy(true);
     try {
       engineRef.current = new AriaEngine();
-      await engineRef.current.start({ uid: user?.uid ?? null });
+      await engineRef.current.start();
     } finally {
       setBusy(false);
     }

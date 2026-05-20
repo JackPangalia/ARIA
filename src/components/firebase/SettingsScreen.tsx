@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { RequireAuth } from "@/components/firebase/RequireAuth";
 import { useAuth } from "@/components/firebase/AuthProvider";
-import { VoiceprintsManager } from "@/components/firebase/VoiceprintsManager";
-
 function SettingsContent() {
   const { user, signOutUser } = useAuth();
   const router = useRouter();
@@ -55,8 +53,6 @@ function SettingsContent() {
             SIGN OUT
           </button>
         </div>
-
-        <VoiceprintsManager />
       </main>
     </div>
   );

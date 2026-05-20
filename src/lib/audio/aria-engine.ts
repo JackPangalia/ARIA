@@ -1,11 +1,8 @@
 "use client";
 
 import { CueEngine } from "./cue-engine";
-import { DeepgramLiveClient } from "./deepgram-client";
+import { AssemblyAILiveClient } from "./assemblyai-client";
 import { MicPcmStreamer } from "./mic-pcm-streamer";
-import { PCM_SAMPLE_RATE, PcmRingBuffer } from "./pcm-ring-buffer";
-import { SpeakerEmbeddingClient } from "./speaker-embedding-client";
-import { SpeakerIdentifier } from "./speaker-identifier";
 import {
   formatNameList,
   namesMatch,
@@ -18,11 +15,6 @@ import {
   useAriaStore,
   transcriptToText,
 } from "@/lib/store";
-import {
-  deleteVoiceprint,
-  loadVoiceprints,
-  saveVoiceprint,
-} from "@/lib/firebase/voiceprints";
 import type { IntroductionMode, TranscriptUtterance } from "@/lib/types";
 
 const WAKE_PATTERNS = [
@@ -35,19 +27,6 @@ const SPEECH_FINAL_SETTLE_MS = 700;
 const FOLLOW_UP_WINDOW_MS = 5000;
 const SOLO_INTRO_WINDOW_MS = 30_000;
 const GROUP_INTRO_WINDOW_MS = 90_000;
-
-// Speaker-embedding gating thresholds.
-const MIN_EMBED_DURATION_SEC = 1.0;
-const MAX_EMBED_DURATION_SEC = 12.0;
-const MIN_EMBED_RMS = 0.005;
-const PENDING_ENROLL_TTL_MS = 60_000;
-const VOICEPRINT_SAMPLE_CAP = 30;
-const VOICEPRINT_SAVE_DEBOUNCE_MS = 1500;
-// If a saved name is already mapped to another Deepgram speaker in this
-// session, require much stronger evidence before treating a new speaker id as
-// the same person. This keeps new people as Speaker 2/3 until they introduce
-// themselves, while still allowing true Deepgram renumbering to recover.
-const DUPLICATE_NAME_ALIAS_SIMILARITY = 0.88;
 
 function extractQuestionAfterWake(text: string): {
   detected: boolean;
@@ -74,15 +53,8 @@ function pcmLevel(pcm: Int16Array): number {
   return Math.sqrt(sum / pcm.length);
 }
 
-function floatRms(pcm: Float32Array): number {
-  if (pcm.length === 0) return 0;
-  let sum = 0;
-  for (let i = 0; i < pcm.length; i++) sum += pcm[i]! * pcm[i]!;
-  return Math.sqrt(sum / pcm.length);
-}
-
 export class AriaEngine {
-  private dg: DeepgramLiveClient | null = null;
+  private stt: AssemblyAILiveClient | null = null;
   private mic: MicPcmStreamer | null = null;
   private capturingQuestion = false;
   private questionUtterances: TranscriptUtterance[] = [];
@@ -100,73 +72,16 @@ export class AriaEngine {
   private currentAudioUrl: string | null = null;
   private cues = new CueEngine();
 
-  // Speaker fingerprinting state.
-  private ring = new PcmRingBuffer(90);
-  private embedder = new SpeakerEmbeddingClient();
-  private identifier = new SpeakerIdentifier();
-  private embedderReady = false;
-  private userUid: string | null = null;
-  private utteranceEmbeddings = new Map<string, Float32Array>();
-  private pendingEnroll = new Map<
-    string,
-    { name: string; expiresAt: number }
-  >();
-  private saveDebounce = new Map<string, ReturnType<typeof setTimeout>>();
-  private inflightEmbeddings = new Map<string, Promise<void>>();
-
-  async start({ uid }: { uid: string | null } = { uid: null }) {
+  async start() {
     const store = useAriaStore.getState();
     store.setError(null);
     store.setStatus("listening");
-    this.userUid = uid;
-    this.ring = new PcmRingBuffer(90);
-    this.identifier = new SpeakerIdentifier();
-    this.utteranceEmbeddings.clear();
-    this.pendingEnroll.clear();
 
     devLog("session", "Mic session started — transcript lines print here in dev.");
 
-    // Load existing voiceprints from Firestore (non-blocking).
-    if (uid) {
-      void (async () => {
-        try {
-          const prints = await loadVoiceprints(uid);
-          this.identifier.load(prints);
-          useAriaStore.getState().setVoiceprints(this.identifier.list());
-          if (prints.length > 0) {
-            devLog("speakers", `Loaded ${prints.length} stored voiceprint(s).`);
-          }
-        } catch (err) {
-          devLog(
-            "speakers",
-            `Failed to load voiceprints: ${err instanceof Error ? err.message : err}`
-          );
-        }
-      })();
-    } else {
-      useAriaStore.getState().setVoiceprints([]);
-    }
-
-    // Warm up the embedding worker in parallel (non-blocking).
-    void (async () => {
-      try {
-        await this.embedder.ensureReady();
-        this.embedderReady = true;
-        devLog("speakers", "Speaker embedding model ready.");
-      } catch (err) {
-        this.embedderReady = false;
-        devLog(
-          "speakers",
-          `Speaker embedding disabled (model load failed): ${
-            err instanceof Error ? err.message : err
-          }`
-        );
-      }
-    })();
-
     try {
       await this.cues.ensureReady();
-      this.dg = new DeepgramLiveClient({
+      this.stt = new AssemblyAILiveClient({
         onOpen: () => {
           /* noop */
         },
@@ -174,19 +89,18 @@ export class AriaEngine {
           /* noop */
         },
         onError: (err) => {
-          devLog("deepgram", err.message);
+          devLog("assemblyai", err.message);
           useAriaStore.getState().setError(err.message);
         },
         onUtterance: (u) => this.handleUtterance(u),
         onUtteranceEnd: () => this.handleUtteranceEnd(),
       });
 
-      await this.dg.connect();
+      await this.stt.connect();
       this.mic = new MicPcmStreamer();
       await this.mic.start((frame) => {
         useAriaStore.getState().setMicLevel(pcmLevel(frame));
-        this.dg?.sendPcm(frame);
-        this.ring.pushInt16(frame);
+        this.stt?.sendPcm(frame);
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
@@ -199,9 +113,9 @@ export class AriaEngine {
   async stop() {
     await this.mic?.stop();
     this.mic = null;
-    if (this.dg) {
-      this.dg.close();
-      this.dg = null;
+    if (this.stt) {
+      this.stt.close();
+      this.stt = null;
     }
     this.resetQuestionCapture();
     this.stopIntroMode();
@@ -210,13 +124,6 @@ export class AriaEngine {
     this.stopPlayback();
     this.cues.stopThinkingLoop();
     void this.cues.dispose();
-    this.embedder.dispose();
-    this.embedderReady = false;
-    this.utteranceEmbeddings.clear();
-    this.pendingEnroll.clear();
-    this.inflightEmbeddings.clear();
-    for (const t of this.saveDebounce.values()) clearTimeout(t);
-    this.saveDebounce.clear();
     useAriaStore.getState().setMicLevel(0);
     useAriaStore.getState().setStatus("idle");
   }
@@ -225,7 +132,6 @@ export class AriaEngine {
     useAriaStore.getState().upsertUtterance(u);
     if (u.isFinal) {
       this.maybeAssignSpeakerFromIntroduction(u);
-      void this.processSpeakerEmbedding(u);
       const names = useAriaStore.getState().speakerNames;
       devLog(
         "utterance",
@@ -453,9 +359,6 @@ export class AriaEngine {
       command.match.name,
       "wake-command"
     );
-    if (result === "assigned" || result === "same") {
-      this.queueEnrollmentForRecentSpeaker(speaker, command.match.name);
-    }
     if (
       this.introMode === "solo" &&
       (result === "assigned" || result === "same")
@@ -484,9 +387,6 @@ export class AriaEngine {
       match.name,
       `${this.introMode}-intro-mode`
     );
-    if (result === "assigned" || result === "same") {
-      this.queueEnrollmentForUtterance(u.id, match.name);
-    }
     if (this.introMode === "solo" && (result === "assigned" || result === "same")) {
       this.stopIntroMode();
     }
@@ -838,295 +738,6 @@ export class AriaEngine {
     if (!this.activeFetchAbort) return;
     this.activeFetchAbort.abort();
     this.activeFetchAbort = null;
-  }
-
-  // === Speaker embedding pipeline ===
-
-  private async processSpeakerEmbedding(u: TranscriptUtterance) {
-    if (!u.isFinal) return;
-    if (this.inflightEmbeddings.has(u.id)) return;
-    if (!this.embedderReady) {
-      // Embedding worker not ready yet; identifier hint isn't available, but
-      // we still wire downstream so naming works once the model loads.
-      return;
-    }
-
-    const duration = u.end - u.start;
-    if (duration < MIN_EMBED_DURATION_SEC) return;
-
-    const sliceStart = u.start;
-    const sliceEnd = Math.min(
-      u.end,
-      u.start + MAX_EMBED_DURATION_SEC
-    );
-
-    const task = (async () => {
-      // Small delay to let the tail of audio arrive in the ring buffer.
-      const targetTime = sliceEnd + 0.15;
-      const waitMs = Math.max(
-        0,
-        Math.round((targetTime - this.ring.currentTimeSec) * 1000)
-      );
-      if (waitMs > 0 && waitMs < 1500) {
-        await new Promise((r) => setTimeout(r, waitMs));
-      }
-
-      const pcm = this.ring.getSlice(sliceStart, sliceEnd);
-      if (!pcm) {
-        devLog("speakers", "Audio slice unavailable for embedding.", {
-          uid: u.id,
-        });
-        return;
-      }
-      if (pcm.length < PCM_SAMPLE_RATE * MIN_EMBED_DURATION_SEC) return;
-      if (floatRms(pcm) < MIN_EMBED_RMS) {
-        devLog("speakers", "Skipping low-energy segment.", { uid: u.id });
-        return;
-      }
-
-      let embedding: Float32Array;
-      try {
-        embedding = await this.embedder.embed(pcm);
-      } catch (err) {
-        devLog(
-          "speakers",
-          `Embedding failed: ${err instanceof Error ? err.message : err}`
-        );
-        return;
-      }
-
-      this.utteranceEmbeddings.set(u.id, embedding);
-      this.trimEmbeddingCache();
-
-      // Check pending enrollment for this utterance (intro/wake flow set it).
-      this.flushPendingEnrollment(u.id);
-
-      // Run identification.
-      const match = this.identifier.identify(embedding);
-      const acceptedName = this.acceptVoiceprintMatchForSpeaker(
-        u.speaker,
-        match.name,
-        match.confidence,
-        match.similarity
-      );
-      useAriaStore.getState().patchUtterance(u.id, {
-        assignedName: acceptedName,
-        nameConfidence: match.confidence,
-      });
-      if (match.name) {
-        if (acceptedName && match.confidence === "high") {
-          this.aliasDeepgramSpeakerFromVoiceprint(
-            u.speaker,
-            acceptedName,
-            u.id,
-            match.similarity
-          );
-        }
-        devLog("speakers", `Voice match: ${match.name}`, {
-          uid: u.id,
-          similarity: Number(match.similarity.toFixed(3)),
-          runnerUp: Number(match.runnerUp.toFixed(3)),
-          confidence: match.confidence,
-          accepted: acceptedName === match.name,
-        });
-      }
-    })().finally(() => {
-      this.inflightEmbeddings.delete(u.id);
-    });
-
-    this.inflightEmbeddings.set(u.id, task);
-  }
-
-  private acceptVoiceprintMatchForSpeaker(
-    speaker: number,
-    name: string | null,
-    confidence: string,
-    similarity: number
-  ): string | null {
-    if (!name || confidence !== "high") return null;
-
-    const store = useAriaStore.getState();
-    const currentName = store.speakerNames[speaker];
-    if (currentName) return namesMatch(currentName, name) ? name : null;
-
-    const sameNameSpeaker = Object.entries(store.speakerNames).find(
-      ([id, assignedName]) =>
-        Number(id) !== speaker && namesMatch(assignedName, name)
-    );
-    if (!sameNameSpeaker) return name;
-
-    if (similarity >= DUPLICATE_NAME_ALIAS_SIMILARITY) {
-      return name;
-    }
-
-    devLog("speakers", "Rejected likely different speaker for saved voice.", {
-      speaker,
-      matchedName: name,
-      existingSpeaker: Number(sameNameSpeaker[0]),
-      similarity: Number(similarity.toFixed(3)),
-      required: DUPLICATE_NAME_ALIAS_SIMILARITY,
-    });
-    return null;
-  }
-
-  private aliasDeepgramSpeakerFromVoiceprint(
-    speaker: number,
-    name: string,
-    utteranceId: string,
-    similarity: number
-  ) {
-    const store = useAriaStore.getState();
-    const currentName = store.speakerNames[speaker];
-    if (currentName && namesMatch(currentName, name)) return;
-
-    if (currentName && !namesMatch(currentName, name)) {
-      devLog("speakers", "Skipped voiceprint alias conflict.", {
-        speaker,
-        currentName,
-        matchedName: name,
-        utteranceId,
-      });
-      return;
-    }
-
-    const sameNameSpeaker = Object.entries(store.speakerNames).find(
-      ([id, assignedName]) =>
-        Number(id) !== speaker && namesMatch(assignedName, name)
-    );
-    if (sameNameSpeaker && similarity < DUPLICATE_NAME_ALIAS_SIMILARITY) {
-      devLog("speakers", "Skipped duplicate voiceprint alias.", {
-        speaker,
-        existingSpeaker: Number(sameNameSpeaker[0]),
-        matchedName: name,
-        similarity: Number(similarity.toFixed(3)),
-        required: DUPLICATE_NAME_ALIAS_SIMILARITY,
-        utteranceId,
-      });
-      return;
-    }
-
-    store.assignSpeakerName(speaker, name);
-    devLog("speakers", `Recognized Speaker ${speaker + 1} as ${name}.`, {
-      speaker,
-      name,
-      utteranceId,
-    });
-  }
-
-  private trimEmbeddingCache() {
-    if (this.utteranceEmbeddings.size <= 200) return;
-    const overflow = this.utteranceEmbeddings.size - 200;
-    let i = 0;
-    for (const key of this.utteranceEmbeddings.keys()) {
-      if (i++ >= overflow) break;
-      this.utteranceEmbeddings.delete(key);
-    }
-  }
-
-  private queueEnrollmentForUtterance(utteranceId: string, name: string) {
-    // Either the embedding has already arrived (enroll now) or it hasn't yet
-    // (remember the intent so the embedding handler can enroll later).
-    const cached = this.utteranceEmbeddings.get(utteranceId);
-    if (cached) {
-      this.enrollEmbedding(name, cached);
-      return;
-    }
-    this.pendingEnroll.set(utteranceId, {
-      name,
-      expiresAt: Date.now() + PENDING_ENROLL_TTL_MS,
-    });
-    this.gcPendingEnroll();
-  }
-
-  private queueEnrollmentForRecentSpeaker(speaker: number, name: string) {
-    // Find the most recent final utterance by this DG speaker number that has
-    // an embedding ready.
-    const utterances = useAriaStore.getState().utterances;
-    for (let i = utterances.length - 1; i >= 0; i--) {
-      const u = utterances[i]!;
-      if (!u.isFinal) continue;
-      if (u.speaker !== speaker) continue;
-      const emb = this.utteranceEmbeddings.get(u.id);
-      if (emb) {
-        this.enrollEmbedding(name, emb);
-        return;
-      }
-      this.pendingEnroll.set(u.id, {
-        name,
-        expiresAt: Date.now() + PENDING_ENROLL_TTL_MS,
-      });
-      this.gcPendingEnroll();
-      return;
-    }
-  }
-
-  private flushPendingEnrollment(utteranceId: string) {
-    const pending = this.pendingEnroll.get(utteranceId);
-    if (!pending) return;
-    this.pendingEnroll.delete(utteranceId);
-    const emb = this.utteranceEmbeddings.get(utteranceId);
-    if (!emb) return;
-    this.enrollEmbedding(pending.name, emb);
-  }
-
-  private gcPendingEnroll() {
-    const now = Date.now();
-    for (const [k, v] of this.pendingEnroll) {
-      if (v.expiresAt < now) this.pendingEnroll.delete(k);
-    }
-  }
-
-  private enrollEmbedding(name: string, embedding: Float32Array) {
-    const existing = this.identifier
-      .list()
-      .find((v) => namesMatch(v.name, name));
-    if (existing && existing.sampleCount >= VOICEPRINT_SAMPLE_CAP) {
-      return;
-    }
-    this.identifier.enroll(name, embedding);
-    useAriaStore.getState().setVoiceprints(this.identifier.list());
-    devLog("speakers", `Enrolled voiceprint sample for ${name}.`);
-    this.scheduleVoiceprintSave(name);
-  }
-
-  private scheduleVoiceprintSave(name: string) {
-    if (!this.userUid) return;
-    const uid = this.userUid;
-    const prev = this.saveDebounce.get(name);
-    if (prev) clearTimeout(prev);
-    const t = setTimeout(() => {
-      this.saveDebounce.delete(name);
-      const current = this.identifier.list().find((v) => v.name === name);
-      if (!current) return;
-      void saveVoiceprint(uid, current).catch((err) => {
-        devLog(
-          "speakers",
-          `Voiceprint save failed for ${name}: ${err instanceof Error ? err.message : err}`
-        );
-      });
-    }, VOICEPRINT_SAVE_DEBOUNCE_MS);
-    this.saveDebounce.set(name, t);
-  }
-
-  // === Public voiceprint management (called by Settings UI) ===
-
-  async removeVoiceprint(name: string): Promise<void> {
-    this.identifier.remove(name);
-    useAriaStore.getState().setVoiceprints(this.identifier.list());
-    useAriaStore.getState().removeVoiceprintLocal(name);
-    if (this.userUid) {
-      await deleteVoiceprint(this.userUid, name);
-    }
-  }
-
-  async clearAllVoiceprints(): Promise<void> {
-    const names = this.identifier.list().map((v) => v.name);
-    this.identifier.clear();
-    useAriaStore.getState().setVoiceprints([]);
-    if (this.userUid) {
-      const uid = this.userUid;
-      await Promise.all(names.map((n) => deleteVoiceprint(uid, n)));
-    }
   }
 
   private stopPlayback() {

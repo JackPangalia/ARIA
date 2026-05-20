@@ -19,7 +19,7 @@ Browser mic
 Browser Web Audio (16 kHz mono int16)
    │
    ▼
-Deepgram streaming WS (Nova-3 + diarization + "Hey ARIA" keyterm)
+AssemblyAI streaming WS (u3-rt-pro + diarization + "Hey ARIA" keyterms)
                                       │
                                       ▼
                          Speaker-attributed transcript
@@ -37,7 +37,7 @@ Deepgram streaming WS (Nova-3 + diarization + "Hey ARIA" keyterm)
 ## Stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind 4)
-- **Deepgram** — streaming transcription + diarization
+- **AssemblyAI** — streaming transcription + diarization
 - **OpenAI GPT-5.5** — Responses API, streaming
 - **OpenAI gpt-4o-mini-tts** — text-to-speech
 - **Zustand** — client state, **Zod** — env validation
@@ -54,12 +54,21 @@ npm run dev
 ### Required keys
 
 - OpenAI API key — https://platform.openai.com/api-keys
-- Deepgram API key — https://console.deepgram.com
+- AssemblyAI API key — https://www.assemblyai.com/app
+- Firebase web app config — [Firebase Console](https://console.firebase.google.com/) → **aria-moserun-0512** → Project settings → Your apps → Web app → copy into `NEXT_PUBLIC_FIREBASE_*` in `.env.local`
+
+  Or after `npx -y firebase-tools@latest login`:
+
+  ```bash
+  npx -y firebase-tools@latest apps:sdkconfig WEB --project aria-moserun-0512
+  ```
+
+  Map the SDK fields to the `NEXT_PUBLIC_FIREBASE_*` names in `.env.example`.
 
 ### Wake phrase
 
 ARIA no longer uses a separate wake-word SDK. The browser streams mic audio to
-Deepgram, and the app watches interim/final transcript text for wake phrases
+AssemblyAI, and the app watches interim/final transcript text for wake phrases
 like "Hey ARIA", "Hey Arya", or "Hey Area". If the phrase includes a question,
 ARIA answers that immediately; if you only say "Hey ARIA", it waits for the next
 utterance as the question.

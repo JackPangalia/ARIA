@@ -5,7 +5,6 @@ import type {
   AriaStatus,
   IntroductionMode,
   TranscriptUtterance,
-  Voiceprint,
 } from "./types";
 
 interface AriaState {
@@ -14,7 +13,6 @@ interface AriaState {
   utterances: TranscriptUtterance[];
   expectedParticipants: string[];
   speakerNames: Record<number, string>;
-  voiceprints: Voiceprint[];
   errorMessage: string | null;
   micLevel: number;
 
@@ -28,9 +26,6 @@ interface AriaState {
   setExpectedParticipants: (names: string[]) => void;
   assignSpeakerName: (id: number, name: string) => void;
   renameSpeaker: (id: number, name: string) => void;
-  setVoiceprints: (prints: Voiceprint[]) => void;
-  upsertVoiceprintLocal: (print: Voiceprint) => void;
-  removeVoiceprintLocal: (name: string) => void;
 }
 
 export const useAriaStore = create<AriaState>((set) => ({
@@ -39,7 +34,6 @@ export const useAriaStore = create<AriaState>((set) => ({
   utterances: [],
   expectedParticipants: [],
   speakerNames: {},
-  voiceprints: [],
   errorMessage: null,
   micLevel: 0,
 
@@ -74,20 +68,6 @@ export const useAriaStore = create<AriaState>((set) => ({
     set((state) => ({ speakerNames: { ...state.speakerNames, [id]: name } })),
   renameSpeaker: (id, name) =>
     set((state) => ({ speakerNames: { ...state.speakerNames, [id]: name } })),
-
-  setVoiceprints: (prints) => set({ voiceprints: prints }),
-  upsertVoiceprintLocal: (print) =>
-    set((state) => {
-      const idx = state.voiceprints.findIndex((v) => v.name === print.name);
-      if (idx === -1) return { voiceprints: [...state.voiceprints, print] };
-      const next = state.voiceprints.slice();
-      next[idx] = print;
-      return { voiceprints: next };
-    }),
-  removeVoiceprintLocal: (name) =>
-    set((state) => ({
-      voiceprints: state.voiceprints.filter((v) => v.name !== name),
-    })),
 }));
 
 export function speakerLabel(
@@ -101,7 +81,6 @@ export function displayLabelForUtterance(
   u: TranscriptUtterance,
   names: Record<number, string>
 ): string {
-  if (u.assignedName && u.nameConfidence === "high") return u.assignedName;
   return speakerLabel(u.speaker, names);
 }
 
