@@ -1,20 +1,18 @@
 "use client";
 
 import { useAriaStore } from "@/lib/store";
-import type { AriaStatus, IntroductionMode } from "@/lib/types";
+import type { AriaStatus } from "@/lib/types";
 
 type Mode =
   | "idle"
   | "listen"
-  | "intro"
   | "followup"
   | "wake"
   | "think"
   | "speak";
 
-function modeFor(status: AriaStatus, introductionMode: IntroductionMode): Mode {
+function modeFor(status: AriaStatus): Mode {
   if (status === "idle" || status === "error") return "idle";
-  if (introductionMode !== "off") return "intro";
   if (status === "speaking") return "speak";
   if (status === "thinking") return "think";
   if (status === "capturing-question" || status === "wake-detected")
@@ -28,7 +26,6 @@ function modeFor(status: AriaStatus, introductionMode: IntroductionMode): Mode {
 const PALETTES: Record<Mode, [string, string, string]> = {
   idle: ["#3f3f46", "#52525b", "#71717a"],
   listen: ["#10b981", "#34d399", "#22d3ee"],
-  intro: ["#f97316", "#fb923c", "#fde68a"],
   // Follow-up: emerald base with a warm amber accent so it reads as
   // "still listening, no wake word needed".
   followup: ["#14b8a6", "#fbbf24", "#34d399"],
@@ -51,7 +48,6 @@ const STATUS_LABEL: Record<AriaStatus, string> = {
 const AURORA_SPIN: Record<Mode, string> = {
   idle: "orb-spin-slow",
   listen: "orb-spin",
-  intro: "orb-spin-fast",
   followup: "orb-spin-fast",
   wake: "orb-spin-fast",
   think: "orb-spin-fast",
@@ -61,7 +57,6 @@ const AURORA_SPIN: Record<Mode, string> = {
 const PULSE_CLASS: Record<Mode, string> = {
   idle: "",
   listen: "",
-  intro: "orb-pulse-intro",
   followup: "orb-pulse-followup",
   wake: "orb-pulse-wake",
   think: "orb-pulse-think",
@@ -70,32 +65,18 @@ const PULSE_CLASS: Record<Mode, string> = {
 
 export function OrbVisualizer() {
   const status = useAriaStore((s) => s.status);
-  const introductionMode = useAriaStore((s) => s.introductionMode);
   const micLevel = useAriaStore((s) => s.micLevel);
   const error = useAriaStore((s) => s.errorMessage);
 
-  const mode = modeFor(status, introductionMode);
+  const mode = modeFor(status);
   const palette = PALETTES[mode];
-  const introLabel =
-    introductionMode === "solo"
-      ? "Name assignment: one voice"
-      : introductionMode === "group"
-        ? "Introduction mode"
-        : null;
-  const introDetail =
-    introductionMode === "solo"
-      ? "Listening for one name"
-      : introductionMode === "group"
-        ? "Listening for names"
-        : null;
 
   // Energy 0..1 drives extra scale on top of the CSS pulse animation.
   // Listening states use real mic level so the orb breathes with the room.
   const energy =
     mode === "listen" ||
     mode === "wake" ||
-    mode === "followup" ||
-    mode === "intro"
+    mode === "followup"
       ? Math.min(1, micLevel * 7)
       : mode === "speak"
         ? 0.55
@@ -179,10 +160,7 @@ export function OrbVisualizer() {
         </div>
 
         {/* Ripple ring for wake / speak / follow-up — emanates outward. */}
-        {(mode === "wake" ||
-          mode === "speak" ||
-          mode === "followup" ||
-          mode === "intro") && (
+        {(mode === "wake" || mode === "speak" || mode === "followup") && (
           <div
             className="pointer-events-none absolute inset-8 rounded-full orb-ripple"
             style={{ borderColor: palette[1] }}
@@ -196,16 +174,9 @@ export function OrbVisualizer() {
           style={{ color: idle ? undefined : palette[1] }}
           aria-live="polite"
         >
-          {introLabel ?? STATUS_LABEL[status]}
-          {(mode === "think" || mode === "intro") && (
-            <span className="orb-ellipsis">…</span>
-          )}
+          {STATUS_LABEL[status]}
+          {mode === "think" && <span className="orb-ellipsis">…</span>}
         </div>
-        {introDetail && (
-          <p className="text-[11px] font-medium text-amber-200/80">
-            {introDetail}
-          </p>
-        )}
         {error && (
           <p className="max-w-xs text-center text-xs text-red-500 dark:text-red-400">
             {error}

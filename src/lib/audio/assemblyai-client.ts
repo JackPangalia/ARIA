@@ -1,5 +1,9 @@
 "use client";
 
+import {
+  MAX_MEETING_SPEAKERS,
+  clampMeetingSpeakers,
+} from "@/lib/audio/meeting-speakers";
 import type { TranscriptUtterance } from "@/lib/types";
 
 interface AssemblyAIWord {
@@ -36,10 +40,15 @@ export class AssemblyAILiveClient {
   private turnCounter = 0;
   private readonly speakerLabelToId = new Map<string, number>();
   private nextSpeakerId = 0;
+  private maxSpeakers = MAX_MEETING_SPEAKERS;
+  private lastSpeakerId: number | null = null;
 
   constructor(private callbacks: AssemblyAIClientCallbacks) {}
 
-  async connect(): Promise<void> {
+  async connect(options?: { maxSpeakers?: number }): Promise<void> {
+    this.maxSpeakers = clampMeetingSpeakers(
+      options?.maxSpeakers ?? MAX_MEETING_SPEAKERS
+    );
     const tokenRes = await fetch("/api/assemblyai/token", { method: "POST" });
     if (!tokenRes.ok) {
       throw new Error("Failed to get AssemblyAI token");
@@ -53,6 +62,8 @@ export class AssemblyAILiveClient {
       speaker_labels: "true",
       keyterms_prompt: JSON.stringify(["ARIA", "Hey ARIA", "Hey Arya"]),
     });
+
+    params.set("max_speakers", String(this.maxSpeakers));
 
     const url = `wss://streaming.assemblyai.com/v3/ws?${params.toString()}`;
     const ws = new WebSocket(url);
@@ -87,12 +98,33 @@ export class AssemblyAILiveClient {
     };
   }
 
+  private speakerKey(label: string | undefined): string | null {
+    const key = label?.trim();
+    if (!key || key.toUpperCase() === "UNKNOWN") return null;
+    return key;
+  }
+
+  private fallbackSpeakerId(): number {
+    return this.lastSpeakerId ?? 0;
+  }
+
   private resolveSpeakerId(label: string | undefined): number {
-    const key = label?.trim() ? label : "UNKNOWN";
+    const key = this.speakerKey(label);
+    if (!key) return this.fallbackSpeakerId();
+
     const existing = this.speakerLabelToId.get(key);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      this.lastSpeakerId = existing;
+      return existing;
+    }
+
+    if (this.nextSpeakerId >= this.maxSpeakers) {
+      return this.fallbackSpeakerId();
+    }
+
     const id = this.nextSpeakerId++;
     this.speakerLabelToId.set(key, id);
+    this.lastSpeakerId = id;
     return id;
   }
 
@@ -196,5 +228,6 @@ export class AssemblyAILiveClient {
     this.turnCounter = 0;
     this.speakerLabelToId.clear();
     this.nextSpeakerId = 0;
+    this.lastSpeakerId = null;
   }
 }

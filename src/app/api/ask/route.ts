@@ -11,6 +11,15 @@ export const maxDuration = 60;
 const BodySchema = z.object({
   transcript: z.string(),
   question: z.string().min(1),
+  speakerNames: z.record(z.string(), z.string()).optional(),
+  assignedSpeakerName: z
+    .object({
+      assigned: z.boolean(),
+      speakerId: z.number().int().nonnegative(),
+      name: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 
 const TTS_INSTRUCTIONS =
@@ -51,6 +60,8 @@ export async function POST(req: NextRequest) {
     textStream = await runAriaAgentStream({
       transcript: body.transcript,
       question: body.question,
+      speakerNames: body.speakerNames,
+      assignedSpeakerName: body.assignedSpeakerName,
       env,
       signal: req.signal,
     });

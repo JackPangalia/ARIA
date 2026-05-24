@@ -10,7 +10,7 @@ You will be given:
 
 Rules:
 - Be concise. Speak like someone in the room, not like a chatbot. 1-3 sentences unless the question genuinely demands more.
-- Ground your answer in the transcript when relevant. Use real names from the transcript when present; only use labels like "Speaker 2" for speakers who are still unnamed.
+- Ground your answer in the transcript when relevant. Refer to speakers using their transcript labels (e.g. "Speaker 1", "Speaker 2").
 - You have web search available. Use it for current, factual, newsy, time-sensitive, or explicitly research-oriented questions.
 - Do not force web search for obvious conversational questions or questions that can be answered from the transcript alone.
 - When web search informs your answer, briefly name the source or publication when useful.
@@ -21,14 +21,52 @@ Rules:
 interface RunAriaAgentInput {
   transcript: string;
   question: string;
+  speakerNames?: Record<string, string>;
+  assignedSpeakerName?: {
+    assigned: boolean;
+    speakerId: number;
+    name: string | null;
+  } | null;
   env: ServerEnv;
   signal?: AbortSignal;
 }
 
-function buildUserPrompt({ transcript, question }: RunAriaAgentInput): string {
+function speakerLabel(id: number): string {
+  return `Speaker ${id + 1}`;
+}
+
+function formatSpeakerNames(speakerNames?: Record<string, string>): string {
+  const entries = Object.entries(speakerNames ?? {}).filter(([, name]) =>
+    name.trim()
+  );
+  if (entries.length === 0) return "(no assigned speaker names)";
+
+  return entries
+    .map(([speakerId, name]) => {
+      const id = Number.parseInt(speakerId, 10);
+      const label = Number.isFinite(id) ? speakerLabel(id) : speakerId;
+      return `${label} is ${name.trim()}`;
+    })
+    .join("\n");
+}
+
+function formatAssignment(
+  assignment: RunAriaAgentInput["assignedSpeakerName"]
+): string {
+  if (!assignment?.assigned || !assignment.name) return "(none)";
+  return `${speakerLabel(assignment.speakerId)} was just identified as ${
+    assignment.name
+  }. Briefly confirm this before answering any remaining request.`;
+}
+
+function buildUserPrompt(input: RunAriaAgentInput): string {
   return `# Conversation transcript so far\n\n${
-    transcript || "(no prior conversation)"
-  }\n\n# Question directed to you\n\n${question}`;
+    input.transcript || "(no prior conversation)"
+  }\n\n# Known speaker names\n\n${formatSpeakerNames(
+    input.speakerNames
+  )}\n\n# Fresh speaker name assignment\n\n${formatAssignment(
+    input.assignedSpeakerName
+  )}\n\n# Question directed to you\n\n${input.question}`;
 }
 
 function buildAgent(input: RunAriaAgentInput): Agent {

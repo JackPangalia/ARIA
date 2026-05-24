@@ -3,19 +3,20 @@
 import { CueEngine } from "./cue-engine";
 import { AssemblyAILiveClient } from "./assemblyai-client";
 import { MicPcmStreamer } from "./mic-pcm-streamer";
-import {
-  formatNameList,
-  namesMatch,
-  parseSpeakerNamingCommand,
-  resolveSelfIntroduction,
-} from "./speaker-naming";
 import { devLog } from "@/lib/client/dev-log";
 import {
   displayLabelForUtterance,
   useAriaStore,
   transcriptToText,
 } from "@/lib/store";
-import type { IntroductionMode, TranscriptUtterance } from "@/lib/types";
+import { clampMeetingSpeakers } from "@/lib/audio/meeting-speakers";
+import type { TranscriptUtterance } from "@/lib/types";
+
+interface SpeakerNameAssignment {
+  assigned: boolean;
+  speakerId: number;
+  name: string | null;
+}
 
 const WAKE_PATTERNS = [
   /\b(?:hey|hi|okay|ok)\s*,?\s*(?:aria|arya|area)\b[\s,.:;!?-]*/i,
@@ -25,8 +26,6 @@ const WAKE_PATTERNS = [
 const QUESTION_SETTLE_MS = 1400;
 const SPEECH_FINAL_SETTLE_MS = 700;
 const FOLLOW_UP_WINDOW_MS = 5000;
-const SOLO_INTRO_WINDOW_MS = 30_000;
-const GROUP_INTRO_WINDOW_MS = 90_000;
 
 function extractQuestionAfterWake(text: string): {
   detected: boolean;
@@ -61,8 +60,6 @@ export class AriaEngine {
   private wakeUtteranceId: string | null = null;
   private wakeSpeaker: number | null = null;
   private inlineQuestion = "";
-  private introMode: IntroductionMode = "off";
-  private introModeTimeout: ReturnType<typeof setTimeout> | null = null;
   private questionSettleTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpListening = false;
@@ -71,32 +68,21 @@ export class AriaEngine {
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl: string | null = null;
   private cues = new CueEngine();
+  private maxSpeakers = 2;
 
-  async start() {
+  async start(maxSpeakers?: number) {
     const store = useAriaStore.getState();
     store.setError(null);
     store.setStatus("listening");
+    this.maxSpeakers = clampMeetingSpeakers(maxSpeakers ?? this.maxSpeakers);
 
-    devLog("session", "Mic session started — transcript lines print here in dev.");
+    devLog("session", "Mic session started — transcript lines print here in dev.", {
+      maxSpeakers: this.maxSpeakers,
+    });
 
     try {
       await this.cues.ensureReady();
-      this.stt = new AssemblyAILiveClient({
-        onOpen: () => {
-          /* noop */
-        },
-        onClose: () => {
-          /* noop */
-        },
-        onError: (err) => {
-          devLog("assemblyai", err.message);
-          useAriaStore.getState().setError(err.message);
-        },
-        onUtterance: (u) => this.handleUtterance(u),
-        onUtteranceEnd: () => this.handleUtteranceEnd(),
-      });
-
-      await this.stt.connect();
+      await this.connectStt();
       this.mic = new MicPcmStreamer();
       await this.mic.start((frame) => {
         useAriaStore.getState().setMicLevel(pcmLevel(frame));
@@ -110,6 +96,25 @@ export class AriaEngine {
     }
   }
 
+  private async connectStt() {
+    this.stt = new AssemblyAILiveClient({
+      onOpen: () => {
+        /* noop */
+      },
+      onClose: () => {
+        /* noop */
+      },
+      onError: (err) => {
+        devLog("assemblyai", err.message);
+        useAriaStore.getState().setError(err.message);
+      },
+      onUtterance: (u) => this.handleUtterance(u),
+      onUtteranceEnd: () => this.handleUtteranceEnd(),
+    });
+
+    await this.stt.connect({ maxSpeakers: this.maxSpeakers });
+  }
+
   async stop() {
     await this.mic?.stop();
     this.mic = null;
@@ -118,7 +123,6 @@ export class AriaEngine {
       this.stt = null;
     }
     this.resetQuestionCapture();
-    this.stopIntroMode();
     this.stopFollowUpWindow();
     this.abortActiveFetch();
     this.stopPlayback();
@@ -131,11 +135,9 @@ export class AriaEngine {
   private handleUtterance(u: TranscriptUtterance) {
     useAriaStore.getState().upsertUtterance(u);
     if (u.isFinal) {
-      this.maybeAssignSpeakerFromIntroduction(u);
-      const names = useAriaStore.getState().speakerNames;
       devLog(
         "utterance",
-        `${displayLabelForUtterance(u, names)}: ${u.text}`,
+        `${displayLabelForUtterance(u)}: ${u.text}`,
         { speaker: u.speaker }
       );
     }
@@ -282,19 +284,12 @@ export class AriaEngine {
     question: string,
     speaker: number | null
   ) {
-    const prompt = this.applyNamingCommand(question, speaker);
-    if (prompt) {
-      this.resetQuestionCapture();
-      await this.speakPrompt(prompt);
-      return;
-    }
-
-    await this.askAndReset(question);
+    await this.askAndReset(question, speaker);
   }
 
-  private async askAndReset(question: string) {
+  private async askAndReset(question: string, speaker: number | null) {
     this.resetQuestionCapture();
-    await this.askAria(question);
+    await this.askAria(question, speaker);
   }
 
   private resetQuestionCapture() {
@@ -307,202 +302,41 @@ export class AriaEngine {
     this.captureWholeAnchorUtterance = false;
   }
 
-  private applyNamingCommand(
-    text: string,
-    speaker: number | null
-  ): string | null {
-    const store = useAriaStore.getState();
-    const command = parseSpeakerNamingCommand(text, store.expectedParticipants);
-    if (!command) return null;
-
-    if (command.type === "roster") {
-      store.setExpectedParticipants(command.names);
-      this.startIntroMode("group", GROUP_INTRO_WINDOW_MS);
-      devLog("speakers", "Expected participants updated.", {
-        participants: command.names,
-      });
-      return `Got it. I'll listen for ${formatNameList(
-        command.names
-      )}. You can introduce yourselves one at a time.`;
-    }
-
-    if (command.type === "intro-done") {
-      const wasActive = this.introMode !== "off";
-      this.stopIntroMode();
-      return wasActive
-        ? "Got it. I'll stop listening for introductions."
-        : "Introduction mode is already off.";
-    }
-
-    if (command.type === "intro-mode") {
-      const timeout =
-        command.mode === "solo" ? SOLO_INTRO_WINDOW_MS : GROUP_INTRO_WINDOW_MS;
-      this.startIntroMode(command.mode, timeout);
-      const names = store.expectedParticipants;
-      if (command.mode === "solo") {
-        return "Of course. Go ahead and say your name.";
-      }
-      if (names.length > 0) {
-        return `Great. I'm listening for ${formatNameList(
-          names
-        )}. Please introduce yourselves one at a time.`;
-      }
-      return "Great. One at a time, say your name.";
-    }
-
-    if (speaker === null) {
-      return "I heard the name, but I could not tell which speaker said it yet.";
-    }
-
-    const result = this.assignSpeakerName(
-      speaker,
-      command.match.name,
-      "wake-command"
-    );
-    if (
-      this.introMode === "solo" &&
-      (result === "assigned" || result === "same")
-    ) {
-      this.stopIntroMode();
-    }
-    if (result === "assigned" || result === "same") {
-      return `Got it, ${command.match.name}.`;
-    }
-
-    return `I already have ${command.match.name} assigned to another voice, so I won't change that yet.`;
-  }
-
-  private maybeAssignSpeakerFromIntroduction(u: TranscriptUtterance) {
-    if (this.introMode === "off") return;
-
-    const store = useAriaStore.getState();
-    const match = resolveSelfIntroduction(u.text, store.expectedParticipants, {
-      allowUnlisted: true,
-      allowCasualUnlisted: true,
-    });
-    if (!match) return;
-
-    const result = this.assignSpeakerName(
-      u.speaker,
-      match.name,
-      `${this.introMode}-intro-mode`
-    );
-    if (this.introMode === "solo" && (result === "assigned" || result === "same")) {
-      this.stopIntroMode();
-    }
-  }
-
-  private startIntroMode(mode: Exclude<IntroductionMode, "off">, timeoutMs: number) {
-    this.introMode = mode;
-    useAriaStore.getState().setIntroductionMode(mode);
-    if (this.introModeTimeout) {
-      clearTimeout(this.introModeTimeout);
-      this.introModeTimeout = null;
-    }
-
-    this.introModeTimeout = setTimeout(() => {
-      this.introMode = "off";
-      this.introModeTimeout = null;
-      useAriaStore.getState().setIntroductionMode("off");
-      devLog("speakers", `${mode} intro mode timed out.`);
-    }, timeoutMs);
-  }
-
-  private stopIntroMode() {
-    this.introMode = "off";
-    useAriaStore.getState().setIntroductionMode("off");
-    if (this.introModeTimeout) {
-      clearTimeout(this.introModeTimeout);
-      this.introModeTimeout = null;
-    }
-  }
-
-  private assignSpeakerName(
-    speaker: number,
-    name: string,
-    reason: string
-  ): "assigned" | "same" | "conflict" {
-    const store = useAriaStore.getState();
-    const currentName = store.speakerNames[speaker];
-
-    if (currentName && namesMatch(currentName, name)) {
-      return "same";
-    }
-
-    if (currentName) {
-      devLog("speakers", "Skipped conflicting speaker rename.", {
-        speaker,
-        currentName,
-        requestedName: name,
-        reason,
-      });
-      return "conflict";
-    }
-
-    const existingSpeaker = Object.entries(store.speakerNames).find(
-      ([id, assignedName]) =>
-        Number(id) !== speaker && namesMatch(assignedName, name)
-    );
-    if (existingSpeaker) {
-      devLog("speakers", "Skipped duplicate speaker name assignment.", {
-        speaker,
-        existingSpeaker: Number(existingSpeaker[0]),
-        requestedName: name,
-        reason,
-      });
-      return "conflict";
-    }
-
-    store.assignSpeakerName(speaker, name);
-    devLog("speakers", `Mapped Speaker ${speaker + 1} to ${name}.`, {
-      speaker,
-      name,
-      reason,
-    });
-    this.maybeCompleteIntroMode();
-    return "assigned";
-  }
-
-  private maybeCompleteIntroMode() {
-    if (this.introMode !== "group") return;
-
-    const store = useAriaStore.getState();
-    if (store.expectedParticipants.length === 0) return;
-
-    const assignedNames = Object.values(store.speakerNames);
-    const allExpectedAssigned = store.expectedParticipants.every((name) =>
-      assignedNames.some((assignedName) => namesMatch(assignedName, name))
-    );
-
-    if (allExpectedAssigned) {
-      this.stopIntroMode();
-      devLog("speakers", "All expected participants have been mapped.");
-    }
-  }
-
-  private async askAria(question: string) {
+  private async askAria(question: string, speaker: number | null) {
     const store = useAriaStore.getState();
     store.setStatus("thinking");
     this.cues.startThinkingLoop();
-
-    const transcript = transcriptToText(
-      store.utterances,
-      store.speakerNames
-    );
-
-    devLog("ask", "Question for ARIA", {
-      question,
-      transcript: transcript.trim() || "(no prior final lines yet)",
-    });
 
     const controller = new AbortController();
     this.activeFetchAbort = controller;
 
     try {
+      const assignedSpeakerName = await this.assignSpeakerNameFromQuestion(
+        question,
+        speaker,
+        controller.signal
+      );
+      const currentStore = useAriaStore.getState();
+      const transcript = transcriptToText(
+        currentStore.utterances,
+        currentStore.speakerNames
+      );
+
+      devLog("ask", "Question for ARIA", {
+        question,
+        transcript: transcript.trim() || "(no prior final lines yet)",
+        assignedSpeakerName,
+      });
+
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript, question }),
+        body: JSON.stringify({
+          transcript,
+          question,
+          speakerNames: currentStore.speakerNames,
+          assignedSpeakerName,
+        }),
         signal: controller.signal,
       });
 
@@ -531,43 +365,44 @@ export class AriaEngine {
     }
   }
 
-  private async speakPrompt(text: string) {
-    const prompt = text.trim();
-    if (!prompt) return;
-
-    useAriaStore.getState().setStatus("thinking");
-    devLog("speakers", "ARIA setup prompt", { prompt });
-
-    const controller = new AbortController();
-    this.activeFetchAbort = controller;
+  private async assignSpeakerNameFromQuestion(
+    question: string,
+    speaker: number | null,
+    signal: AbortSignal
+  ): Promise<SpeakerNameAssignment | null> {
+    if (speaker === null) return null;
 
     try {
-      const res = await fetch("/api/speak", {
+      const res = await fetch("/api/speaker-name", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: prompt }),
-        signal: controller.signal,
+        body: JSON.stringify({ text: question, speakerId: speaker }),
+        signal,
       });
 
-      if (!res.ok || !res.body) {
+      if (!res.ok) {
         const errText = await res.text().catch(() => "");
-        throw new Error(`Speak failed: ${res.status} ${errText}`);
+        devLog("speaker-name", `Name assignment failed: ${res.status}`, {
+          error: errText,
+        });
+        return null;
       }
 
-      await this.playAudioResponse(res, "Playing spoken setup prompt.");
+      const assignment = (await res.json()) as SpeakerNameAssignment;
+      if (!assignment.assigned || !assignment.name) return null;
+
+      useAriaStore
+        .getState()
+        .assignSpeakerName(assignment.speakerId, assignment.name);
+      devLog("speaker-name", "Assigned speaker name.", assignment);
+      return assignment;
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        devLog("tts", "Speak request aborted.");
-        return;
+        throw err;
       }
       const msg = err instanceof Error ? err.message : "unknown";
-      devLog("error", msg);
-      this.cues.playError();
-      useAriaStore.getState().setError(msg);
-    } finally {
-      if (this.activeFetchAbort === controller) {
-        this.activeFetchAbort = null;
-      }
+      devLog("speaker-name", `Name assignment skipped: ${msg}`);
+      return null;
     }
   }
 

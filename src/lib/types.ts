@@ -27,5 +27,3 @@ export type AriaStatus =
   | "speaking"
   | "follow-up-listening"
   | "error";
-
-export type IntroductionMode = "off" | "solo" | "group";

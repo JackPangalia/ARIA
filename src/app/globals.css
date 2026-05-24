@@ -102,23 +102,6 @@ body {
   transform-origin: center;
 }
 
-/* Name assignment mode: attentive, warmer pulse while ARIA listens for names. */
-@keyframes orb-pulse-intro {
-  0%,
-  100% {
-    transform: scale(0.98);
-    filter: brightness(1.08) saturate(1.08);
-  }
-  50% {
-    transform: scale(1.07);
-    filter: brightness(1.25) saturate(1.2);
-  }
-}
-.orb-pulse-intro {
-  animation: orb-pulse-intro 1.2s ease-in-out infinite;
-  transform-origin: center;
-}
-
 /* Brief flash on wake / capturing-question. */
 @keyframes orb-pulse-wake {
   0%,
@@ -173,4 +156,58 @@ body {
   display: inline-block;
   margin-left: 4px;
   animation: orb-ellipsis 1.2s ease-in-out infinite;
+}
+
+/* ---- Meeting size slider ---- */
+
+.meeting-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 1.25rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.meeting-slider:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.meeting-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -5.5px;
+  border-radius: 9999px;
+  border: 1px solid #f4f4f5;
+  background: #0a0a0a;
+  box-shadow: 0 0 0 5px rgba(244, 244, 245, 0.08);
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.meeting-slider:active::-webkit-slider-thumb {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 6px rgba(244, 244, 245, 0.12);
+}
+
+.meeting-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: transparent;
+}
+
+.meeting-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 9999px;
+  border: 1px solid #f4f4f5;
+  background: #0a0a0a;
+  box-shadow: 0 0 0 5px rgba(244, 244, 245, 0.08);
+}
+
+.meeting-slider::-moz-range-track {
+  height: 2px;
+  background: transparent;
 }
