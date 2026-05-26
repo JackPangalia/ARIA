@@ -1,8 +1,8 @@
 export function AuthScreenLoader() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black">
+    <div className="flex min-h-screen items-center justify-center bg-app">
       <div
-        className="h-px w-10 animate-pulse bg-zinc-700"
+        className="h-px w-10 animate-pulse bg-[var(--app-border-strong)]"
         aria-hidden
       />
       <span className="sr-only">Loading</span>

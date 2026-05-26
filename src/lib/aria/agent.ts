@@ -5,68 +5,30 @@ import { getAriaTools } from "./tools";
 export const ARIA_SYSTEM_PROMPT = `You are ARIA — an AI Interactive Real-Time Assistant participating in a live conversation.
 
 You will be given:
-1) A speaker-attributed transcript of the conversation so far.
+1) Appended messages from the conversation so far.
 2) A direct question someone in the room just asked you.
 
 Rules:
 - Be concise. Speak like someone in the room, not like a chatbot. 1-3 sentences unless the question genuinely demands more.
-- Ground your answer in the transcript when relevant. Refer to speakers using their transcript labels (e.g. "Speaker 1", "Speaker 2").
+- Ground your answer in the messages when relevant. Refer to speakers using their labels (e.g. "Speaker 1", "Speaker 2").
 - You have web search available. Use it for current, factual, newsy, time-sensitive, or explicitly research-oriented questions.
-- Do not force web search for obvious conversational questions or questions that can be answered from the transcript alone.
+- Do not force web search for obvious conversational questions or questions that can be answered from the messages alone.
 - When web search informs your answer, briefly name the source or publication when useful.
 - Stay neutral. No advocacy, no flattery, no filler.
-- Never read the transcript back. Synthesize.
+- Never read the messages back. Synthesize.
 - Plain prose only. No markdown, no bullet points, no headings — your output will be spoken aloud.`;
 
 interface RunAriaAgentInput {
-  transcript: string;
+  messages: string;
   question: string;
-  speakerNames?: Record<string, string>;
-  assignedSpeakerName?: {
-    assigned: boolean;
-    speakerId: number;
-    name: string | null;
-  } | null;
   env: ServerEnv;
   signal?: AbortSignal;
 }
 
-function speakerLabel(id: number): string {
-  return `Speaker ${id + 1}`;
-}
-
-function formatSpeakerNames(speakerNames?: Record<string, string>): string {
-  const entries = Object.entries(speakerNames ?? {}).filter(([, name]) =>
-    name.trim()
-  );
-  if (entries.length === 0) return "(no assigned speaker names)";
-
-  return entries
-    .map(([speakerId, name]) => {
-      const id = Number.parseInt(speakerId, 10);
-      const label = Number.isFinite(id) ? speakerLabel(id) : speakerId;
-      return `${label} is ${name.trim()}`;
-    })
-    .join("\n");
-}
-
-function formatAssignment(
-  assignment: RunAriaAgentInput["assignedSpeakerName"]
-): string {
-  if (!assignment?.assigned || !assignment.name) return "(none)";
-  return `${speakerLabel(assignment.speakerId)} was just identified as ${
-    assignment.name
-  }. Briefly confirm this before answering any remaining request.`;
-}
-
 function buildUserPrompt(input: RunAriaAgentInput): string {
-  return `# Conversation transcript so far\n\n${
-    input.transcript || "(no prior conversation)"
-  }\n\n# Known speaker names\n\n${formatSpeakerNames(
-    input.speakerNames
-  )}\n\n# Fresh speaker name assignment\n\n${formatAssignment(
-    input.assignedSpeakerName
-  )}\n\n# Question directed to you\n\n${input.question}`;
+  return `# Messages so far\n\n${
+    input.messages || "(no messages yet)"
+  }\n\n# Question\n\n${input.question}`;
 }
 
 function buildAgent(input: RunAriaAgentInput): Agent {

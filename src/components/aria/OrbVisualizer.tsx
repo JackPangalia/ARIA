@@ -170,7 +170,7 @@ export function OrbVisualizer() {
 
       <div className="flex flex-col items-center gap-1">
         <div
-          className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500 transition-colors duration-300 dark:text-zinc-400"
+          className="text-[11px] font-semibold uppercase tracking-[0.22em] text-app-muted transition-colors duration-300"
           style={{ color: idle ? undefined : palette[1] }}
           aria-live="polite"
         >
@@ -178,7 +178,7 @@ export function OrbVisualizer() {
           {mode === "think" && <span className="orb-ellipsis">…</span>}
         </div>
         {error && (
-          <p className="max-w-xs text-center text-xs text-red-500 dark:text-red-400">
+          <p className="max-w-xs text-center text-xs text-red-600 dark:text-red-400">
             {error}
           </p>
         )}

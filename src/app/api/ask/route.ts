@@ -1,26 +1,19 @@
 import { NextRequest } from "next/server";
-import OpenAI from "openai";
-import { z } from "zod";
 import { runAriaAgentStream } from "@/lib/aria/agent";
+import { getOpenAI } from "@/lib/aria/context/openai-client";
+import { buildContextBundle } from "@/lib/aria/context/build-context";
+import { maybeCompactSession } from "@/lib/aria/context/summarize";
 import { getServerEnv, type ServerEnv } from "@/lib/env";
+import { AskBodySchema } from "@/lib/sessions/types";
+import { authErrorResponse, verifyRequestAuth } from "@/lib/firebase/verify-auth";
+import {
+  appendTurn,
+  assertSessionOwner,
+} from "@/lib/sessions/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-const BodySchema = z.object({
-  transcript: z.string(),
-  question: z.string().min(1),
-  speakerNames: z.record(z.string(), z.string()).optional(),
-  assignedSpeakerName: z
-    .object({
-      assigned: z.boolean(),
-      speakerId: z.number().int().nonnegative(),
-      name: z.string().nullable(),
-    })
-    .nullable()
-    .optional(),
-});
 
 const TTS_INSTRUCTIONS =
   "Speak as ARIA. Use a warm, highly conversational tone with natural intonation, slight emotional range, and natural pauses. Do not sound robotic.";
@@ -29,10 +22,24 @@ const SENTENCE_BOUNDARY = /[.!?]+["')\]]*\s+|\n+/;
 const FIRST_CHUNK_MIN_CHARS = 24;
 const NEXT_CHUNK_MIN_CHARS = 60;
 
-let openaiSingleton: OpenAI | null = null;
-function getOpenAI(apiKey: string) {
-  if (!openaiSingleton) openaiSingleton = new OpenAI({ apiKey });
-  return openaiSingleton;
+function isAbortError(err: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error && /aborted/i.test(err.message)) return true;
+  return false;
+}
+
+function closeStreamOnAbort(
+  controller: ReadableStreamDefaultController<Uint8Array>,
+  signal: AbortSignal
+) {
+  if (!signal.aborted) return false;
+  try {
+    controller.close();
+  } catch {
+    // ignore double-close
+  }
+  return true;
 }
 
 export async function POST(req: NextRequest) {
@@ -43,9 +50,16 @@ export async function POST(req: NextRequest) {
     return jsonError(err, 500);
   }
 
+  let uid: string;
+  try {
+    ({ uid } = await verifyRequestAuth(req));
+  } catch (error) {
+    return authErrorResponse(error);
+  }
+
   let body;
   try {
-    body = BodySchema.parse(await req.json());
+    body = AskBodySchema.parse(await req.json());
   } catch {
     return new Response(JSON.stringify({ error: "Invalid request body" }), {
       status: 400,
@@ -53,15 +67,41 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  let session;
+  try {
+    session = await assertSessionOwner(uid, body.sessionId);
+  } catch {
+    return new Response(JSON.stringify({ error: "Session not found." }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (session.status === "archived") {
+    return new Response(JSON.stringify({ error: "Session is archived." }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  await appendTurn(uid, body.sessionId, {
+    role: "user_question",
+    text: body.question,
+  });
+
+  const context = await buildContextBundle({
+    uid,
+    session,
+    question: body.question,
+  });
+
   const openai = getOpenAI(env.OPENAI_API_KEY);
 
   let textStream: ReadableStream<string>;
   try {
     textStream = await runAriaAgentStream({
-      transcript: body.transcript,
+      messages: context.messages,
       question: body.question,
-      speakerNames: body.speakerNames,
-      assignedSpeakerName: body.assignedSpeakerName,
       env,
       signal: req.signal,
     });
@@ -71,11 +111,10 @@ export async function POST(req: NextRequest) {
 
   const audioStream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      // Queue of in-flight TTS responses, drained in submission order so the
-      // listener hears sentences in the order the model produced them.
       const ttsQueue: Promise<ReadableStream<Uint8Array> | null>[] = [];
       let chunkCount = 0;
       let textStreamDone = false;
+      let assistantText = "";
 
       const enqueueChunk = (text: string) => {
         const t = text.trim();
@@ -83,35 +122,46 @@ export async function POST(req: NextRequest) {
         chunkCount += 1;
         ttsQueue.push(
           (async () => {
-            const speech = await openai.audio.speech.create(
-              {
-                model: env.OPENAI_TTS_MODEL,
-                voice: env.OPENAI_TTS_VOICE,
-                input: t.slice(0, 4096),
-                response_format: "mp3",
-                instructions: TTS_INSTRUCTIONS,
-              },
-              { signal: req.signal }
-            );
-            return speech.body as ReadableStream<Uint8Array> | null;
+            try {
+              const speech = await openai.audio.speech.create(
+                {
+                  model: env.OPENAI_TTS_MODEL,
+                  voice: env.OPENAI_TTS_VOICE,
+                  input: t.slice(0, 4096),
+                  response_format: "mp3",
+                  instructions: TTS_INSTRUCTIONS,
+                },
+                { signal: req.signal }
+              );
+              return speech.body as ReadableStream<Uint8Array> | null;
+            } catch (err) {
+              if (isAbortError(err, req.signal)) return null;
+              throw err;
+            }
           })()
         );
       };
 
       const drain = (async () => {
         let drainPos = 0;
-        // Wait until at least one chunk has been enqueued; otherwise we'd
-        // close the controller before any audio is produced.
         while (true) {
+          if (req.signal.aborted) return;
           if (drainPos >= ttsQueue.length) {
             if (textStreamDone) break;
             await new Promise((r) => setTimeout(r, 10));
             continue;
           }
-          const stream = await ttsQueue[drainPos++];
+          let stream: ReadableStream<Uint8Array> | null;
+          try {
+            stream = await ttsQueue[drainPos++];
+          } catch (err) {
+            if (isAbortError(err, req.signal)) return;
+            throw err;
+          }
           if (!stream) continue;
           const reader = stream.getReader();
           while (true) {
+            if (req.signal.aborted) return;
             const { done, value } = await reader.read();
             if (done) break;
             if (value) controller.enqueue(value);
@@ -142,10 +192,9 @@ export async function POST(req: NextRequest) {
           const { done, value } = await reader.read();
           if (done) break;
           if (!value) continue;
+          assistantText += value;
           buffer += value;
 
-          // Peel off complete sentences as they appear. Hold them in `pending`
-          // until we have enough characters to justify a separate TTS call.
           while (true) {
             const match = SENTENCE_BOUNDARY.exec(buffer);
             if (!match) break;
@@ -156,7 +205,6 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Final flush: anything still pending plus the unterminated tail.
         pending += buffer;
         flushPending();
 
@@ -164,16 +212,47 @@ export async function POST(req: NextRequest) {
           throw new Error("ARIA produced no output");
         }
       } catch (err) {
+        if (closeStreamOnAbort(controller, req.signal)) return;
+        if (isAbortError(err, req.signal)) {
+          closeStreamOnAbort(controller, req.signal);
+          return;
+        }
         controller.error(err);
         return;
       } finally {
         textStreamDone = true;
       }
 
+      if (req.signal.aborted) {
+        closeStreamOnAbort(controller, req.signal);
+        return;
+      }
+
       try {
         await drain;
+        if (req.signal.aborted) {
+          closeStreamOnAbort(controller, req.signal);
+          return;
+        }
         controller.close();
+
+        const answer = assistantText.trim();
+        if (answer) {
+          await appendTurn(uid, body.sessionId, {
+            role: "assistant",
+            text: answer,
+          });
+          import("@/lib/aria/context/auto-title").then(({ autoTitleSession }) => {
+            void autoTitleSession(uid, body.sessionId, session.title);
+          }).catch(err => console.error("[Auto-Title] failed to import:", err));
+          await maybeCompactSession(uid, body.sessionId);
+        }
       } catch (err) {
+        if (closeStreamOnAbort(controller, req.signal)) return;
+        if (isAbortError(err, req.signal)) {
+          closeStreamOnAbort(controller, req.signal);
+          return;
+        }
         controller.error(err);
       }
     },

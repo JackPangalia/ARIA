@@ -23,6 +23,10 @@
 # misc
 .DS_Store
 *.pem
+.venv-modal/
+modal/.venv/
+**/__pycache__/
+*firebase-adminsdk*.json
 
 # debug
 npm-debug.log*

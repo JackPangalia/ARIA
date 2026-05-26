@@ -1,0 +1,48 @@
+import { NextRequest } from "next/server";
+import { PatchSessionSchema } from "@/lib/sessions/types";
+import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
+import {
+  getSessionDetail,
+  patchSession,
+} from "@/lib/sessions/repository";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+type RouteContext = { params: Promise<{ sessionId: string }> };
+
+export async function GET(req: NextRequest, context: RouteContext) {
+  return withAuth(req, async ({ uid }) => {
+    const { sessionId } = await context.params;
+    const detail = await getSessionDetail(uid, sessionId);
+    if (!detail) {
+      return jsonError("Session not found.", 404);
+    }
+    return jsonOk(detail);
+  });
+}
+
+export async function PATCH(req: NextRequest, context: RouteContext) {
+  return withAuth(req, async ({ uid }) => {
+    const { sessionId } = await context.params;
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return jsonError("Invalid JSON body.", 400);
+    }
+
+    const parsed = PatchSessionSchema.safeParse(body);
+    if (!parsed.success) {
+      return jsonError("Invalid session patch payload.", 400);
+    }
+
+    try {
+      const session = await patchSession(uid, sessionId, parsed.data);
+      return jsonOk(session);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Update failed.";
+      return jsonError(msg, msg.includes("not found") ? 404 : 400);
+    }
+  });
+}

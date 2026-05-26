@@ -1,22 +1,12 @@
 "use client";
 
 import { CueEngine } from "./cue-engine";
-import { AssemblyAILiveClient } from "./assemblyai-client";
+import { DeepgramLiveClient } from "./deepgram-client";
 import { MicPcmStreamer } from "./mic-pcm-streamer";
 import { devLog } from "@/lib/client/dev-log";
-import {
-  displayLabelForUtterance,
-  useAriaStore,
-  transcriptToText,
-} from "@/lib/store";
-import { clampMeetingSpeakers } from "@/lib/audio/meeting-speakers";
+import { askSessionQuestion, appendSessionTurn } from "@/lib/sessions/client";
+import { messagesToText, useAriaStore } from "@/lib/store";
 import type { TranscriptUtterance } from "@/lib/types";
-
-interface SpeakerNameAssignment {
-  assigned: boolean;
-  speakerId: number;
-  name: string | null;
-}
 
 const WAKE_PATTERNS = [
   /\b(?:hey|hi|okay|ok)\s*,?\s*(?:aria|arya|area)\b[\s,.:;!?-]*/i,
@@ -42,6 +32,12 @@ function extractQuestionAfterWake(text: string): {
   return { detected: false, question: "" };
 }
 
+function isSubstantiveQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 2) return false;
+  return /[a-zA-Z0-9]/.test(trimmed);
+}
+
 function pcmLevel(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;
   let sum = 0;
@@ -52,8 +48,16 @@ function pcmLevel(pcm: Int16Array): number {
   return Math.sqrt(sum / pcm.length);
 }
 
+export type AriaEngineOptions = {
+  sessionId: string;
+  onSessionActivity?: () => void;
+};
+
 export class AriaEngine {
-  private stt: AssemblyAILiveClient | null = null;
+  private sessionId: string;
+  private onSessionActivity?: () => void;
+  private persistedUtteranceIds = new Set<string>();
+  private stt: DeepgramLiveClient | null = null;
   private mic: MicPcmStreamer | null = null;
   private capturingQuestion = false;
   private questionUtterances: TranscriptUtterance[] = [];
@@ -68,17 +72,18 @@ export class AriaEngine {
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl: string | null = null;
   private cues = new CueEngine();
-  private maxSpeakers = 2;
 
-  async start(maxSpeakers?: number) {
+  constructor(options: AriaEngineOptions) {
+    this.sessionId = options.sessionId;
+    this.onSessionActivity = options.onSessionActivity;
+  }
+
+  async start() {
     const store = useAriaStore.getState();
     store.setError(null);
     store.setStatus("listening");
-    this.maxSpeakers = clampMeetingSpeakers(maxSpeakers ?? this.maxSpeakers);
 
-    devLog("session", "Mic session started — transcript lines print here in dev.", {
-      maxSpeakers: this.maxSpeakers,
-    });
+    devLog("session", "Mic session started — transcript lines print here in dev.");
 
     try {
       await this.cues.ensureReady();
@@ -97,7 +102,7 @@ export class AriaEngine {
   }
 
   private async connectStt() {
-    this.stt = new AssemblyAILiveClient({
+    this.stt = new DeepgramLiveClient({
       onOpen: () => {
         /* noop */
       },
@@ -105,14 +110,14 @@ export class AriaEngine {
         /* noop */
       },
       onError: (err) => {
-        devLog("assemblyai", err.message);
+        devLog("deepgram", err.message);
         useAriaStore.getState().setError(err.message);
       },
       onUtterance: (u) => this.handleUtterance(u),
       onUtteranceEnd: () => this.handleUtteranceEnd(),
     });
 
-    await this.stt.connect({ maxSpeakers: this.maxSpeakers });
+    await this.stt.connect();
   }
 
   async stop() {
@@ -137,13 +142,17 @@ export class AriaEngine {
     if (u.isFinal) {
       devLog(
         "utterance",
-        `${displayLabelForUtterance(u)}: ${u.text}`,
+        `Speaker ${u.speaker + 1}: ${u.text}`,
         { speaker: u.speaker }
       );
     }
+    if (u.isFinal && u.speechFinal) {
+      void this.persistSpeakerTurn(u);
+    }
     const wake = extractQuestionAfterWake(u.text);
+    const utteranceStable = u.speechFinal || u.isFinal;
 
-    if (!this.capturingQuestion) {
+    if (!this.capturingQuestion && utteranceStable) {
       if (wake.detected) {
         this.handleWake(u.id, u.speaker);
       } else if (this.followUpListening && u.text.trim().length > 0) {
@@ -263,9 +272,9 @@ export class AriaEngine {
     this.clearQuestionSettleTimer();
     this.questionSettleTimer = setTimeout(() => {
       this.questionSettleTimer = null;
-      const { question, speaker } = this.getCapturedQuestion();
+      const { question } = this.getCapturedQuestion();
       if (!question) return;
-      void this.resolveCapturedQuestion(question, speaker);
+      void this.resolveCapturedQuestion(question);
     }, delayMs);
   }
 
@@ -280,16 +289,18 @@ export class AriaEngine {
     this.questionSettleTimer = null;
   }
 
-  private async resolveCapturedQuestion(
-    question: string,
-    speaker: number | null
-  ) {
-    await this.askAndReset(question, speaker);
+  private async resolveCapturedQuestion(question: string) {
+    if (!isSubstantiveQuestion(question)) {
+      this.resetQuestionCapture();
+      useAriaStore.getState().setStatus("listening");
+      return;
+    }
+    await this.askAndReset(question);
   }
 
-  private async askAndReset(question: string, speaker: number | null) {
+  private async askAndReset(question: string) {
     this.resetQuestionCapture();
-    await this.askAria(question, speaker);
+    await this.askAria(question);
   }
 
   private resetQuestionCapture() {
@@ -302,43 +313,29 @@ export class AriaEngine {
     this.captureWholeAnchorUtterance = false;
   }
 
-  private async askAria(question: string, speaker: number | null) {
+  private async askAria(question: string) {
     const store = useAriaStore.getState();
     store.setStatus("thinking");
     this.cues.startThinkingLoop();
 
+    this.abortActiveFetch();
     const controller = new AbortController();
     this.activeFetchAbort = controller;
 
     try {
-      const assignedSpeakerName = await this.assignSpeakerNameFromQuestion(
-        question,
-        speaker,
-        controller.signal
-      );
       const currentStore = useAriaStore.getState();
-      const transcript = transcriptToText(
-        currentStore.utterances,
-        currentStore.speakerNames
-      );
+      const messages = messagesToText(currentStore.utterances);
 
       devLog("ask", "Question for ARIA", {
         question,
-        transcript: transcript.trim() || "(no prior final lines yet)",
-        assignedSpeakerName,
+        messages: messages.trim() || "(no prior final lines yet)",
       });
 
-      const res = await fetch("/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          question,
-          speakerNames: currentStore.speakerNames,
-          assignedSpeakerName,
-        }),
-        signal: controller.signal,
-      });
+      const res = await askSessionQuestion(
+        this.sessionId,
+        question,
+        controller.signal
+      );
 
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => "");
@@ -348,6 +345,7 @@ export class AriaEngine {
       await this.playAudioResponse(res, "Playing spoken answer in browser.", {
         enableFollowUp: true,
       });
+      this.onSessionActivity?.();
     } catch (err) {
       this.cues.stopThinkingLoop();
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -362,47 +360,6 @@ export class AriaEngine {
       if (this.activeFetchAbort === controller) {
         this.activeFetchAbort = null;
       }
-    }
-  }
-
-  private async assignSpeakerNameFromQuestion(
-    question: string,
-    speaker: number | null,
-    signal: AbortSignal
-  ): Promise<SpeakerNameAssignment | null> {
-    if (speaker === null) return null;
-
-    try {
-      const res = await fetch("/api/speaker-name", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: question, speakerId: speaker }),
-        signal,
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        devLog("speaker-name", `Name assignment failed: ${res.status}`, {
-          error: errText,
-        });
-        return null;
-      }
-
-      const assignment = (await res.json()) as SpeakerNameAssignment;
-      if (!assignment.assigned || !assignment.name) return null;
-
-      useAriaStore
-        .getState()
-        .assignSpeakerName(assignment.speakerId, assignment.name);
-      devLog("speaker-name", "Assigned speaker name.", assignment);
-      return assignment;
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw err;
-      }
-      const msg = err instanceof Error ? err.message : "unknown";
-      devLog("speaker-name", `Name assignment skipped: ${msg}`);
-      return null;
     }
   }
 
@@ -588,6 +545,27 @@ export class AriaEngine {
     if (this.currentAudioUrl) {
       URL.revokeObjectURL(this.currentAudioUrl);
       this.currentAudioUrl = null;
+    }
+  }
+
+  private async persistSpeakerTurn(u: TranscriptUtterance) {
+    if (!u.isFinal || this.persistedUtteranceIds.has(u.id)) return;
+    const text = u.text.trim();
+    if (!text) return;
+
+    this.persistedUtteranceIds.add(u.id);
+    try {
+      await appendSessionTurn(this.sessionId, {
+        role: "speaker",
+        text,
+        speaker: u.speaker >= 0 ? u.speaker : null,
+        sourceUtteranceIds: [u.id],
+      });
+      this.onSessionActivity?.();
+    } catch (err) {
+      this.persistedUtteranceIds.delete(u.id);
+      const msg = err instanceof Error ? err.message : "unknown error";
+      devLog("session", `Failed to persist speaker turn: ${msg}`);
     }
   }
 }

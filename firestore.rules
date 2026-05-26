@@ -110,6 +110,102 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidSessionStatus(value) {
+      return value in ['active', 'ended', 'archived'];
+    }
+
+    function isValidSession(data) {
+      return data.keys().hasOnly([
+        'title', 'status', 'speakerCount', 'createdAt', 'updatedAt',
+        'endedAt', 'lastSummaryAt', 'tokenEstimate', 'searchableTextPreview', 'turnCount'
+      ]) &&
+        data.title is string &&
+        data.title.size() > 0 && data.title.size() <= 120 &&
+        isValidSessionStatus(data.status) &&
+        data.speakerCount is number &&
+        data.speakerCount >= 1 && data.speakerCount <= 10 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (data.endedAt == null || data.endedAt is timestamp) &&
+        (data.lastSummaryAt == null || data.lastSummaryAt is timestamp) &&
+        data.tokenEstimate is number &&
+        data.tokenEstimate >= 0 &&
+        data.searchableTextPreview is string &&
+        data.searchableTextPreview.size() <= 500 &&
+        data.turnCount is number &&
+        data.turnCount >= 0;
+    }
+
+    function isValidTurnRole(value) {
+      return value in ['speaker', 'user_question', 'assistant'];
+    }
+
+    function isValidTurn(data) {
+      return data.keys().hasOnly([
+        'role', 'text', 'speaker', 'sourceUtteranceIds', 'sequence',
+        'tokenEstimate', 'summarized', 'createdAt'
+      ]) &&
+        isValidTurnRole(data.role) &&
+        data.text is string &&
+        data.text.size() > 0 && data.text.size() <= 16000 &&
+        (data.speaker == null || (data.speaker is number && data.speaker >= 0 && data.speaker <= 9)) &&
+        data.sourceUtteranceIds is list &&
+        data.sourceUtteranceIds.size() <= 50 &&
+        data.sequence is number &&
+        data.sequence >= 1 &&
+        data.tokenEstimate is number &&
+        data.tokenEstimate >= 0 &&
+        data.summarized is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidSummary(data) {
+      return data.keys().hasOnly([
+        'rollingSummary', 'keyDecisions', 'openQuestions', 'timeline',
+        'lastCoveredTurnId', 'updatedAt'
+      ]) &&
+        data.rollingSummary is string &&
+        data.rollingSummary.size() <= 20000 &&
+        data.keyDecisions is list &&
+        data.keyDecisions.size() <= 50 &&
+        data.openQuestions is list &&
+        data.openQuestions.size() <= 50 &&
+        data.timeline is list &&
+        data.timeline.size() <= 100 &&
+        (data.lastCoveredTurnId == null || data.lastCoveredTurnId is string) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFactCategory(value) {
+      return value in ['fact', 'preference', 'decision', 'todo', 'name'];
+    }
+
+    function isValidFact(data) {
+      return data.keys().hasOnly([
+        'text', 'category', 'pinned', 'sourceTurnId', 'createdAt', 'updatedAt'
+      ]) &&
+        data.text is string &&
+        data.text.size() > 0 && data.text.size() <= 2000 &&
+        isValidFactCategory(data.category) &&
+        data.pinned is bool &&
+        (data.sourceTurnId == null || data.sourceTurnId is string) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPin(data) {
+      return data.keys().hasOnly([
+        'turnId', 'label', 'snippet', 'createdAt'
+      ]) &&
+        data.turnId is string &&
+        data.turnId.size() > 0 &&
+        data.label is string &&
+        data.label.size() > 0 && data.label.size() <= 120 &&
+        data.snippet is string &&
+        data.snippet.size() <= 2000 &&
+        data.createdAt is timestamp;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId) &&
@@ -130,6 +226,50 @@ service cloud.firestore {
           isValidVoiceprint(request.resource.data) &&
           request.resource.data.updatedAt == request.time;
         allow delete: if isOwner(userId);
+      }
+
+      match /sessions/{sessionId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidSession(request.resource.data) &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.updatedAt == request.time;
+        allow update: if isOwner(userId) &&
+          isValidSession(request.resource.data) &&
+          request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(userId);
+
+        match /turns/{turnId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) &&
+            isValidTurn(request.resource.data) &&
+            request.resource.data.createdAt == request.time;
+          allow update, delete: if isOwner(userId);
+        }
+
+        match /context/{docId} {
+          allow read: if isOwner(userId);
+          allow create, update: if isOwner(userId) &&
+            isValidSummary(request.resource.data) &&
+            request.resource.data.updatedAt == request.time;
+          allow delete: if isOwner(userId);
+        }
+
+        match /facts/{factId} {
+          allow read: if isOwner(userId);
+          allow create, update: if isOwner(userId) &&
+            isValidFact(request.resource.data) &&
+            request.resource.data.updatedAt == request.time;
+          allow delete: if isOwner(userId);
+        }
+
+        match /pins/{pinId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId) &&
+            isValidPin(request.resource.data) &&
+            request.resource.data.createdAt == request.time;
+          allow update, delete: if isOwner(userId);
+        }
       }
     }
 

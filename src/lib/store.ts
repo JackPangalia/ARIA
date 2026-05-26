@@ -3,20 +3,15 @@
 import { create } from "zustand";
 import type { AriaStatus, TranscriptUtterance } from "./types";
 
-export type SpeakerNames = Record<number, string>;
-
 interface AriaState {
   status: AriaStatus;
   utterances: TranscriptUtterance[];
-  speakerNames: SpeakerNames;
   errorMessage: string | null;
   micLevel: number;
 
   setStatus: (s: AriaStatus) => void;
   setError: (msg: string | null) => void;
   setMicLevel: (n: number) => void;
-  assignSpeakerName: (speakerId: number, name: string) => void;
-  clearSpeakerNames: () => void;
   upsertUtterance: (u: TranscriptUtterance) => void;
   patchUtterance: (id: string, patch: Partial<TranscriptUtterance>) => void;
   clearTranscript: () => void;
@@ -25,7 +20,6 @@ interface AriaState {
 export const useAriaStore = create<AriaState>((set) => ({
   status: "idle",
   utterances: [],
-  speakerNames: {},
   errorMessage: null,
   micLevel: 0,
 
@@ -34,20 +28,6 @@ export const useAriaStore = create<AriaState>((set) => ({
     set({ errorMessage: msg, status: msg ? "error" : "idle" }),
 
   setMicLevel: (n) => set({ micLevel: n }),
-
-  assignSpeakerName: (speakerId, name) =>
-    set((state) => {
-      const cleanName = normalizeSpeakerName(name);
-      if (!cleanName) return state;
-      return {
-        speakerNames: {
-          ...state.speakerNames,
-          [speakerId]: cleanName,
-        },
-      };
-    }),
-
-  clearSpeakerNames: () => set({ speakerNames: {} }),
 
   upsertUtterance: (u) =>
     set((state) => {
@@ -70,29 +50,14 @@ export const useAriaStore = create<AriaState>((set) => ({
   clearTranscript: () => set({ utterances: [] }),
 }));
 
-export function speakerLabel(id: number): string {
+function speakerLabel(id: number): string {
   return `Speaker ${id + 1}`;
 }
 
-function normalizeSpeakerName(name: string): string {
-  return name.trim().replace(/\s+/g, " ");
-}
-
-export function displayLabelForUtterance(
-  u: TranscriptUtterance,
-  speakerNames: SpeakerNames = useAriaStore.getState().speakerNames
-): string {
-  const name = speakerNames[u.speaker];
-  if (name) return name;
-  return speakerLabel(u.speaker);
-}
-
-export function transcriptToText(
-  utterances: TranscriptUtterance[],
-  speakerNames: SpeakerNames = useAriaStore.getState().speakerNames
-): string {
+/** Append finalized transcript lines into one plain-text message log. */
+export function messagesToText(utterances: TranscriptUtterance[]): string {
   return utterances
     .filter((u) => u.isFinal && u.text.trim().length > 0)
-    .map((u) => `${displayLabelForUtterance(u, speakerNames)}: ${u.text}`)
+    .map((u) => `${speakerLabel(u.speaker)}: ${u.text}`)
     .join("\n");
 }

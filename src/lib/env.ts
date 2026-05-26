@@ -21,7 +21,7 @@ const ServerEnvSchema = z.object({
       "cedar",
     ])
     .default("marin"),
-  ASSEMBLYAI_API_KEY: z.string().min(1),
+  DEEPGRAM_API_KEY: z.string().min(1),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;

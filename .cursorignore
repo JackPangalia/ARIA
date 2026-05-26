@@ -1,0 +1,8 @@
+node_modules/
+.next/
+.venv-modal/
+out/
+build/
+coverage/
+*.tsbuildinfo
+modal/.venv/

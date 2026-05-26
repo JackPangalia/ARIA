@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/firebase/AuthProvider";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { OrbLayoutProvider } from "@/components/theme/OrbLayoutProvider";
+import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,10 +30,18 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">
-        <AuthProvider>{children}</AuthProvider>
+      <body className="flex h-full flex-col overflow-hidden">
+        <Script id="aria-theme-init" strategy="beforeInteractive">
+          {themeInitScript}
+        </Script>
+        <ThemeProvider>
+          <OrbLayoutProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </OrbLayoutProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

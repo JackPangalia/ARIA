@@ -18,8 +18,8 @@ export function SignInScreen() {
   if (user) return <AuthScreenLoader />;
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-black px-6 pb-24">
-      <p className="mb-14 select-none text-xs font-medium tracking-[0.55em] text-zinc-300">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-app px-6 pb-24">
+      <p className="mb-14 select-none text-xs font-medium tracking-[0.55em] text-app-secondary">
         ARIA
       </p>
       <SignInForm />
