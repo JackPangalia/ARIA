@@ -1,10 +1,24 @@
 "use client";
 
 import { CueEngine } from "./cue-engine";
-import { DeepgramLiveClient } from "./deepgram-client";
 import { MicPcmStreamer } from "./mic-pcm-streamer";
+import {
+  SpeechmaticsLiveClient,
+  type SpeechmaticsSpeakerResult,
+} from "./speechmatics-client";
+import {
+  TranscriptTurnAssembler,
+  type AssembledTranscriptTurn,
+} from "./turn-assembler";
 import { devLog } from "@/lib/client/dev-log";
 import { askSessionQuestion, appendSessionTurn } from "@/lib/sessions/client";
+import { readStoredModel } from "@/lib/aria/model-storage";
+import {
+  listSpeakerProfiles,
+  saveSpeakerProfile,
+} from "@/lib/speakers/client";
+import { sanitizeQuestionText } from "@/lib/aria/context/question-text";
+import { joinText } from "@/lib/text/join-text";
 import { messagesToText, useAriaStore } from "@/lib/store";
 import type { TranscriptUtterance } from "@/lib/types";
 
@@ -13,9 +27,11 @@ const WAKE_PATTERNS = [
   /^\s*(?:aria|arya|area)\b[\s,.:;!?-]*/i,
 ];
 
-const QUESTION_SETTLE_MS = 1400;
-const SPEECH_FINAL_SETTLE_MS = 700;
-const FOLLOW_UP_WINDOW_MS = 5000;
+const QUESTION_SETTLE_MS = 2800;
+const SPEECH_FINAL_SETTLE_MS = 2800;
+const FOLLOW_UP_WINDOW_MS = 8000;
+const PLAYBACK_STT_COOLDOWN_MS = 800;
+const TURN_IDLE_FLUSH_MS = 1800;
 
 function extractQuestionAfterWake(text: string): {
   detected: boolean;
@@ -38,6 +54,45 @@ function isSubstantiveQuestion(text: string): boolean {
   return /[a-zA-Z0-9]/.test(trimmed);
 }
 
+// Words that frequently follow "I'm" / "my name is" in casual speech and
+// almost never start a real name. Used to reject false-positive enrollments
+// like "I'm not too sure" → name "not too sure".
+const ENROLLMENT_REJECT_LEADING = new Set([
+  "a", "an", "the",
+  "not", "no", "never",
+  "going", "doing", "trying", "feeling", "looking", "wondering", "thinking",
+  "sure", "okay", "ok", "fine", "good", "great", "bad", "tired", "ready",
+  "really", "just", "still", "kind", "sort", "pretty", "very", "quite",
+  "sorry", "afraid", "happy", "glad",
+  "here", "there", "back",
+  "from",
+  "what", "where", "when", "why", "how", "can", "could", "would", "should",
+  "telling", "saying", "asking",
+]);
+
+function extractSpeakerEnrollment(text: string): { name: string } | null {
+  // Only accept deliberate enrollment phrases. "I'm" / "I am" / "this is" are
+  // too ambiguous in conversation and are intentionally excluded.
+  const pattern =
+    /\b(?:my name is|call me|remember me as|please call me)\s+([A-Za-z][A-Za-z' -]{0,79})\b/i;
+  const match = pattern.exec(text.trim());
+  const rawName = match?.[1]
+    ?.replace(/[.!?,]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!rawName) return null;
+
+  // Cap at 3 tokens — real spoken names rarely run longer.
+  const tokens = rawName.split(" ").slice(0, 3);
+  if (tokens.length === 0) return null;
+
+  const first = tokens[0]!.toLowerCase();
+  if (ENROLLMENT_REJECT_LEADING.has(first)) return null;
+  if (first.length < 2) return null;
+
+  return { name: tokens.join(" ") };
+}
+
 function pcmLevel(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;
   let sum = 0;
@@ -57,21 +112,37 @@ export class AriaEngine {
   private sessionId: string;
   private onSessionActivity?: () => void;
   private persistedUtteranceIds = new Set<string>();
-  private stt: DeepgramLiveClient | null = null;
+  private stt: SpeechmaticsLiveClient | null = null;
   private mic: MicPcmStreamer | null = null;
   private capturingQuestion = false;
   private questionUtterances: TranscriptUtterance[] = [];
   private wakeUtteranceId: string | null = null;
   private wakeSpeaker: number | null = null;
+  private wakeSpeakerName: string | null = null;
+  private wakeProviderSpeakerLabel: string | null = null;
   private inlineQuestion = "";
   private questionSettleTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpTimer: ReturnType<typeof setTimeout> | null = null;
+  private followUpStartTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpListening = false;
   private captureWholeAnchorUtterance = false;
   private activeFetchAbort: AbortController | null = null;
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl: string | null = null;
   private cues = new CueEngine();
+  private isAssistantSpeaking = false;
+  private suppressSttUntilMs = 0;
+  private turnAssembler = new TranscriptTurnAssembler();
+  private turnFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingEnrollment:
+    | {
+        name: string;
+        providerSpeakerLabel: string | null;
+        resolve: (speaker: SpeechmaticsSpeakerResult) => void;
+        reject: (err: Error) => void;
+        timer: ReturnType<typeof setTimeout>;
+      }
+    | null = null;
 
   constructor(options: AriaEngineOptions) {
     this.sessionId = options.sessionId;
@@ -91,7 +162,9 @@ export class AriaEngine {
       this.mic = new MicPcmStreamer();
       await this.mic.start((frame) => {
         useAriaStore.getState().setMicLevel(pcmLevel(frame));
-        this.stt?.sendPcm(frame);
+        if (this.shouldSendMicToStt()) {
+          this.stt?.sendPcm(frame);
+        }
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
@@ -102,7 +175,17 @@ export class AriaEngine {
   }
 
   private async connectStt() {
-    this.stt = new DeepgramLiveClient({
+    const profiles = await listSpeakerProfiles().catch((err) => {
+      devLog(
+        "speaker",
+        `Could not load saved speaker profiles: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
+      return [];
+    });
+
+    this.stt = new SpeechmaticsLiveClient({
       onOpen: () => {
         /* noop */
       },
@@ -110,12 +193,13 @@ export class AriaEngine {
         /* noop */
       },
       onError: (err) => {
-        devLog("deepgram", err.message);
+        devLog("speechmatics", err.message);
         useAriaStore.getState().setError(err.message);
       },
       onUtterance: (u) => this.handleUtterance(u),
       onUtteranceEnd: () => this.handleUtteranceEnd(),
-    });
+      onSpeakersResult: (speakers) => this.handleSpeakersResult(speakers),
+    }, profiles);
 
     await this.stt.connect();
   }
@@ -127,8 +211,16 @@ export class AriaEngine {
       this.stt.close();
       this.stt = null;
     }
+    if (this.pendingEnrollment) {
+      clearTimeout(this.pendingEnrollment.timer);
+      this.pendingEnrollment.reject(new Error("Enrollment cancelled."));
+      this.pendingEnrollment = null;
+    }
     this.resetQuestionCapture();
     this.stopFollowUpWindow();
+    this.clearFollowUpStartTimer();
+    this.clearTurnFlushTimer();
+    void this.flushPersistedSpeakerTurn();
     this.abortActiveFetch();
     this.stopPlayback();
     this.cues.stopThinkingLoop();
@@ -137,26 +229,49 @@ export class AriaEngine {
     useAriaStore.getState().setStatus("idle");
   }
 
+  private shouldSendMicToStt(): boolean {
+    return !this.isAssistantSpeaking && Date.now() >= this.suppressSttUntilMs;
+  }
+
+  private shouldIgnoreIncomingUtterance(): boolean {
+    return !this.shouldSendMicToStt();
+  }
+
   private handleUtterance(u: TranscriptUtterance) {
+    if (this.shouldIgnoreIncomingUtterance()) {
+      return;
+    }
+
     useAriaStore.getState().upsertUtterance(u);
     if (u.isFinal) {
+      const speakerLabel = u.speakerName ?? `Speaker ${u.speaker + 1}`;
       devLog(
         "utterance",
-        `Speaker ${u.speaker + 1}: ${u.text}`,
-        { speaker: u.speaker }
+        `${speakerLabel}: ${u.text}`,
+        { speaker: u.speaker, speakerName: u.speakerName ?? null }
       );
     }
     if (u.isFinal && u.speechFinal) {
-      void this.persistSpeakerTurn(u);
+      void this.bufferSpeakerTurn(u);
     }
     const wake = extractQuestionAfterWake(u.text);
     const utteranceStable = u.speechFinal || u.isFinal;
 
     if (!this.capturingQuestion && utteranceStable) {
       if (wake.detected) {
-        this.handleWake(u.id, u.speaker);
+        this.handleWake(
+          u.id,
+          u.speaker,
+          u.speakerName ?? null,
+          u.providerSpeakerLabel ?? null
+        );
       } else if (this.followUpListening && u.text.trim().length > 0) {
-        this.handleFollowUp(u.id, u.speaker);
+        this.handleFollowUp(
+          u.id,
+          u.speaker,
+          u.speakerName ?? null,
+          u.providerSpeakerLabel ?? null
+        );
       }
     }
 
@@ -188,6 +303,7 @@ export class AriaEngine {
   }
 
   private handleUtteranceEnd() {
+    void this.flushPersistedSpeakerTurn();
     if (!this.capturingQuestion) return;
 
     if (this.getCapturedQuestion().question.length > 0) {
@@ -202,7 +318,12 @@ export class AriaEngine {
     useAriaStore.getState().setStatus("capturing-question");
   }
 
-  private handleWake(utteranceId: string, speaker: number) {
+  private handleWake(
+    utteranceId: string,
+    speaker: number,
+    speakerName: string | null,
+    providerSpeakerLabel: string | null
+  ) {
     const store = useAriaStore.getState();
     if (
       store.status === "thinking" ||
@@ -220,6 +341,8 @@ export class AriaEngine {
     this.inlineQuestion = "";
     this.wakeUtteranceId = utteranceId;
     this.wakeSpeaker = speaker;
+    this.wakeSpeakerName = speakerName;
+    this.wakeProviderSpeakerLabel = providerSpeakerLabel;
     this.captureWholeAnchorUtterance = false;
     this.capturingQuestion = true;
     this.cues.playWake();
@@ -227,7 +350,12 @@ export class AriaEngine {
     devLog("wake", "Wake phrase detected — say your question (or continue).");
   }
 
-  private handleFollowUp(utteranceId: string, speaker: number) {
+  private handleFollowUp(
+    utteranceId: string,
+    speaker: number,
+    speakerName: string | null,
+    providerSpeakerLabel: string | null
+  ) {
     const store = useAriaStore.getState();
     this.stopFollowUpWindow();
     this.clearQuestionSettleTimer();
@@ -235,6 +363,8 @@ export class AriaEngine {
     this.inlineQuestion = "";
     this.wakeUtteranceId = utteranceId;
     this.wakeSpeaker = speaker;
+    this.wakeSpeakerName = speakerName;
+    this.wakeProviderSpeakerLabel = providerSpeakerLabel;
     this.captureWholeAnchorUtterance = true;
     this.capturingQuestion = true;
     this.cues.playWake();
@@ -256,15 +386,31 @@ export class AriaEngine {
     this.questionUtterances[idx] = next;
   }
 
-  private getCapturedQuestion(): { question: string; speaker: number | null } {
+  private getCapturedQuestion(): {
+    question: string;
+    speaker: number | null;
+    speakerName: string | null;
+    providerSpeakerLabel: string | null;
+  } {
     const parts = [
       this.inlineQuestion.trim(),
       ...this.questionUtterances.map((u) => u.text.trim()),
     ].filter(Boolean);
 
+    let merged = "";
+    for (const part of parts) {
+      merged = joinText(merged, part);
+    }
+
     return {
-      question: parts.join(" ").trim(),
+      question: sanitizeQuestionText(merged),
       speaker: this.wakeSpeaker ?? this.questionUtterances[0]?.speaker ?? null,
+      speakerName:
+        this.wakeSpeakerName ?? this.questionUtterances[0]?.speakerName ?? null,
+      providerSpeakerLabel:
+        this.wakeProviderSpeakerLabel ??
+        this.questionUtterances[0]?.providerSpeakerLabel ??
+        null,
     };
   }
 
@@ -289,18 +435,53 @@ export class AriaEngine {
     this.questionSettleTimer = null;
   }
 
+  private scheduleTurnFlush() {
+    this.clearTurnFlushTimer();
+    this.turnFlushTimer = setTimeout(() => {
+      this.turnFlushTimer = null;
+      void this.flushPersistedSpeakerTurn();
+    }, TURN_IDLE_FLUSH_MS);
+  }
+
+  private clearTurnFlushTimer() {
+    if (!this.turnFlushTimer) return;
+    clearTimeout(this.turnFlushTimer);
+    this.turnFlushTimer = null;
+  }
+
   private async resolveCapturedQuestion(question: string) {
     if (!isSubstantiveQuestion(question)) {
       this.resetQuestionCapture();
       useAriaStore.getState().setStatus("listening");
       return;
     }
-    await this.askAndReset(question);
+    const captured = this.getCapturedQuestion();
+    const enrollment = extractSpeakerEnrollment(question);
+    if (enrollment) {
+      this.resetQuestionCapture();
+      await this.rememberCurrentSpeaker(
+        enrollment.name,
+        captured.providerSpeakerLabel
+      );
+      return;
+    }
+    await this.askAndReset(
+      captured.question,
+      captured.speaker,
+      captured.speakerName
+    );
   }
 
-  private async askAndReset(question: string) {
+  private async askAndReset(
+    question: string,
+    speaker: number | null,
+    speakerName: string | null
+  ) {
+    await this.flushPersistedSpeakerTurn();
     this.resetQuestionCapture();
-    await this.askAria(question);
+    const cleanQuestion = sanitizeQuestionText(question);
+    if (!cleanQuestion) return;
+    await this.askAria(cleanQuestion, speaker, speakerName);
   }
 
   private resetQuestionCapture() {
@@ -309,11 +490,94 @@ export class AriaEngine {
     this.questionUtterances = [];
     this.wakeUtteranceId = null;
     this.wakeSpeaker = null;
+    this.wakeSpeakerName = null;
+    this.wakeProviderSpeakerLabel = null;
     this.inlineQuestion = "";
     this.captureWholeAnchorUtterance = false;
   }
 
-  private async askAria(question: string) {
+  private handleSpeakersResult(speakers: SpeechmaticsSpeakerResult[]) {
+    const pending = this.pendingEnrollment;
+    if (!pending) return;
+
+    const match = pending.providerSpeakerLabel
+      ? speakers.find((speaker) => speaker.label === pending.providerSpeakerLabel)
+      : speakers.length === 1
+        ? speakers[0]
+        : null;
+
+    if (!match || match.speakerIdentifiers.length === 0) {
+      return;
+    }
+
+    clearTimeout(pending.timer);
+    this.pendingEnrollment = null;
+    pending.resolve(match);
+  }
+
+  private waitForSpeakerIdentifiers(
+    name: string,
+    providerSpeakerLabel: string | null
+  ): Promise<SpeechmaticsSpeakerResult> {
+    if (!this.stt) {
+      return Promise.reject(new Error("Speechmatics is not connected."));
+    }
+    if (this.pendingEnrollment) {
+      return Promise.reject(new Error("A speaker enrollment is already pending."));
+    }
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.pendingEnrollment?.name === name) {
+          this.pendingEnrollment = null;
+        }
+        reject(new Error("No speaker identifier was returned yet."));
+      }, 6000);
+
+      this.pendingEnrollment = {
+        name,
+        providerSpeakerLabel,
+        resolve,
+        reject,
+        timer,
+      };
+      this.stt?.requestSpeakers({ final: false });
+    });
+  }
+
+  private async rememberCurrentSpeaker(
+    name: string,
+    providerSpeakerLabel: string | null
+  ) {
+    const store = useAriaStore.getState();
+    store.setStatus("thinking");
+    try {
+      const speaker = await this.waitForSpeakerIdentifiers(
+        name,
+        providerSpeakerLabel
+      );
+      await saveSpeakerProfile({
+        name,
+        speakerIdentifiers: speaker.speakerIdentifiers,
+        sampleCount: 1,
+      });
+      this.onSessionActivity?.();
+      this.cues.playFollowUp();
+      devLog("speaker", `Saved speaker profile for ${name}.`);
+      store.setStatus("listening");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "speaker enrollment failed";
+      devLog("speaker", `Could not save speaker profile for ${name}: ${msg}`);
+      this.cues.playError();
+      store.setError(msg);
+    }
+  }
+
+  private async askAria(
+    question: string,
+    speaker: number | null,
+    speakerName: string | null
+  ) {
     const store = useAriaStore.getState();
     store.setStatus("thinking");
     this.cues.startThinkingLoop();
@@ -326,15 +590,15 @@ export class AriaEngine {
       const currentStore = useAriaStore.getState();
       const messages = messagesToText(currentStore.utterances);
 
-      devLog("ask", "Question for ARIA", {
-        question,
-        messages: messages.trim() || "(no prior final lines yet)",
-      });
+      devLog("ask", "Question for ARIA", { question });
 
       const res = await askSessionQuestion(
         this.sessionId,
         question,
-        controller.signal
+        speaker,
+        speakerName,
+        controller.signal,
+        readStoredModel()
       );
 
       if (!res.ok || !res.body) {
@@ -471,6 +735,9 @@ export class AriaEngine {
     this.currentAudio = audio;
     this.currentAudioUrl = url;
     audio.onplay = () => {
+      this.clearFollowUpStartTimer();
+      this.stopFollowUpWindow();
+      this.isAssistantSpeaking = true;
       this.cues.stopThinkingLoop();
       useAriaStore.getState().setStatus("speaking");
     };
@@ -479,9 +746,14 @@ export class AriaEngine {
       revoke();
       this.currentAudio = null;
       this.currentAudioUrl = null;
+      this.isAssistantSpeaking = false;
+      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       useAriaStore.getState().setStatus("listening");
       if (options.enableFollowUp) {
-        this.startFollowUpWindow();
+        this.followUpStartTimer = setTimeout(() => {
+          this.followUpStartTimer = null;
+          this.startFollowUpWindow();
+        }, PLAYBACK_STT_COOLDOWN_MS);
       }
     };
     audio.onerror = () => {
@@ -489,6 +761,8 @@ export class AriaEngine {
       revoke();
       this.currentAudio = null;
       this.currentAudioUrl = null;
+      this.isAssistantSpeaking = false;
+      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       this.cues.stopThinkingLoop();
       this.cues.playError();
       useAriaStore.getState().setError("Audio playback error");
@@ -519,7 +793,14 @@ export class AriaEngine {
     devLog("wake", "Follow-up window open.");
   }
 
+  private clearFollowUpStartTimer() {
+    if (!this.followUpStartTimer) return;
+    clearTimeout(this.followUpStartTimer);
+    this.followUpStartTimer = null;
+  }
+
   private stopFollowUpWindow() {
+    this.clearFollowUpStartTimer();
     this.followUpListening = false;
     if (!this.followUpTimer) return;
     clearTimeout(this.followUpTimer);
@@ -533,6 +814,9 @@ export class AriaEngine {
   }
 
   private stopPlayback() {
+    this.isAssistantSpeaking = false;
+    this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
+    this.clearFollowUpStartTimer();
     if (this.currentAudio) {
       try {
         this.currentAudio.pause();
@@ -548,22 +832,49 @@ export class AriaEngine {
     }
   }
 
-  private async persistSpeakerTurn(u: TranscriptUtterance) {
-    if (!u.isFinal || this.persistedUtteranceIds.has(u.id)) return;
+  private async bufferSpeakerTurn(u: TranscriptUtterance) {
+    const flushed = this.turnAssembler.append(u);
+    if (flushed) {
+      await this.persistAssembledSpeakerTurn(flushed);
+    }
+    this.scheduleTurnFlush();
+  }
+
+  private async flushPersistedSpeakerTurn() {
+    this.clearTurnFlushTimer();
+    const flushed = this.turnAssembler.flush();
+    if (flushed) {
+      await this.persistAssembledSpeakerTurn(flushed);
+    }
+  }
+
+  private async persistAssembledSpeakerTurn(turn: AssembledTranscriptTurn) {
+    const u = turn.utterance;
+    const alreadyPersisted = turn.sourceUtteranceIds.every((id) =>
+      this.persistedUtteranceIds.has(id)
+    );
+    if (alreadyPersisted) return;
+
     const text = u.text.trim();
     if (!text) return;
 
-    this.persistedUtteranceIds.add(u.id);
+    for (const id of turn.sourceUtteranceIds) {
+      this.persistedUtteranceIds.add(id);
+    }
+
     try {
       await appendSessionTurn(this.sessionId, {
         role: "speaker",
         text,
         speaker: u.speaker >= 0 ? u.speaker : null,
-        sourceUtteranceIds: [u.id],
+        speakerName: u.speakerName ?? null,
+        sourceUtteranceIds: turn.sourceUtteranceIds,
       });
       this.onSessionActivity?.();
     } catch (err) {
-      this.persistedUtteranceIds.delete(u.id);
+      for (const id of turn.sourceUtteranceIds) {
+        this.persistedUtteranceIds.delete(id);
+      }
       const msg = err instanceof Error ? err.message : "unknown error";
       devLog("session", `Failed to persist speaker turn: ${msg}`);
     }

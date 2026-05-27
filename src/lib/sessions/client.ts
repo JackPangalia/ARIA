@@ -86,6 +86,7 @@ export async function appendSessionTurn(
     role: TurnDoc["role"];
     text: string;
     speaker?: number | null;
+    speakerName?: string | null;
     sourceUtteranceIds?: string[];
   }
 ): Promise<TurnDoc> {
@@ -143,13 +144,16 @@ export async function exportSession(
 export async function askSessionQuestion(
   sessionId: string,
   question: string,
-  signal?: AbortSignal
+  speaker?: number | null,
+  speakerName?: string | null,
+  signal?: AbortSignal,
+  model?: string
 ): Promise<Response> {
   const headers = await getAuthHeader();
   return fetch("/api/ask", {
     method: "POST",
     headers,
-    body: JSON.stringify({ sessionId, question }),
+    body: JSON.stringify({ sessionId, question, speaker, speakerName, model }),
     signal,
   });
 }

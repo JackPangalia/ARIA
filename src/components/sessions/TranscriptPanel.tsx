@@ -7,9 +7,9 @@ function turnLabel(turn: TurnDoc): string {
   if (turn.role === "user_question") {
     return turn.speaker == null
       ? "Question"
-      : `Speaker ${turn.speaker + 1} question`;
+      : `${turn.speakerName ?? `Speaker ${turn.speaker + 1}`} question`;
   }
-  return turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`;
+  return turn.speakerName ?? (turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`);
 }
 
 export function TranscriptPanel(props: {

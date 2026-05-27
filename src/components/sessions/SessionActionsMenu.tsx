@@ -30,12 +30,12 @@ export function SessionActionsMenu(props: {
   canEnd: boolean;
   canArchive: boolean;
   onOpenSearch: () => void;
-  onSummarize: () => void;
-  onExportMarkdown: () => void;
-  onExportJson: () => void;
   onEnd: () => void;
   onArchive: () => void;
+  /** Dropdown alignment when rendered inside the left sidebar. */
+  placement?: "sidebar" | "header";
 }) {
+  const placement = props.placement ?? "header";
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +61,7 @@ export function SessionActionsMenu(props: {
   }, [open]);
 
   const itemClass =
-    "flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-app-secondary transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40";
+    "flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm font-normal text-app-secondary transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <div ref={rootRef} className="relative z-20">
@@ -76,7 +76,11 @@ export function SessionActionsMenu(props: {
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-full mt-2 w-52 rounded-xl bg-menu py-1.5 shadow-menu ring-1 ring-menu">
+        <div
+          className={`absolute top-full z-50 mt-2 w-52 rounded-xl bg-menu py-1.5 shadow-menu ring-1 ring-menu ${
+            placement === "sidebar" ? "left-0" : "right-0"
+          }`}
+        >
           <ThemeToggle />
           <OrbLayoutToggle />
           <button
@@ -90,39 +94,6 @@ export function SessionActionsMenu(props: {
             Search
           </button>
           <div className="my-1.5 border-t border-app" />
-          <button
-            type="button"
-            disabled={props.busy}
-            className={itemClass}
-            onClick={() => {
-              props.onSummarize();
-              setOpen(false);
-            }}
-          >
-            Summarize
-          </button>
-          <button
-            type="button"
-            disabled={props.busy}
-            className={itemClass}
-            onClick={() => {
-              props.onExportMarkdown();
-              setOpen(false);
-            }}
-          >
-            Export Markdown
-          </button>
-          <button
-            type="button"
-            disabled={props.busy}
-            className={itemClass}
-            onClick={() => {
-              props.onExportJson();
-              setOpen(false);
-            }}
-          >
-            Export JSON
-          </button>
           <button
             type="button"
             disabled={props.busy || !props.canEnd}

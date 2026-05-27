@@ -11,6 +11,8 @@ export interface TranscriptWord {
 export interface TranscriptUtterance {
   id: string;
   speaker: SpeakerId;
+  speakerName?: string | null;
+  providerSpeakerLabel?: string | null;
   text: string;
   start: number;
   end: number;

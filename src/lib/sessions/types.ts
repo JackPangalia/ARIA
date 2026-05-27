@@ -11,6 +11,7 @@ export interface SessionDoc {
   title: string;
   status: SessionStatus;
   speakerCount: number;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;
@@ -25,6 +26,7 @@ export interface TurnDoc {
   role: TurnRole;
   text: string;
   speaker: number | null;
+  speakerName: string | null;
   sourceUtteranceIds: string[];
   sequence: number;
   tokenEstimate: number;
@@ -74,12 +76,14 @@ export const PatchSessionSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   status: SessionStatusSchema.optional(),
   speakerCount: z.number().int().min(1).max(10).optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const CreateTurnSchema = z.object({
   role: TurnRoleSchema,
   text: z.string().trim().min(1).max(16000),
   speaker: z.number().int().min(0).max(9).nullable().optional(),
+  speakerName: z.string().trim().min(1).max(100).nullable().optional(),
   sourceUtteranceIds: z.array(z.string()).max(50).optional(),
 });
 
@@ -91,11 +95,16 @@ export const CreatePinSchema = z.object({
 export const AskBodySchema = z.object({
   sessionId: z.string().min(1),
   question: z.string().trim().min(1).max(4000),
+  speaker: z.number().int().min(0).max(9).nullable().optional(),
+  speakerName: z.string().trim().min(1).max(100).nullable().optional(),
+  model: z.string().min(1).max(64).optional(),
 });
 
 export interface ContextBundle {
   messages: string;
   tokenEstimate: number;
+  /** Sanitized question used for search and the agent prompt. */
+  question: string;
 }
 
 export interface SessionDetailResponse {

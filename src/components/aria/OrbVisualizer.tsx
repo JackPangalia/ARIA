@@ -170,7 +170,7 @@ export function OrbVisualizer() {
 
       <div className="flex flex-col items-center gap-1">
         <div
-          className="text-[11px] font-semibold uppercase tracking-[0.22em] text-app-muted transition-colors duration-300"
+          className="text-[11px] font-normal uppercase tracking-[0.22em] text-app-muted transition-colors duration-300"
           style={{ color: idle ? undefined : palette[1] }}
           aria-live="polite"
         >

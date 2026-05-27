@@ -50,14 +50,53 @@ export const useAriaStore = create<AriaState>((set) => ({
   clearTranscript: () => set({ utterances: [] }),
 }));
 
-function speakerLabel(id: number): string {
-  return `Speaker ${id + 1}`;
+function speakerLabel(utterance: TranscriptUtterance): string {
+  return utterance.speakerName ?? `Speaker ${utterance.speaker + 1}`;
 }
 
-/** Append finalized transcript lines into one plain-text message log. */
+function speakerKey(u: TranscriptUtterance): string {
+  return u.providerSpeakerLabel ?? `speaker:${u.speaker}`;
+}
+
+const MERGE_GAP_SECONDS = 3;
+
+/**
+ * Append finalized utterances into one plain-text message log, merging
+ * contiguous same-speaker fragments into a single turn so the output reads
+ * like the persisted transcript rather than the raw interim stream.
+ */
 export function messagesToText(utterances: TranscriptUtterance[]): string {
-  return utterances
-    .filter((u) => u.isFinal && u.text.trim().length > 0)
-    .map((u) => `${speakerLabel(u.speaker)}: ${u.text}`)
+  const finals = utterances.filter(
+    (u) => u.isFinal && u.text.trim().length > 0
+  );
+  if (finals.length === 0) return "";
+
+  type Group = {
+    label: string;
+    speakerKey: string;
+    parts: string[];
+    end: number;
+  };
+  const groups: Group[] = [];
+
+  for (const u of finals) {
+    const text = u.text.trim();
+    const key = speakerKey(u);
+    const last = groups[groups.length - 1];
+    if (last && last.speakerKey === key && u.start - last.end <= MERGE_GAP_SECONDS) {
+      last.parts.push(text);
+      last.end = Math.max(last.end, u.end);
+    } else {
+      groups.push({
+        label: speakerLabel(u),
+        speakerKey: key,
+        parts: [text],
+        end: u.end,
+      });
+    }
+  }
+
+  return groups
+    .map((g) => `${g.label}: ${g.parts.join(" ").replace(/\s+/g, " ").trim()}`)
     .join("\n");
 }

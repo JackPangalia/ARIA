@@ -45,12 +45,13 @@ export class MicPcmStreamer {
   private silentGain: GainNode | null = null;
 
   async start(onPcm: (pcm: Int16Array) => void) {
-    // Keep browser DSP off so diarization can use natural voice differences.
+    // ARIA speaks through the same device, so prioritize avoiding playback echo
+    // over preserving completely raw speaker characteristics.
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
         channelCount: 1,
       },
     });

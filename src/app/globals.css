@@ -15,6 +15,7 @@
   --app-surface-hover: #e4e4e7;
   --app-surface-selected: #e4e4e7;
   --app-border: #e4e4e7;
+  --app-border-subtle: #ebebeb;
   --app-border-strong: #d4d4d8;
   --app-menu: #ffffff;
   --app-menu-ring: #e4e4e7;
@@ -45,6 +46,7 @@
   --app-surface-hover: #27272a;
   --app-surface-selected: #18181b;
   --app-border: #27272a;
+  --app-border-subtle: #141414;
   --app-border-strong: #3f3f46;
   --app-menu: #09090b;
   --app-menu-ring: #27272a;
@@ -114,6 +116,10 @@ body {
 
 .border-app {
   border-color: var(--app-border);
+}
+
+.border-app-subtle {
+  border-color: var(--app-border-subtle);
 }
 
 .border-app-strong {

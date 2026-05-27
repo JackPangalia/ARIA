@@ -10,9 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@deepgram/sdk": "^4.11.3",
+    "@composio/core": "^0.10.0",
     "@openai/agents": "^0.11.4",
-    "@picovoice/eagle-web": "^3.0.1",
     "firebase": "^12.13.0",
     "firebase-admin": "^13.10.0",
     "next": "^16.2.6",

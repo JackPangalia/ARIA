@@ -1,9 +1,32 @@
 import { describe, expect, it } from "vitest";
+import {
+  extractSearchTerms,
+  hasEarlySessionSearchIntent,
+  sanitizeQuestionText,
+} from "@/lib/aria/context/question-text";
+import {
+  dedupeAdjacentContextTurns,
+  filterContextEligibleTurns,
+  shouldCompactSession,
+} from "@/lib/aria/context/turn-selection";
 import { estimateTokens } from "@/lib/aria/context/token-estimate";
-import { shouldCompactSession } from "@/lib/aria/context/build-context";
 import { formatTurnForContext } from "@/lib/sessions/repository";
 import { exportSessionMarkdown } from "@/lib/sessions/export";
-import type { SessionDetailResponse } from "@/lib/sessions/types";
+import type { SessionDetailResponse, TurnDoc } from "@/lib/sessions/types";
+
+function turn(
+  patch: Partial<TurnDoc> & Pick<TurnDoc, "id" | "role" | "text" | "sequence">
+): TurnDoc {
+  return {
+    speaker: null,
+    speakerName: null,
+    sourceUtteranceIds: [],
+    tokenEstimate: 100,
+    summarized: false,
+    createdAt: new Date().toISOString(),
+    ...patch,
+  };
+}
 
 describe("estimateTokens", () => {
   it("returns zero for empty text", () => {
@@ -17,16 +40,144 @@ describe("estimateTokens", () => {
 });
 
 describe("shouldCompactSession", () => {
-  it("returns false below threshold", () => {
-    expect(
-      shouldCompactSession([{ tokenEstimate: 1000 }, { tokenEstimate: 2000 }])
-    ).toBe(false);
+  it("returns false when below turn and token thresholds", () => {
+    const rows = Array.from({ length: 20 }, (_, i) =>
+      turn({
+        id: `t${i}`,
+        role: "speaker",
+        text: "hi",
+        sequence: i + 1,
+        tokenEstimate: 100,
+      })
+    );
+    expect(shouldCompactSession(rows)).toBe(false);
   });
 
-  it("returns true at or above threshold", () => {
+  it("returns true when eligible turn count exceeds recent window", () => {
+    const rows = Array.from({ length: 21 }, (_, i) =>
+      turn({
+        id: `t${i}`,
+        role: "speaker",
+        text: "hi",
+        sequence: i + 1,
+        tokenEstimate: 50,
+      })
+    );
+    expect(shouldCompactSession(rows)).toBe(true);
+  });
+
+  it("returns true at token threshold even with fewer turns", () => {
     expect(
-      shouldCompactSession([{ tokenEstimate: 5000 }, { tokenEstimate: 3000 }])
+      shouldCompactSession([
+        turn({
+          id: "1",
+          role: "assistant",
+          text: "x",
+          sequence: 1,
+          tokenEstimate: 5000,
+        }),
+        turn({
+          id: "2",
+          role: "speaker",
+          text: "y",
+          sequence: 2,
+          tokenEstimate: 3000,
+        }),
+      ])
     ).toBe(true);
+  });
+
+  it("ignores user_question turns for compaction eligibility", () => {
+    const rows = [
+      ...Array.from({ length: 20 }, (_, i) =>
+        turn({
+          id: `s${i}`,
+          role: "speaker",
+          text: "line",
+          sequence: i + 1,
+          tokenEstimate: 50,
+        })
+      ),
+      ...Array.from({ length: 10 }, (_, i) =>
+        turn({
+          id: `q${i}`,
+          role: "user_question",
+          text: "question?",
+          sequence: 100 + i,
+          tokenEstimate: 50,
+        })
+      ),
+    ];
+    expect(shouldCompactSession(rows)).toBe(false);
+  });
+});
+
+describe("filterContextEligibleTurns", () => {
+  it("keeps speaker and assistant only", () => {
+    const rows = [
+      turn({ id: "1", role: "speaker", text: "a", sequence: 1 }),
+      turn({ id: "2", role: "user_question", text: "b", sequence: 2 }),
+      turn({ id: "3", role: "assistant", text: "c", sequence: 3 }),
+    ];
+    expect(filterContextEligibleTurns(rows).map((t) => t.role)).toEqual([
+      "speaker",
+      "assistant",
+    ]);
+  });
+});
+
+describe("dedupeAdjacentContextTurns", () => {
+  it("drops back-to-back duplicate speaker lines", () => {
+    const rows = [
+      turn({
+        id: "1",
+        role: "speaker",
+        text: "Hey. How are you?",
+        sequence: 1,
+        speakerName: "Jack",
+      }),
+      turn({
+        id: "2",
+        role: "speaker",
+        text: "Hey. How are you ?",
+        sequence: 2,
+        speakerName: "Jack",
+      }),
+      turn({
+        id: "3",
+        role: "assistant",
+        text: "Good.",
+        sequence: 3,
+      }),
+    ];
+    expect(dedupeAdjacentContextTurns(rows)).toHaveLength(2);
+  });
+});
+
+describe("sanitizeQuestionText", () => {
+  it("collapses stuttered words and phrases", () => {
+    expect(
+      sanitizeQuestionText(
+        "what was the what was the first first thing at the start start"
+      )
+    ).toBe("what was the first thing at the start");
+  });
+
+  it("strips leading wake prefix", () => {
+    expect(sanitizeQuestionText("Hey ARIA, what is the plan?")).toBe(
+      "what is the plan?"
+    );
+  });
+});
+
+describe("extractSearchTerms", () => {
+  it("adds early-session hints for beginning questions", () => {
+    const terms = extractSearchTerms(
+      "what was the first thing at the beginning"
+    );
+    expect(terms).toContain("first");
+    expect(terms).toContain("beginning");
+    expect(hasEarlySessionSearchIntent("how did we start")).toBe(true);
   });
 });
 
@@ -38,6 +189,7 @@ describe("formatTurnForContext", () => {
         role: "assistant",
         text: "Hello there.",
         speaker: null,
+        speakerName: null,
         sourceUtteranceIds: [],
         sequence: 1,
         tokenEstimate: 1,
@@ -52,13 +204,14 @@ describe("formatTurnForContext", () => {
         role: "user_question",
         text: "What did we decide?",
         speaker: 0,
+        speakerName: "Maya",
         sourceUtteranceIds: [],
         sequence: 2,
         tokenEstimate: 1,
         summarized: false,
         createdAt: new Date().toISOString(),
       })
-    ).toBe("Speaker 1 (question): What did we decide?");
+    ).toBe("Maya (question): What did we decide?");
   });
 });
 
@@ -77,6 +230,7 @@ describe("exportSessionMarkdown", () => {
         tokenEstimate: 10,
         searchableTextPreview: "Firestore",
         turnCount: 1,
+        pinned: false,
       },
       turns: [
         {
@@ -84,6 +238,7 @@ describe("exportSessionMarkdown", () => {
           role: "speaker",
           text: "Let's use Firestore.",
           speaker: 0,
+          speakerName: null,
           sourceUtteranceIds: [],
           sequence: 1,
           tokenEstimate: 2,

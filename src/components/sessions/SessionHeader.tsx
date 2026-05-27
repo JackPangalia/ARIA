@@ -7,8 +7,6 @@ export function SessionHeader(props: {
   onRename: (title: string) => void;
   onEnd: () => void;
   onArchive: () => void;
-  onExport: (format: "markdown" | "json") => void;
-  onSummarize: () => void;
   busy?: boolean;
 }) {
   return (
@@ -27,30 +25,6 @@ export function SessionHeader(props: {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={props.busy}
-          onClick={props.onSummarize}
-          className="rounded-full border border-zinc-800 px-3 py-1.5 text-[10px] tracking-[0.14em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-40"
-        >
-          SUMMARIZE
-        </button>
-        <button
-          type="button"
-          disabled={props.busy}
-          onClick={() => props.onExport("markdown")}
-          className="rounded-full border border-zinc-800 px-3 py-1.5 text-[10px] tracking-[0.14em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-40"
-        >
-          EXPORT MD
-        </button>
-        <button
-          type="button"
-          disabled={props.busy}
-          onClick={() => props.onExport("json")}
-          className="rounded-full border border-zinc-800 px-3 py-1.5 text-[10px] tracking-[0.14em] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 disabled:opacity-40"
-        >
-          EXPORT JSON
-        </button>
         <button
           type="button"
           disabled={props.busy || props.session.status === "ended"}

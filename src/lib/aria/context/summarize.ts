@@ -7,7 +7,18 @@ import {
   upsertFacts,
   upsertSummary,
 } from "@/lib/sessions/repository";
-import { RECENT_TURN_COUNT } from "@/lib/sessions/constants";
+import {
+  filterContextEligibleTurns,
+  shouldCompactSession,
+} from "@/lib/aria/context/turn-selection";
+import {
+  COMPACTION_THRESHOLD_TOKENS,
+  RECENT_TURN_COUNT,
+} from "@/lib/sessions/constants";
+import {
+  logContextVerboseBlock,
+  type CompactLog,
+} from "@/lib/server/context-dev-log";
 import type { SessionFactDoc } from "@/lib/sessions/types";
 import {
   getOpenAI,
@@ -15,18 +26,29 @@ import {
   SUMMARY_MODEL,
 } from "@/lib/aria/context/openai-client";
 
+type SummarizeResult = {
+  summarizedTurnCount: number;
+  summaryChars: number;
+  keyDecisions: number;
+  factsWritten: number;
+  seqFrom: number;
+  seqTo: number;
+  rollingSummary: string;
+};
+
 export async function summarizeSession(
   uid: string,
   sessionId: string
-): Promise<{ summarizedTurnCount: number }> {
-  const unsummarized = await getUnsummarizedTurns(uid, sessionId);
+): Promise<SummarizeResult | null> {
+  const allUnsummarized = await getUnsummarizedTurns(uid, sessionId);
+  const unsummarized = filterContextEligibleTurns(allUnsummarized);
   if (unsummarized.length <= RECENT_TURN_COUNT) {
-    return { summarizedTurnCount: 0 };
+    return null;
   }
 
   const toSummarize = unsummarized.slice(0, -RECENT_TURN_COUNT);
   if (toSummarize.length === 0) {
-    return { summarizedTurnCount: 0 };
+    return null;
   }
 
   const existingSummary = await getSummary(uid, sessionId);
@@ -103,22 +125,62 @@ Preserve unresolved questions and speaker-specific preferences. Do not invent fa
     toSummarize.map((turn) => turn.id)
   );
 
-  return { summarizedTurnCount: toSummarize.length };
+  logContextVerboseBlock("new rolling summary", parsed.rollingSummary);
+
+  return {
+    summarizedTurnCount: toSummarize.length,
+    summaryChars: parsed.rollingSummary.length,
+    keyDecisions: parsed.keyDecisions.length,
+    factsWritten: parsed.facts.length,
+    seqFrom: toSummarize[0]?.sequence ?? 0,
+    seqTo: toSummarize[toSummarize.length - 1]?.sequence ?? 0,
+    rollingSummary: parsed.rollingSummary,
+  };
 }
 
 export async function maybeCompactSession(
   uid: string,
   sessionId: string
-): Promise<void> {
+): Promise<CompactLog> {
+  const start = performance.now();
   const unsummarized = await getUnsummarizedTurns(uid, sessionId);
-  const totalTokens = unsummarized.reduce(
-    (sum, turn) => sum + turn.tokenEstimate,
-    0
-  );
 
-  if (totalTokens < 8000 || unsummarized.length <= RECENT_TURN_COUNT) {
-    return;
+  if (!shouldCompactSession(unsummarized)) {
+    const eligible = filterContextEligibleTurns(unsummarized);
+    const totalTokens = eligible.reduce(
+      (sum, turn) => sum + turn.tokenEstimate,
+      0
+    );
+    return {
+      sessionId,
+      durationMs: performance.now() - start,
+      action: "skipped",
+      reason: `${eligible.length} eligible turns, ${totalTokens} tok (need >${RECENT_TURN_COUNT} turns or ≥${COMPACTION_THRESHOLD_TOKENS} tok)`,
+      eligibleTurns: eligible.length,
+    };
   }
 
-  await summarizeSession(uid, sessionId);
+  const result = await summarizeSession(uid, sessionId);
+  const durationMs = performance.now() - start;
+
+  if (!result) {
+    return {
+      sessionId,
+      durationMs,
+      action: "skipped",
+      reason: "nothing to compress after eligibility filter",
+    };
+  }
+
+  return {
+    sessionId,
+    durationMs,
+    action: "summarized",
+    compressedTurns: result.summarizedTurnCount,
+    summaryChars: result.summaryChars,
+    decisions: result.keyDecisions,
+    facts: result.factsWritten,
+    seqFrom: result.seqFrom,
+    seqTo: result.seqTo,
+  };
 }

@@ -1,8 +1,11 @@
 import { NextRequest } from "next/server";
 import { runAriaAgentStream } from "@/lib/aria/agent";
+import { isValidModel } from "@/lib/aria/models";
 import { getOpenAI } from "@/lib/aria/context/openai-client";
 import { buildContextBundle } from "@/lib/aria/context/build-context";
 import { maybeCompactSession } from "@/lib/aria/context/summarize";
+import { estimateTokens } from "@/lib/aria/context/token-estimate";
+import { logAskComplete } from "@/lib/server/context-dev-log";
 import { getServerEnv, type ServerEnv } from "@/lib/env";
 import { AskBodySchema } from "@/lib/sessions/types";
 import { authErrorResponse, verifyRequestAuth } from "@/lib/firebase/verify-auth";
@@ -84,25 +87,36 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  const askStartedAt = performance.now();
+  const speakerLabel = body.speakerName ?? body.speaker ?? null;
+
   await appendTurn(uid, body.sessionId, {
     role: "user_question",
     text: body.question,
+    speaker: body.speaker ?? null,
+    speakerName: body.speakerName ?? null,
   });
 
+  const contextBuildStart = performance.now();
   const context = await buildContextBundle({
     uid,
     session,
     question: body.question,
   });
+  const contextBuildMs = performance.now() - contextBuildStart;
 
   const openai = getOpenAI(env.OPENAI_API_KEY);
 
   let textStream: ReadableStream<string>;
+  const agentStart = performance.now();
   try {
+    const modelOverride = isValidModel(body.model) ? body.model : null;
     textStream = await runAriaAgentStream({
       messages: context.messages,
-      question: body.question,
+      question: context.question,
       env,
+      uid,
+      model: modelOverride ?? undefined,
       signal: req.signal,
     });
   } catch (err) {
@@ -237,6 +251,10 @@ export async function POST(req: NextRequest) {
         controller.close();
 
         const answer = assistantText.trim();
+        const agentMs = performance.now() - agentStart;
+        let compact = null;
+        let compactMs = 0;
+
         if (answer) {
           await appendTurn(uid, body.sessionId, {
             role: "assistant",
@@ -245,8 +263,25 @@ export async function POST(req: NextRequest) {
           import("@/lib/aria/context/auto-title").then(({ autoTitleSession }) => {
             void autoTitleSession(uid, body.sessionId, session.title);
           }).catch(err => console.error("[Auto-Title] failed to import:", err));
-          await maybeCompactSession(uid, body.sessionId);
+
+          const compactStart = performance.now();
+          compact = await maybeCompactSession(uid, body.sessionId);
+          compactMs = performance.now() - compactStart;
         }
+
+        logAskComplete({
+          sessionId: body.sessionId,
+          speaker: speakerLabel,
+          model: env.OPENAI_MODEL,
+          contextBuildMs,
+          agentMs,
+          compactMs,
+          totalMs: performance.now() - askStartedAt,
+          bundle: context.log,
+          answerChars: answer.length,
+          answerTokens: estimateTokens(answer),
+          compact,
+        });
       } catch (err) {
         if (closeStreamOnAbort(controller, req.signal)) return;
         if (isAbortError(err, req.signal)) {

@@ -105,10 +105,10 @@ export function SessionSearchModal(props: {
                             : "text-app-secondary hover:bg-surface-hover hover:text-app"
                       }`}
                     >
-                      <span className="block truncate text-sm font-semibold">
+                      <span className="block truncate text-sm font-normal">
                         {session.title}
                       </span>
-                      <span className="mt-1 block text-xs font-medium text-app-subtle">
+                      <span className="mt-1 block text-xs font-normal text-app-subtle">
                         {session.status === "active"
                           ? "Active"
                           : session.status === "ended"

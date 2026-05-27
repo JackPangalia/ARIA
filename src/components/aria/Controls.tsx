@@ -61,7 +61,7 @@ export function Controls(props: {
           type="button"
           onClick={onStop}
           disabled={busy}
-          className="inline-flex min-w-[8.5rem] items-center justify-center rounded-full border border-app-strong bg-app px-8 py-3 text-sm font-semibold tracking-[0.12em] text-app transition-colors hover:border-app-strong hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex min-w-[8.5rem] items-center justify-center rounded-full border border-app-strong bg-app px-8 py-3 text-sm font-normal tracking-[0.12em] text-app transition-colors hover:border-app-strong hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           STOP
         </button>
@@ -70,7 +70,7 @@ export function Controls(props: {
           type="button"
           onClick={onStart}
           disabled={busy || disabled}
-          className="inline-flex min-w-[8.5rem] items-center justify-center rounded-full bg-accent px-8 py-3 text-sm font-semibold tracking-[0.12em] text-accent-fg transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex min-w-[8.5rem] items-center justify-center rounded-full bg-accent px-8 py-3 text-sm font-normal tracking-[0.12em] text-accent-fg transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           START
         </button>

@@ -103,7 +103,7 @@ export function OrbLayoutToggle({ variant = "menu" }: OrbLayoutToggleProps) {
     <button
       type="button"
       onClick={toggleMode}
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-app-secondary transition-colors hover:bg-surface-hover"
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-normal text-app-secondary transition-colors hover:bg-surface-hover"
     >
       {isViewport ? (
         <AlignScreenIcon className="shrink-0" />

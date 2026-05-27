@@ -96,14 +96,15 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
-    function isValidVoiceprint(data) {
+    function isValidSpeakerProfile(data) {
       return data.keys().hasOnly([
-        'name', 'centroid', 'sampleCount', 'createdAt', 'updatedAt'
+        'name', 'speakerIdentifiers', 'sampleCount', 'createdAt', 'updatedAt'
       ]) &&
         data.name is string &&
         data.name.size() > 0 && data.name.size() <= 100 &&
-        data.centroid is list &&
-        data.centroid.size() > 0 && data.centroid.size() <= 1024 &&
+        data.speakerIdentifiers is list &&
+        data.speakerIdentifiers.size() > 0 && data.speakerIdentifiers.size() <= 50 &&
+        data.speakerIdentifiers[0] is string &&
         data.sampleCount is number &&
         data.sampleCount >= 1 && data.sampleCount <= 100000 &&
         data.createdAt is timestamp &&
@@ -142,13 +143,14 @@ service cloud.firestore {
 
     function isValidTurn(data) {
       return data.keys().hasOnly([
-        'role', 'text', 'speaker', 'sourceUtteranceIds', 'sequence',
+        'role', 'text', 'speaker', 'speakerName', 'sourceUtteranceIds', 'sequence',
         'tokenEstimate', 'summarized', 'createdAt'
       ]) &&
         isValidTurnRole(data.role) &&
         data.text is string &&
         data.text.size() > 0 && data.text.size() <= 16000 &&
         (data.speaker == null || (data.speaker is number && data.speaker >= 0 && data.speaker <= 9)) &&
+        (data.speakerName == null || (data.speakerName is string && data.speakerName.size() > 0 && data.speakerName.size() <= 100)) &&
         data.sourceUtteranceIds is list &&
         data.sourceUtteranceIds.size() <= 50 &&
         data.sequence is number &&
@@ -220,10 +222,10 @@ service cloud.firestore {
         request.resource.data.updatedAt == request.time;
       allow delete: if false;
 
-      match /voiceprints/{voiceprintId} {
+      match /speakerProfiles/{profileId} {
         allow read: if isOwner(userId);
         allow create, update: if isOwner(userId) &&
-          isValidVoiceprint(request.resource.data) &&
+          isValidSpeakerProfile(request.resource.data) &&
           request.resource.data.updatedAt == request.time;
         allow delete: if isOwner(userId);
       }

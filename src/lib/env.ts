@@ -21,7 +21,8 @@ const ServerEnvSchema = z.object({
       "cedar",
     ])
     .default("marin"),
-  DEEPGRAM_API_KEY: z.string().min(1),
+  SPEECHMATICS_API_KEY: z.string().min(1),
+  COMPOSIO_API_KEY: z.string().min(1).optional(),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema>;

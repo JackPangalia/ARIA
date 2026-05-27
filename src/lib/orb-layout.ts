@@ -2,7 +2,7 @@ export type OrbCenterMode = "pane" | "viewport";
 
 export const ORB_CENTER_STORAGE_KEY = "aria-orb-center";
 
-export const DEFAULT_ORB_CENTER_MODE: OrbCenterMode = "pane";
+export const DEFAULT_ORB_CENTER_MODE: OrbCenterMode = "viewport";
 
 export function isOrbCenterMode(value: string | null | undefined): value is OrbCenterMode {
   return value === "pane" || value === "viewport";
@@ -33,7 +33,7 @@ export const ORB_CENTER_LABEL: Record<OrbCenterMode, string> = {
 };
 
 export const ORB_CENTER_DESCRIPTION: Record<OrbCenterMode, string> = {
-  pane: "Center the orb in the main area beside the sidebar.",
+  pane: "Center the orb in the main area beside the left panels.",
   viewport: "Shift the orb so it sits on the center of your full screen.",
 };
 

@@ -19,7 +19,7 @@ Browser mic
 Browser Web Audio (16 kHz mono int16)
    │
    ▼
-Deepgram streaming WS (nova-3 + diarization + keyterms)
+Speechmatics Realtime WS (diarization + speaker identification)
                                       │
                                       ▼
                          Speaker-attributed transcript
@@ -37,7 +37,7 @@ Deepgram streaming WS (nova-3 + diarization + keyterms)
 ## Stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind 4)
-- **Deepgram nova-3** — streaming transcription + native diarization for single-mic meetings
+- **Speechmatics Realtime** — streaming transcription, diarization, and enrolled speaker identification for single-mic meetings
 - **OpenAI GPT-5.5** — Responses API, streaming
 - **OpenAI gpt-4o-mini-tts** — text-to-speech
 - **Zustand** — client state, **Zod** — env validation
@@ -54,7 +54,7 @@ npm run dev
 ### Required keys
 
 - OpenAI API key — https://platform.openai.com/api-keys
-- Deepgram API key — https://console.deepgram.com/
+- Speechmatics API key — https://portal.speechmatics.com/
 - Firebase web app config — [Firebase Console](https://console.firebase.google.com/) → **aria-moserun-0512** → Project settings → Your apps → Web app → copy into `NEXT_PUBLIC_FIREBASE_*` in `.env.local`
 
   Or after `npx -y firebase-tools@latest login`:
@@ -68,10 +68,17 @@ npm run dev
 ### Wake phrase
 
 ARIA no longer uses a separate wake-word SDK. The browser streams mic audio to
-Deepgram, and the app watches interim/final transcript text for wake phrases
+Speechmatics, and the app watches interim/final transcript text for wake phrases
 like "Hey ARIA", "Hey Arya", or "Hey Area". If the phrase includes a question,
 ARIA answers that immediately; if you only say "Hey ARIA", it waits for the next
 utterance as the question.
+
+### Speaker memory
+
+Speechmatics speaker identifiers can be enrolled from Settings or during a live
+session with phrases like "Hey ARIA, I'm Bob". ARIA stores the identifier strings
+in Firestore under the signed-in user and passes them to future realtime sessions
+so known speakers appear by name in transcripts and context.
 
 ### Terminal transcript (local dev)
 

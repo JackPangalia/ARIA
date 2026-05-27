@@ -4,8 +4,12 @@ import {
   type Firestore,
   type Query,
 } from "firebase-admin/firestore";
+import { extractSearchTerms } from "@/lib/aria/context/question-text";
+import { filterContextEligibleTurns } from "@/lib/aria/context/turn-selection";
 import { estimateTokens } from "@/lib/aria/context/token-estimate";
 import {
+  CONTEXT_TURN_OVERFETCH,
+  CONTEXT_TURN_SCAN_LIMIT,
   MAX_SEARCH_HITS,
   SEARCH_PREVIEW_LENGTH,
 } from "@/lib/sessions/constants";
@@ -72,6 +76,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
     tokenEstimate: Number(data.tokenEstimate ?? 0),
     searchableTextPreview: String(data.searchableTextPreview ?? ""),
     turnCount: Number(data.turnCount ?? 0),
+    pinned: Boolean(data.pinned),
   };
 }
 
@@ -81,6 +86,7 @@ function mapTurn(id: string, data: DocumentData): TurnDoc {
     role: data.role as TurnRole,
     text: String(data.text ?? ""),
     speaker: data.speaker == null ? null : Number(data.speaker),
+    speakerName: data.speakerName == null ? null : String(data.speakerName),
     sourceUtteranceIds: Array.isArray(data.sourceUtteranceIds)
       ? data.sourceUtteranceIds.map(String)
       : [],
@@ -164,6 +170,7 @@ export async function createSession(
     tokenEstimate: 0,
     searchableTextPreview: "",
     turnCount: 0,
+    pinned: false,
   });
 
   const snap = await ref.get();
@@ -194,6 +201,11 @@ export async function listSessions(
     );
   }
 
+  sessions.sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+
   return sessions;
 }
 
@@ -222,6 +234,7 @@ export async function patchSession(
     title?: string;
     status?: SessionStatus;
     speakerCount?: number;
+    pinned?: boolean;
   }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
@@ -236,6 +249,7 @@ export async function patchSession(
   };
 
   if (patch.title !== undefined) updates.title = patch.title;
+  if (patch.pinned !== undefined) updates.pinned = patch.pinned;
   if (patch.speakerCount !== undefined) updates.speakerCount = patch.speakerCount;
   if (patch.status !== undefined) {
     updates.status = patch.status;
@@ -273,6 +287,7 @@ export async function appendTurn(
     role: TurnRole;
     text: string;
     speaker?: number | null;
+    speakerName?: string | null;
     sourceUtteranceIds?: string[];
   }
 ): Promise<TurnDoc> {
@@ -286,6 +301,7 @@ export async function appendTurn(
     role: input.role,
     text: input.text,
     speaker: input.speaker ?? null,
+    speakerName: input.speakerName?.trim() || null,
     sourceUtteranceIds: input.sourceUtteranceIds ?? [],
     sequence,
     tokenEstimate,
@@ -335,6 +351,29 @@ export async function getRecentTurns(
   return snap.docs
     .map((doc) => mapTurn(doc.id, doc.data()))
     .reverse();
+}
+
+/** Recent speaker + assistant turns for model context (not raw DB row count). */
+export async function getRecentContextTurns(
+  uid: string,
+  sessionId: string,
+  count: number
+): Promise<TurnDoc[]> {
+  const fetchLimit = Math.min(
+    count * CONTEXT_TURN_OVERFETCH,
+    CONTEXT_TURN_SCAN_LIMIT
+  );
+  const db = getAdminDb();
+  const snap = await turnsCol(db, uid, sessionId)
+    .orderBy("sequence", "desc")
+    .limit(fetchLimit)
+    .get();
+
+  const eligible = filterContextEligibleTurns(
+    snap.docs.map((doc) => mapTurn(doc.id, doc.data()))
+  );
+
+  return eligible.slice(0, count).reverse();
 }
 
 export async function getUnsummarizedTurns(
@@ -518,16 +557,71 @@ export async function searchTurnsInSession(
     .slice(-limit);
 }
 
+export async function searchContextTurns(
+  uid: string,
+  sessionId: string,
+  question: string,
+  limit = MAX_SEARCH_HITS,
+  options?: {
+    preferEarlySession?: boolean;
+    excludeTurnIds?: Set<string>;
+  }
+): Promise<TurnDoc[]> {
+  const terms = extractSearchTerms(question);
+  if (terms.length === 0) return [];
+
+  const turns = filterContextEligibleTurns(
+    await listTurns(uid, sessionId, CONTEXT_TURN_SCAN_LIMIT)
+  );
+  if (turns.length === 0) return [];
+
+  const maxSequence = turns[turns.length - 1]?.sequence ?? 1;
+  const exclude = options?.excludeTurnIds ?? new Set<string>();
+
+  const scored = turns
+    .filter((turn) => !exclude.has(turn.id))
+    .map((turn) => {
+      const haystack = turn.text.toLowerCase();
+      let hits = 0;
+      for (const term of terms) {
+        if (haystack.includes(term)) hits += 1;
+      }
+      if (hits === 0) return null;
+
+      let score = hits;
+      if (options?.preferEarlySession) {
+        const earlyBoost = 1 - turn.sequence / Math.max(maxSequence, 1);
+        score += earlyBoost * 2;
+      }
+      return { turn, score };
+    })
+    .filter((row): row is { turn: TurnDoc; score: number } => row !== null)
+    .sort((a, b) => b.score - a.score || a.turn.sequence - b.turn.sequence);
+
+  const picked: TurnDoc[] = [];
+  const seen = new Set<string>();
+  for (const { turn } of scored) {
+    if (seen.has(turn.id)) continue;
+    seen.add(turn.id);
+    picked.push(turn);
+    if (picked.length >= limit) break;
+  }
+
+  return picked.sort((a, b) => a.sequence - b.sequence);
+}
+
 export function formatTurnForContext(turn: TurnDoc): string {
   if (turn.role === "assistant") {
     return `ARIA: ${turn.text}`;
   }
   if (turn.role === "user_question") {
     const speaker =
-      turn.speaker == null ? "Someone" : `Speaker ${turn.speaker + 1}`;
+      turn.speakerName ??
+      (turn.speaker == null ? "Someone" : `Speaker ${turn.speaker + 1}`);
     return `${speaker} (question): ${turn.text}`;
   }
   const speaker =
-    turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`;
+    turn.speakerName ??
+    (turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`);
   return `${speaker}: ${turn.text}`;
 }

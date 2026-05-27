@@ -1,17 +1,27 @@
 import { estimateTokensForTexts } from "@/lib/aria/context/token-estimate";
 import {
-  COMPACTION_THRESHOLD_TOKENS,
+  extractSearchTerms,
+  hasEarlySessionSearchIntent,
+  sanitizeQuestionText,
+} from "@/lib/aria/context/question-text";
+import { dedupeAdjacentContextTurns } from "@/lib/aria/context/turn-selection";
+import {
+  logContextBundleReady,
+  logContextVerboseBlock,
+  type ContextBundleLog,
+} from "@/lib/server/context-dev-log";
+import {
   CONTEXT_BUDGET_TOKENS,
   MAX_SEARCH_HITS,
   RECENT_TURN_COUNT,
 } from "@/lib/sessions/constants";
 import {
   formatTurnForContext,
-  getRecentTurns,
+  getRecentContextTurns,
   getSummary,
   listFacts,
   listPins,
-  searchTurnsInSession,
+  searchContextTurns,
 } from "@/lib/sessions/repository";
 import type { ContextBundle, SessionDoc } from "@/lib/sessions/types";
 
@@ -33,19 +43,28 @@ export async function buildContextBundle(input: {
   uid: string;
   session: SessionDoc;
   question: string;
-}): Promise<ContextBundle> {
-  const [summary, facts, pins, recentTurns] = await Promise.all([
+}): Promise<ContextBundle & { log: ContextBundleLog }> {
+  const buildStart = performance.now();
+  const question = sanitizeQuestionText(input.question);
+
+  const [summary, facts, pins, recentTurnsRaw] = await Promise.all([
     getSummary(input.uid, input.session.id),
     listFacts(input.uid, input.session.id),
     listPins(input.uid, input.session.id),
-    getRecentTurns(input.uid, input.session.id, RECENT_TURN_COUNT),
+    getRecentContextTurns(input.uid, input.session.id, RECENT_TURN_COUNT),
   ]);
 
-  const searchHits = await searchTurnsInSession(
+  const recentTurns = dedupeAdjacentContextTurns(recentTurnsRaw);
+
+  const searchHits = await searchContextTurns(
     input.uid,
     input.session.id,
-    input.question,
-    MAX_SEARCH_HITS
+    question,
+    MAX_SEARCH_HITS,
+    {
+      preferEarlySession: hasEarlySessionSearchIntent(question),
+      excludeTurnIds: new Set(recentTurns.map((turn) => turn.id)),
+    }
   );
 
   const recentIds = new Set(recentTurns.map((turn) => turn.id));
@@ -105,9 +124,11 @@ export async function buildContextBundle(input: {
   }
 
   let messages = sections.join("\n\n");
-  let tokenEstimate = estimateTokensForTexts([messages, input.question]);
+  let tokenEstimate = estimateTokensForTexts([messages, question]);
+  let budgetTrimApplied = false;
 
   if (tokenEstimate > CONTEXT_BUDGET_TOKENS) {
+    budgetTrimApplied = true;
     const trimmedRecent = recentTurns.slice(-10);
     const compactSections = [
       buildSessionHeader(input.session),
@@ -122,20 +143,41 @@ export async function buildContextBundle(input: {
     ].filter(Boolean);
 
     messages = compactSections.join("\n\n");
-    tokenEstimate = estimateTokensForTexts([messages, input.question]);
+    tokenEstimate = estimateTokensForTexts([messages, question]);
   }
 
-  return { messages, tokenEstimate };
+  const buildMs = performance.now() - buildStart;
+  const searchTerms = extractSearchTerms(question);
+
+  const log: ContextBundleLog = {
+    sessionId: input.session.id,
+    question,
+    buildMs,
+    tokens: tokenEstimate,
+    promptChars: messages.length + question.length + 32,
+    summary: Boolean(summary?.rollingSummary),
+    summaryChars: summary?.rollingSummary?.length ?? 0,
+    decisions: summary?.keyDecisions?.length ?? 0,
+    openQuestions: summary?.openQuestions?.length ?? 0,
+    facts: pinnedFacts.length + generatedFacts.length,
+    pins: pins.length,
+    searchHits: supplementalHits.length,
+    searchTerms,
+    recentTurns: recentTurns.length,
+    seqFirst: recentTurns[0]?.sequence ?? null,
+    seqLast: recentTurns[recentTurns.length - 1]?.sequence ?? null,
+    budgetTrim: budgetTrimApplied,
+  };
+
+  logContextBundleReady(log);
+
+  if (summary?.rollingSummary) {
+    logContextVerboseBlock("rolling summary", summary.rollingSummary);
+  }
+  logContextVerboseBlock("messages block", messages);
+
+  return { messages, tokenEstimate, question, log };
 }
 
-export function shouldCompactSession(
-  unsummarizedTurns: Array<{ tokenEstimate: number }>
-): boolean {
-  const total = unsummarizedTurns.reduce(
-    (sum, turn) => sum + turn.tokenEstimate,
-    0
-  );
-  return total >= COMPACTION_THRESHOLD_TOKENS;
-}
-
+export { shouldCompactSession } from "@/lib/aria/context/turn-selection";
 export { speakerLabel };
