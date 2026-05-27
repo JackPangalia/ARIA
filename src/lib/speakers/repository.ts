@@ -70,12 +70,13 @@ export async function upsertSpeakerProfile(
   const snap = await ref.get();
   const existing = snap.exists ? mapSpeakerProfile(snap.id, snap.data() ?? {}) : null;
   const now = FieldValue.serverTimestamp();
+  const MAX_IDENTIFIERS = 3;
   const identifiers = Array.from(
     new Set([
       ...(existing?.speakerIdentifiers ?? []),
       ...input.speakerIdentifiers,
     ])
-  );
+  ).slice(-MAX_IDENTIFIERS);
 
   await ref.set(
     {
