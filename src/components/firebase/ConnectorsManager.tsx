@@ -1,59 +1,61 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   listConnections,
   removeConnection,
   startConnection,
+  warmComposioTools,
   type ConnectionSummary,
 } from "@/lib/composio/client-api";
+import { ConnectorIcon } from "@/components/settings/ConnectorIcon";
+import { GrokSettingsButton } from "@/components/settings/SettingsRow";
 
 const SUPPORTED_APPS: { slug: string; label: string; blurb: string }[] = [
   {
     slug: "notion",
     label: "Notion",
-    blurb:
-      "Read pages and create new ones in your workspace when you ask ARIA to.",
+    blurb: "Read pages and create new ones in your workspace.",
   },
   {
     slug: "gmail",
     label: "Gmail",
-    blurb: "Read recent messages and draft or send email on your behalf.",
+    blurb: "Read recent messages and draft or send email.",
   },
   {
     slug: "googledocs",
     label: "Google Docs",
-    blurb: "Read existing docs and create new ones in your Drive.",
+    blurb: "Read docs and create new ones in Drive.",
   },
   {
     slug: "googlesheets",
     label: "Google Sheets",
-    blurb: "Read cells, append rows, and create sheets when you ask.",
+    blurb: "Read cells, append rows, and create sheets.",
   },
   {
     slug: "googledrive",
     label: "Google Drive",
-    blurb: "Search your Drive and pull file contents into the conversation.",
+    blurb: "Search Drive and pull file contents into chat.",
   },
   {
     slug: "googlecalendar",
     label: "Google Calendar",
-    blurb: "Check your schedule and create events when you ask.",
+    blurb: "Check your schedule and create events.",
   },
   {
     slug: "slack",
     label: "Slack",
-    blurb: "Send messages to channels or DMs and look up recent conversations.",
+    blurb: "Send messages and look up conversations.",
   },
   {
     slug: "clickup",
     label: "ClickUp",
-    blurb: "Create tasks, look up lists, and update statuses in your workspace.",
+    blurb: "Create tasks and update statuses.",
   },
   {
     slug: "outlook",
     label: "Outlook",
-    blurb: "Read recent mail and draft or send email from your Outlook account.",
+    blurb: "Read mail and draft or send from Outlook.",
   },
 ];
 
@@ -77,7 +79,98 @@ function statusLabel(status: string): string {
   }
 }
 
-export function ConnectorsManager() {
+function isConnected(
+  slug: string,
+  byToolkit: Map<string, ConnectionSummary>
+): boolean {
+  const connection = byToolkit.get(slug);
+  return Boolean(connection?.status === "ACTIVE" && !connection.isDisabled);
+}
+
+type ConnectorApp = (typeof SUPPORTED_APPS)[number];
+
+function ConnectedDot() {
+  return (
+    <span
+      className="grok-connector-status-dot"
+      aria-label="Connected"
+      title="Connected"
+    />
+  );
+}
+
+function connectorDescription(
+  app: ConnectorApp,
+  connection: ConnectionSummary | undefined,
+  isActive: boolean
+): string {
+  if (connection && !isActive) {
+    return statusLabel(connection.status);
+  }
+  return app.blurb;
+}
+
+function GrokConnectorRow(props: {
+  app: ConnectorApp;
+  connection: ConnectionSummary | undefined;
+  isActive: boolean;
+  busy: boolean;
+  loading: boolean;
+  onConnect: (slug: string) => void;
+  onDisconnect: (connection: ConnectionSummary) => void;
+}) {
+  const { app, connection, isActive, busy, loading } = props;
+
+  return (
+    <div className="grok-connector-row">
+      <span className="grok-connector-icon">
+        <ConnectorIcon slug={app.slug} size={24} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="grok-connector-label">
+          {app.label}
+          {isActive ? <ConnectedDot /> : null}
+        </div>
+        <div className="grok-connector-blurb">
+          {connectorDescription(app, connection, isActive)}
+        </div>
+      </div>
+      {isActive && connection ? (
+        <GrokSettingsButton
+          variant="ghost-danger"
+          disabled={busy}
+          onClick={() => props.onDisconnect(connection)}
+        >
+          {busy ? "…" : "Disconnect"}
+        </GrokSettingsButton>
+      ) : (
+        <GrokSettingsButton
+          variant="primary"
+          disabled={busy || loading}
+          onClick={() => props.onConnect(app.slug)}
+        >
+          {busy ? "Opening…" : "Connect"}
+        </GrokSettingsButton>
+      )}
+    </div>
+  );
+}
+
+function GrokConnectorGroup(props: {
+  label?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grok-connector-group">
+      {props.label ? (
+        <p className="grok-connector-group-label">{props.label}</p>
+      ) : null}
+      <div className="grok-connector-rows">{props.children}</div>
+    </div>
+  );
+}
+
+export function ConnectorsManager(props: { grok?: boolean }) {
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busySlug, setBusySlug] = useState<string | null>(null);
@@ -128,7 +221,6 @@ export function ConnectorsManager() {
         "width=520,height=720"
       );
 
-      // Poll until either the popup closes or the connection becomes ACTIVE.
       if (pollTimerRef.current) window.clearInterval(pollTimerRef.current);
       pollTimerRef.current = window.setInterval(async () => {
         const closed = popupRef.current?.closed ?? false;
@@ -140,6 +232,11 @@ export function ConnectorsManager() {
           if (pollTimerRef.current) {
             window.clearInterval(pollTimerRef.current);
             pollTimerRef.current = null;
+          }
+          if (active) {
+            void warmComposioTools().catch(() => {
+              // Best-effort cache warm after OAuth; ask path still loads tools.
+            });
           }
           setBusySlug(null);
         }
@@ -163,12 +260,92 @@ export function ConnectorsManager() {
     }
   };
 
-  const byToolkit = new Map<string, ConnectionSummary>();
-  for (const c of connections) {
-    const existing = byToolkit.get(c.toolkit);
-    if (!existing || (existing.status !== "ACTIVE" && c.status === "ACTIVE")) {
-      byToolkit.set(c.toolkit, c);
+  const byToolkit = useMemo(() => {
+    const map = new Map<string, ConnectionSummary>();
+    for (const c of connections) {
+      const existing = map.get(c.toolkit);
+      if (!existing || (existing.status !== "ACTIVE" && c.status === "ACTIVE")) {
+        map.set(c.toolkit, c);
+      }
     }
+    return map;
+  }, [connections]);
+
+  const { connectedApps, disconnectedApps } = useMemo(() => {
+    const connected: ConnectorApp[] = [];
+    const disconnected: ConnectorApp[] = [];
+    for (const app of SUPPORTED_APPS) {
+      if (isConnected(app.slug, byToolkit)) {
+        connected.push(app);
+      } else {
+        disconnected.push(app);
+      }
+    }
+    return { connectedApps: connected, disconnectedApps: disconnected };
+  }, [byToolkit]);
+
+  const renderGrokGroups = () => {
+    const showConnectedLabel = connectedApps.length > 0;
+    const showAvailableLabel =
+      disconnectedApps.length > 0 && connectedApps.length > 0;
+
+    return (
+      <div className="grok-connector-panel">
+        {connectedApps.length > 0 ? (
+          <GrokConnectorGroup
+            label={showConnectedLabel ? "Connected" : undefined}
+          >
+            {connectedApps.map((app) => (
+              <GrokConnectorRow
+                key={app.slug}
+                app={app}
+                connection={byToolkit.get(app.slug)}
+                isActive
+                busy={busySlug === app.slug}
+                loading={loading}
+                onConnect={(slug) => void handleConnect(slug)}
+                onDisconnect={(c) => void handleDisconnect(c)}
+              />
+            ))}
+          </GrokConnectorGroup>
+        ) : null}
+        {disconnectedApps.length > 0 ? (
+          <GrokConnectorGroup
+            label={showAvailableLabel ? "Available" : undefined}
+          >
+            {disconnectedApps.map((app) => (
+              <GrokConnectorRow
+                key={app.slug}
+                app={app}
+                connection={byToolkit.get(app.slug)}
+                isActive={false}
+                busy={busySlug === app.slug}
+                loading={loading}
+                onConnect={(slug) => void handleConnect(slug)}
+                onDisconnect={(c) => void handleDisconnect(c)}
+              />
+            ))}
+          </GrokConnectorGroup>
+        ) : null}
+      </div>
+    );
+  };
+
+  if (props.grok) {
+    return (
+      <section>
+        <p className="grok-settings-section-title">Connectors</p>
+        <p className="grok-settings-section-desc">
+          Connect apps so Kivo can read from and write to them when you ask.
+        </p>
+
+        {error ? (
+          <p className="mb-4 text-[13px] text-[#f87171]">{error}</p>
+        ) : null}
+
+        {renderGrokGroups()}
+      </section>
+    );
   }
 
   return (
@@ -176,69 +353,76 @@ export function ConnectorsManager() {
       <div>
         <h3 className="mb-1 text-sm font-normal text-app">Connectors</h3>
         <p className="text-sm font-normal leading-relaxed text-app-muted">
-          Connect apps so ARIA can read from and write to them when you ask.
-          Connections are scoped to your account.
+          Connect apps so Kivo can read from and write to them when you ask.
         </p>
       </div>
-
       {error ? (
         <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {error}
         </p>
       ) : null}
-
-      <ul className="space-y-2">
-        {SUPPORTED_APPS.map((app) => {
-          const connection = byToolkit.get(app.slug);
-          const isActive = connection?.status === "ACTIVE" && !connection.isDisabled;
-          const busy = busySlug === app.slug;
-          return (
-            <li
-              key={app.slug}
-              className="flex items-start gap-3 rounded-xl border border-app bg-surface px-4 py-3.5"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-normal text-app">{app.label}</p>
-                  {connection ? (
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] ${
-                        isActive
-                          ? "bg-emerald-500/15 text-emerald-400"
-                          : "bg-app/40 text-app-muted"
-                      }`}
-                    >
-                      {statusLabel(connection.status)}
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-xs leading-relaxed text-app-muted">
-                  {app.blurb}
+      <div className="space-y-4">
+        {[connectedApps, disconnectedApps]
+          .filter((group) => group.length > 0)
+          .map((group, groupIndex) => (
+            <div key={groupIndex} className="space-y-2">
+              {connectedApps.length > 0 && disconnectedApps.length > 0 ? (
+                <p className="px-0.5 text-xs text-app-muted">
+                  {groupIndex === 0 ? "Connected" : "Available"}
                 </p>
-              </div>
-              {isActive && connection ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void handleDisconnect(connection)}
-                  className="shrink-0 rounded-lg border border-app px-3 py-1.5 text-xs font-normal text-app-secondary transition-colors hover:bg-surface-hover hover:text-app disabled:opacity-50"
-                >
-                  {busy ? "…" : "Disconnect"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy || loading}
-                  onClick={() => void handleConnect(app.slug)}
-                  className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-normal text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {busy ? "Opening…" : "Connect"}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+              ) : null}
+              <ul className="space-y-1">
+                {group.map((app) => {
+                  const connection = byToolkit.get(app.slug);
+                  const active = isConnected(app.slug, byToolkit);
+                  const busy = busySlug === app.slug;
+                  return (
+                    <li
+                      key={app.slug}
+                      className="flex items-center gap-3 py-2.5"
+                    >
+                      <ConnectorIcon slug={app.slug} size={24} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-app">{app.label}</p>
+                          {active ? (
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full bg-emerald-400"
+                              aria-label="Connected"
+                              title="Connected"
+                            />
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 text-xs leading-relaxed text-app-muted">
+                          {connectorDescription(app, connection, active)}
+                        </p>
+                      </div>
+                      {active && connection ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleDisconnect(connection)}
+                          className="shrink-0 rounded-full px-4 py-1.5 text-xs font-medium text-app-muted transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-45"
+                        >
+                          {busy ? "…" : "Disconnect"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy || loading}
+                          onClick={() => void handleConnect(app.slug)}
+                          className="shrink-0 rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-45"
+                        >
+                          {busy ? "Opening…" : "Connect"}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+      </div>
     </section>
   );
 }

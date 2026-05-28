@@ -210,7 +210,28 @@ export class SpeechmaticsLiveClient {
         enable_partials: true,
         max_delay: 0.7,
         max_delay_mode: "fixed",
-        additional_vocab: ["ARIA", "Arya", "Hey ARIA"],
+        additional_vocab: [
+          {
+            content: "Kivo",
+            sounds_like: [
+              "kivo",
+              "keevo",
+              "keyvo",
+              "quivo",
+              "qui vo",
+              "kee vo",
+            ],
+          },
+          {
+            content: "Hey Kivo",
+            sounds_like: [
+              "hey kivo",
+              "hey keevo",
+              "hey keyvo",
+              "hey quivo",
+            ],
+          },
+        ],
         speaker_diarization_config: {
           max_speakers: 10,
           prefer_current_speaker: true,

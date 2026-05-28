@@ -3,7 +3,6 @@ import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/firebase/AuthProvider";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-import { OrbLayoutProvider } from "@/components/theme/OrbLayoutProvider";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
 
@@ -38,9 +37,7 @@ export default function RootLayout({
           {themeInitScript}
         </Script>
         <ThemeProvider>
-          <OrbLayoutProvider>
-            <AuthProvider>{children}</AuthProvider>
-          </OrbLayoutProvider>
+          <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -1,6 +1,6 @@
 "use client";
 
-// Procedural audio cues for ARIA's state machine. All tones are generated with
+// Procedural audio cues for Kivo's state machine. All tones are generated with
 // the WebAudio API — no asset files. Cues are intentionally short, quiet, and
 // musical so they don't compete with the conversation in the room.
 

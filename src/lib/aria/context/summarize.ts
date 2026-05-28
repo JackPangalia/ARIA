@@ -20,11 +20,8 @@ import {
   type CompactLog,
 } from "@/lib/server/context-dev-log";
 import type { SessionFactDoc } from "@/lib/sessions/types";
-import {
-  getOpenAI,
-  parseSummaryResponse,
-  SUMMARY_MODEL,
-} from "@/lib/aria/context/openai-client";
+import { geminiGenerateSummary } from "@/lib/aria/llm/gemini-client";
+import { getServerEnv, getSummaryModelId } from "@/lib/env";
 
 type SummarizeResult = {
   summarizedTurnCount: number;
@@ -58,15 +55,11 @@ export async function summarizeSession(
     .map((turn) => formatTurnForContext(turn))
     .join("\n");
 
-  const openai = getOpenAI(process.env.OPENAI_API_KEY ?? "");
-  const completion = await openai.chat.completions.create({
-    model: SUMMARY_MODEL,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: `You compress live meeting transcripts for a voice assistant named ARIA.
-Return strict JSON with keys:
+  const env = getServerEnv();
+  const parsed = await geminiGenerateSummary({
+    model: getSummaryModelId(env),
+    system: `You compress live meeting transcripts for a voice assistant named Kivo.
+Return structured output with:
 - rollingSummary: dense paragraph preserving names, decisions, disagreements, tasks, and speaker intent
 - keyDecisions: string array
 - openQuestions: string array
@@ -74,29 +67,21 @@ Return strict JSON with keys:
 - facts: array of { text, category } where category is one of fact, preference, decision, todo, name
 
 Preserve unresolved questions and speaker-specific preferences. Do not invent facts.`,
-      },
-      {
-        role: "user",
-        content: [
-          existingSummary?.rollingSummary
-            ? `# Existing summary\n${existingSummary.rollingSummary}`
-            : "",
-          existingFacts.length
-            ? `# Existing facts\n${existingFacts
-                .slice(0, 30)
-                .map((fact) => `- ${fact.text}`)
-                .join("\n")}`
-            : "",
-          `# New turns to compress\n${transcript}`,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
-      },
-    ],
+    user: [
+      existingSummary?.rollingSummary
+        ? `# Existing summary\n${existingSummary.rollingSummary}`
+        : "",
+      existingFacts.length
+        ? `# Existing facts\n${existingFacts
+            .slice(0, 30)
+            .map((fact) => `- ${fact.text}`)
+            .join("\n")}`
+        : "",
+      `# New turns to compress\n${transcript}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
   });
-
-  const raw = completion.choices[0]?.message?.content ?? "";
-  const parsed = parseSummaryResponse(raw);
   const lastCoveredTurnId = toSummarize[toSummarize.length - 1]?.id ?? null;
 
   await upsertSummary(uid, sessionId, {

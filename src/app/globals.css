@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./grok-settings.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -362,3 +363,4 @@ body {
   height: 2px;
   background: transparent;
 }
+

@@ -52,3 +52,8 @@ export async function removeConnection(id: string): Promise<void> {
     { method: "DELETE" }
   );
 }
+
+/** Prefetch Composio tool catalog for the signed-in user (fire-and-forget safe). */
+export async function warmComposioTools(): Promise<void> {
+  await authedFetch<{ ok: boolean }>("/api/composio/warm", { method: "POST" });
+}

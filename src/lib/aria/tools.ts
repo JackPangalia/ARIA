@@ -1,28 +1,75 @@
-import { webSearchTool, type Tool } from "@openai/agents";
+import { tool, type Tool } from "@openai/agents";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { generateText } from "ai";
+import { getGeminiApiKey } from "@/lib/aria/llm/gemini-client";
+import { questionLikelyNeedsSearch } from "@/lib/aria/search-gating";
 
-// Cheap heuristic: does this question look like it might need fresh / external
-// info? If not, we skip attaching the web search tool so the model doesn't
-// spend a round-trip considering it.
-const SEARCH_HINT_PATTERNS: RegExp[] = [
-  /\b(latest|today|tonight|tomorrow|yesterday|this (?:week|month|year)|currently|right now|breaking|news|update|recent|just (?:announced|released|happened))\b/i,
-  /\b(price|stock|ticker|market|score|weather|forecast|temperature|traffic)\b/i,
-  /\b(who (?:is|won|leads|leading)|what (?:is|are) the (?:price|score|weather|status))\b/i,
-  /\b(search|google|look up|find out|cite|source|reference)\b/i,
-  /\b20\d{2}\b/, // explicit recent-year mention
-];
+const MEETING_SNIPPET_MAX_CHARS = 2000;
 
-function questionLikelyNeedsSearch(question: string): boolean {
-  return SEARCH_HINT_PATTERNS.some((re) => re.test(question));
+function trimMeetingSnippet(messages: string | undefined): string | undefined {
+  if (!messages?.trim()) return undefined;
+  const trimmed = messages.trim();
+  if (trimmed.length <= MEETING_SNIPPET_MAX_CHARS) return trimmed;
+  return `…${trimmed.slice(-MEETING_SNIPPET_MAX_CHARS)}`;
 }
 
-export function getAriaTools(question?: string): Tool[] {
-  if (question && !questionLikelyNeedsSearch(question)) {
+export function getAriaTools(
+  question: string | undefined,
+  modelId: string,
+  options?: { meetingSnippet?: string }
+): Tool[] {
+  if (!question || !questionLikelyNeedsSearch(question)) {
     return [];
   }
+
+  const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
+  const meetingSnippet = trimMeetingSnippet(options?.meetingSnippet);
+
   return [
-    webSearchTool({
-      searchContextSize: "low",
-      externalWebAccess: true,
+    tool({
+      name: "google_search",
+      description:
+        "Search the web for current, factual, or time-sensitive information when the question needs fresh data beyond the meeting transcript, or when the user asked you to search.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Focused search query (include topic, timeframe, and geography when relevant).",
+          },
+        },
+        required: ["query"],
+      } as never,
+      strict: false,
+      async execute(input: unknown) {
+        const args =
+          typeof input === "object" && input !== null
+            ? (input as { query?: string })
+            : {};
+        const query = args.query?.trim() ?? "";
+        if (!query) return "No search query provided.";
+
+        const userPrompt = meetingSnippet
+          ? `Meeting context (for relevance only):\n${meetingSnippet}\n\nResearch query: ${query}`
+          : `Research query: ${query}`;
+
+        const { text } = await generateText({
+          model: google(modelId),
+          system: `You are a research assistant preparing notes for a live meeting voice assistant.
+Use Google Search to gather current, factual information.
+Return a concise briefing (4-8 sentences) with specific recent developments, names, and dates when available.
+Name publications or sources when useful.
+Do not role-play as the voice assistant or add filler — research notes only.`,
+          prompt: userPrompt,
+          tools: {
+            google_search: google.tools.googleSearch({}),
+          },
+        });
+        return text.trim() || "No search results found.";
+      },
     }),
   ];
 }
+
+export { questionLikelyNeedsSearch } from "@/lib/aria/search-gating";

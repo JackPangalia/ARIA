@@ -16,11 +16,43 @@ function useModel() {
   );
 }
 
-export function ModelToggle() {
+type ModelToggleProps = {
+  variant?: "default" | "settings" | "grok";
+};
+
+export function ModelToggle({ variant = "default" }: ModelToggleProps) {
   const current = useModel();
 
+  if (variant === "grok") {
+    return (
+      <div>
+        {MODEL_OPTIONS.map((option) => {
+          const active = option.id === current;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => storeModel(option.id)}
+              className="grok-model-row w-full text-left"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="grok-model-row-title">{option.label}</div>
+                <div className="grok-model-row-desc">{option.blurb}</div>
+              </div>
+              <span className="grok-radio" data-checked={active} aria-hidden>
+                {active ? <span className="grok-radio-dot" /> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const compact = variant === "settings";
+
   return (
-    <div className="space-y-2">
+    <div className={compact ? "divide-y divide-app rounded-xl border border-app" : "space-y-2"}>
       {MODEL_OPTIONS.map((option) => {
         const active = option.id === current;
         return (
@@ -29,10 +61,16 @@ export function ModelToggle() {
             type="button"
             onClick={() => storeModel(option.id)}
             aria-pressed={active}
-            className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
-              active
-                ? "border-app-strong bg-surface-hover"
-                : "border-app bg-surface hover:bg-surface-hover"
+            className={`flex w-full items-start gap-3 text-left transition-colors ${
+              compact
+                ? `px-4 py-3.5 first:rounded-t-xl last:rounded-b-xl ${
+                    active ? "bg-surface-hover" : "hover:bg-surface-hover/60"
+                  }`
+                : `rounded-xl border px-4 py-3 ${
+                    active
+                      ? "border-app-strong bg-surface-hover"
+                      : "border-app bg-surface hover:bg-surface-hover"
+                  }`
             }`}
           >
             <span

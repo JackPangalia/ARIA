@@ -2,16 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AriaEngine } from "@/lib/audio/aria-engine";
+import { warmComposioTools } from "@/lib/composio/client-api";
 import { useAriaStore } from "@/lib/store";
 
 export function Controls(props: {
-  sessionId: string;
+  sessionId: string | null;
   disabled?: boolean;
+  resume?: boolean;
+  ensureSession?: () => Promise<string>;
   onActivity?: () => void;
 }) {
-  const { sessionId, disabled, onActivity } = props;
+  const { sessionId, disabled, resume, ensureSession, onActivity } = props;
   const status = useAriaStore((s) => s.status);
   const engineRef = useRef<AriaEngine | null>(null);
+  const prevSessionIdRef = useRef(sessionId);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -20,15 +24,35 @@ export function Controls(props: {
     };
   }, []);
 
+  useEffect(() => {
+    const prev = prevSessionIdRef.current;
+    prevSessionIdRef.current = sessionId;
+    if (prev !== sessionId && prev !== null) {
+      void engineRef.current?.stop();
+      engineRef.current = null;
+    }
+  }, [sessionId]);
+
   const isRunning = status !== "idle" && status !== "error";
 
   const onStart = async () => {
     if (disabled || isRunning || busy) return;
     setBusy(true);
     try {
-      const engine = new AriaEngine({ sessionId, onSessionActivity: onActivity });
+      let activeSessionId = sessionId;
+      if (!activeSessionId) {
+        if (!ensureSession) return;
+        activeSessionId = await ensureSession();
+      }
+      const engine = new AriaEngine({
+        sessionId: activeSessionId,
+        onSessionActivity: onActivity,
+      });
       engineRef.current = engine;
       await engine.start();
+      void warmComposioTools().catch(() => {
+        // Best-effort prefetch before first wake question.
+      });
     } catch {
       engineRef.current = null;
     } finally {
@@ -61,16 +85,25 @@ export function Controls(props: {
           type="button"
           onClick={onStop}
           disabled={busy}
-          className="inline-flex min-w-[8.5rem] items-center justify-center rounded-full border border-app-strong bg-app px-8 py-3 text-sm font-normal tracking-[0.12em] text-app transition-colors hover:border-app-strong hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex min-w-[9rem] items-center justify-center rounded-full border border-app-strong bg-app px-8 py-3 text-sm font-normal tracking-[0.12em] text-app transition-colors hover:border-app-strong hover:bg-surface-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
         >
           STOP
+        </button>
+      ) : resume ? (
+        <button
+          type="button"
+          onClick={onStart}
+          disabled={busy || disabled}
+          className="inline-flex min-w-[9rem] items-center justify-center rounded-full bg-accent px-8 py-3 text-sm font-normal tracking-[0.12em] text-accent-fg transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Resume
         </button>
       ) : (
         <button
           type="button"
           onClick={onStart}
           disabled={busy || disabled}
-          className="inline-flex min-w-[8.5rem] items-center justify-center rounded-full bg-accent px-8 py-3 text-sm font-normal tracking-[0.12em] text-accent-fg transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex min-w-[9rem] items-center justify-center rounded-full bg-accent px-8 py-3 text-sm font-normal tracking-[0.12em] text-accent-fg transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
         >
           START
         </button>

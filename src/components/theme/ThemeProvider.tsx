@@ -13,13 +13,15 @@ import {
   applyTheme,
   DEFAULT_THEME,
   readStoredTheme,
+  resolveTheme,
   storeTheme,
-  type Theme,
+  type ThemePreference,
 } from "@/lib/theme";
 
 type ThemeContextValue = {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
+  theme: ThemePreference;
+  resolvedTheme: "light" | "dark";
+  setTheme: (theme: ThemePreference) => void;
   toggleTheme: () => void;
 };
 
@@ -32,13 +34,19 @@ function subscribe(onStoreChange: () => void) {
 
   window.addEventListener(THEME_EVENT, onStoreChange);
   window.addEventListener("storage", onStoreChange);
+
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onMq = () => onStoreChange();
+  mq.addEventListener("change", onMq);
+
   return () => {
     window.removeEventListener(THEME_EVENT, onStoreChange);
     window.removeEventListener("storage", onStoreChange);
+    mq.removeEventListener("change", onMq);
   };
 }
 
-function getThemeSnapshot(): Theme {
+function getThemeSnapshot(): ThemePreference {
   return readStoredTheme();
 }
 
@@ -53,23 +61,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     () => DEFAULT_THEME
   );
 
+  const resolvedTheme = resolveTheme(theme);
+
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
-  const setTheme = useCallback((next: Theme) => {
+  const setTheme = useCallback((next: ThemePreference) => {
     storeTheme(next);
     applyTheme(next);
     notifyThemeChange();
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme(theme === "dark" ? "light" : "dark");
-  }, [setTheme, theme]);
+    const next = resolvedTheme === "dark" ? "light" : "dark";
+    setTheme(next);
+  }, [setTheme, resolvedTheme]);
 
   const value = useMemo(
-    () => ({ theme, setTheme, toggleTheme }),
-    [theme, setTheme, toggleTheme]
+    () => ({ theme, resolvedTheme, setTheme, toggleTheme }),
+    [theme, resolvedTheme, setTheme, toggleTheme]
   );
 
   return (

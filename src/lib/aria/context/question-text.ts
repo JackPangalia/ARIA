@@ -1,5 +1,5 @@
 const WAKE_PREFIX =
-  /^(?:hey\s+)?aria[,!\s]*/i;
+  /^(?:hey\s+)?(?:kivo|keevo|keyvo|quivo)[,!\s]*/i;
 
 const EARLY_SESSION_INTENT =
   /\b(beginning|start|started|first|originally|earlier|opening|initially)\b/i;

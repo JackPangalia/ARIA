@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SessionStatusSchema = z.enum(["active", "ended", "archived"]);
+export const SessionStatusSchema = z.enum(["active", "ended", "archived", "trashed"]);
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 
 export const TurnRoleSchema = z.enum(["speaker", "user_question", "assistant"]);
@@ -15,6 +15,7 @@ export interface SessionDoc {
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;
+  trashedAt: string | null;
   lastSummaryAt: string | null;
   tokenEstimate: number;
   searchableTextPreview: string;

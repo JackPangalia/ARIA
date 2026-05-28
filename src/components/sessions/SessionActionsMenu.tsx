@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { OrbLayoutToggle } from "@/components/theme/OrbLayoutToggle";
-
 function MenuIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -82,7 +80,6 @@ export function SessionActionsMenu(props: {
           }`}
         >
           <ThemeToggle />
-          <OrbLayoutToggle />
           <button
             type="button"
             className={itemClass}

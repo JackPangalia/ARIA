@@ -80,6 +80,12 @@ export async function patchSession(
   });
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  await apiFetch<{ deleted: true }>(`/api/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function appendSessionTurn(
   sessionId: string,
   input: {
@@ -139,6 +145,19 @@ export async function exportSession(
     throw new Error(body?.error ?? `Export failed (${res.status})`);
   }
   return res.text();
+}
+
+export async function prefetchSessionContext(
+  sessionId: string,
+  question: string
+): Promise<void> {
+  await apiFetch<{ ok: boolean }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/prefetch-context`,
+    {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }
+  );
 }
 
 export async function askSessionQuestion(

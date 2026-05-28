@@ -1,5 +1,6 @@
 import { listTurns, patchSession } from "@/lib/sessions/repository";
-import { getOpenAI, SUMMARY_MODEL } from "./openai-client";
+import { geminiGenerateText } from "@/lib/aria/llm/gemini-client";
+import { getServerEnv, getSummaryModelId } from "@/lib/env";
 
 export async function autoTitleSession(
   uid: string,
@@ -17,31 +18,21 @@ export async function autoTitleSession(
     const transcript = turns
       .map((turn) => {
         let label = "Speaker";
-        if (turn.role === "assistant") label = "ARIA";
+        if (turn.role === "assistant") label = "Kivo";
         else if (turn.role === "user_question") label = "Question";
         return `${label}: ${turn.text}`;
       })
       .join("\n");
 
-    const openai = getOpenAI(process.env.OPENAI_API_KEY ?? "");
-    const completion = await openai.chat.completions.create({
-      model: SUMMARY_MODEL,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an assistant that titles meeting sessions. Based on the transcript snippet, generate a highly punchy, descriptive title of exactly 3 to 5 words. Do not use quotes, punctuation, or generic terms like 'Session', 'Meeting', 'Discussion', 'Conversation', or 'Audio'.",
-        },
-        {
-          role: "user",
-          content: `Transcript:\n${transcript}`,
-        },
-      ],
-      max_completion_tokens: 15,
-      temperature: 0.5,
+    const env = getServerEnv();
+    const rawTitle = await geminiGenerateText({
+      model: getSummaryModelId(env),
+      system:
+        "You are an assistant that titles meeting sessions. Based on the transcript snippet, generate a highly punchy, descriptive title of exactly 3 to 5 words. Do not use quotes, punctuation, or generic terms like 'Session', 'Meeting', 'Discussion', 'Conversation', or 'Audio'.",
+      user: `Transcript:\n${transcript}`,
+      maxOutputTokens: 24,
     });
 
-    const rawTitle = completion.choices[0]?.message?.content?.trim() ?? "";
     const cleanedTitle = rawTitle.replace(/["'./]/g, "").slice(0, 100);
 
     if (cleanedTitle) {

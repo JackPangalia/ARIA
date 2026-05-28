@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { PatchSessionSchema } from "@/lib/sessions/types";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import {
+  deleteSession,
   getSessionDetail,
   patchSession,
 } from "@/lib/sessions/repository";
@@ -42,6 +43,19 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
       return jsonOk(session);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Update failed.";
+      return jsonError(msg, msg.includes("not found") ? 404 : 400);
+    }
+  });
+}
+
+export async function DELETE(req: NextRequest, context: RouteContext) {
+  return withAuth(req, async ({ uid }) => {
+    const { sessionId } = await context.params;
+    try {
+      await deleteSession(uid, sessionId);
+      return jsonOk({ deleted: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Delete failed.";
       return jsonError(msg, msg.includes("not found") ? 404 : 400);
     }
   });

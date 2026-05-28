@@ -10,14 +10,21 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.80",
+    "@cartesia/cartesia-js": "^3.1.0",
     "@composio/core": "^0.10.0",
     "@openai/agents": "^0.11.4",
+    "@openai/agents-extensions": "^0.11.5",
+    "@types/three": "^0.184.1",
+    "ai": "^6.0.191",
     "firebase": "^12.13.0",
     "firebase-admin": "^13.10.0",
+    "motion": "^12.40.0",
     "next": "^16.2.6",
     "openai": "^6.37.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "three": "^0.184.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"
   },

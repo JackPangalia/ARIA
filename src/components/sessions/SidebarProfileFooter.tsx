@@ -61,7 +61,7 @@ function ThemeModeIcon({ dark }: { dark: boolean }) {
 
 export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   const { user, signOutUser } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { resolvedTheme, toggleTheme } = useTheme();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -89,7 +89,7 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   const displayName = user.displayName ?? user.email?.split("@")[0] ?? "Account";
   const email = user.email ?? "";
   const initial = (displayName[0] ?? "A").toUpperCase();
-  const isDark = theme === "dark";
+  const isDark = resolvedTheme === "dark";
 
   const itemClass =
     "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-normal text-app-secondary transition-colors hover:bg-surface-hover hover:text-app";
@@ -101,7 +101,7 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   };
 
   return (
-    <div ref={rootRef} className="relative shrink-0 border-t border-app-subtle px-2 py-2">
+    <div ref={rootRef} className="relative shrink-0 px-2 py-2">
       {open ? (
         <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl bg-menu py-1.5 shadow-menu ring-1 ring-menu">
           <button

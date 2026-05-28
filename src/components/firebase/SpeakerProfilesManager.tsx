@@ -10,6 +10,7 @@ import {
   saveSpeakerProfile,
 } from "@/lib/speakers/client";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
+import { GrokSettingsButton } from "@/components/settings/SettingsRow";
 
 const ENROLL_SECONDS = 8;
 const COUNTDOWN_SECONDS = 3;
@@ -109,20 +110,21 @@ function EnrollmentOrb(props: {
   level: number;
   countdown: number;
   secondsLeft: number;
+  compact?: boolean;
 }) {
-  const { phase, level, countdown, secondsLeft } = props;
+  const { phase, level, countdown, secondsLeft, compact = false } = props;
 
   const scale =
     phase === "recording"
-      ? 1 + Math.min(0.45, level * 2.2)
+      ? 1 + Math.min(0.35, level * 1.8)
       : phase === "success"
-        ? 1.05
+        ? 1.04
         : phase === "processing"
           ? 1
           : 1;
 
   const ringOpacity =
-    phase === "recording" ? Math.min(0.9, 0.3 + level * 2.5) : 0.4;
+    phase === "recording" ? Math.min(0.85, 0.28 + level * 2.2) : 0.35;
 
   const palette =
     phase === "success"
@@ -137,8 +139,12 @@ function EnrollmentOrb(props: {
               ? ["#f59e0b", "#fbbf24"]
               : ["#71717a", "#a1a1aa"];
 
+  const shell = compact ? "h-[4.5rem] w-[4.5rem]" : "h-32 w-32";
+  const orb = compact ? "h-[3.25rem] w-[3.25rem]" : "h-24 w-24";
+  const inner = compact ? "h-[3.25rem] w-[3.25rem]" : "h-24 w-24";
+
   return (
-    <div className="relative flex h-32 w-32 items-center justify-center">
+    <div className={`relative flex shrink-0 items-center justify-center ${shell}`}>
       <div
         aria-hidden
         className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
@@ -151,37 +157,49 @@ function EnrollmentOrb(props: {
       />
       <div
         aria-hidden
-        className="absolute h-24 w-24 rounded-full transition-transform duration-100 ease-out"
+        className={`absolute rounded-full transition-transform duration-100 ease-out ${orb}`}
         style={{
           transform: `scale(${scale})`,
           background: `radial-gradient(circle at 35% 30%, ${palette[1]} 0%, ${palette[0]} 70%)`,
-          boxShadow: `0 0 30px ${palette[0]}55, inset 0 0 20px ${palette[1]}aa`,
+          boxShadow: compact
+            ? `0 0 16px ${palette[0]}44, inset 0 0 12px ${palette[1]}88`
+            : `0 0 30px ${palette[0]}55, inset 0 0 20px ${palette[1]}aa`,
         }}
       />
-      <div className="relative z-10 flex h-24 w-24 items-center justify-center">
+      <div className={`relative z-10 flex items-center justify-center ${inner}`}>
         {phase === "countdown" ? (
           <span
             key={countdown}
-            className="text-3xl font-light text-white drop-shadow-md"
+            className={`font-light text-white drop-shadow-md ${
+              compact ? "text-xl" : "text-3xl"
+            }`}
             style={{ animation: "speaker-pop 0.6s ease-out" }}
           >
             {countdown}
           </span>
         ) : phase === "recording" ? (
-          <span className="tabular-nums text-2xl font-light text-white drop-shadow-md">
+          <span
+            className={`tabular-nums font-light text-white drop-shadow-md ${
+              compact ? "text-lg" : "text-2xl"
+            }`}
+          >
             {secondsLeft}
           </span>
         ) : phase === "processing" ? (
           <span
             aria-hidden
-            className="h-6 w-6 animate-spin rounded-full border-2 border-white/30 border-t-white"
+            className={`animate-spin rounded-full border-2 border-white/30 border-t-white ${
+              compact ? "h-4 w-4" : "h-6 w-6"
+            }`}
           />
         ) : phase === "success" ? (
-          <CheckIcon className="h-8 w-8 text-white" />
+          <CheckIcon className={compact ? "h-5 w-5 text-white" : "h-8 w-8 text-white"} />
         ) : phase === "error" ? (
-          <span className="text-2xl font-light text-white">!</span>
+          <span className={`font-light text-white ${compact ? "text-lg" : "text-2xl"}`}>
+            !
+          </span>
         ) : (
-          <MicIcon className="h-7 w-7 text-white" />
+          <MicIcon className={compact ? "h-5 w-5 text-white" : "h-7 w-7 text-white"} />
         )}
       </div>
 
@@ -205,18 +223,28 @@ function EnrollmentOrb(props: {
   );
 }
 
-function Waveform(props: { levels: number[]; active: boolean }) {
+function Waveform(props: { levels: number[]; active: boolean; compact?: boolean }) {
+  const compact = props.compact ?? false;
+  const maxH = compact ? 22 : 40;
+  const minH = compact ? 4 : 8;
+
   return (
-    <div className="flex h-10 items-center justify-center gap-[3px]">
+    <div
+      className={`flex items-center justify-center ${
+        compact ? "h-6 gap-[2px]" : "h-10 gap-[3px]"
+      }`}
+    >
       {props.levels.map((v, i) => {
-        const h = props.active ? Math.max(8, Math.min(40, 8 + v * 90)) : 8;
+        const h = props.active ? Math.max(minH, Math.min(maxH, minH + v * (compact ? 55 : 90))) : minH;
         return (
           <span
             key={i}
-            className="w-[3px] rounded-full bg-accent transition-[height,opacity] duration-100 ease-out"
+            className={`rounded-full bg-accent transition-[height,opacity] duration-100 ease-out ${
+              compact ? "w-[2px]" : "w-[3px]"
+            }`}
             style={{
               height: `${h}px`,
-              opacity: props.active ? 0.5 + Math.min(0.5, v * 1.5) : 0.25,
+              opacity: props.active ? 0.45 + Math.min(0.55, v * 1.5) : 0.2,
             }}
           />
         );
@@ -225,7 +253,7 @@ function Waveform(props: { levels: number[]; active: boolean }) {
   );
 }
 
-export function SpeakerProfilesManager(props: { embedded?: boolean }) {
+export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boolean }) {
   const [profiles, setProfiles] = useState<SpeakerProfileDoc[]>([]);
   const [name, setName] = useState("");
   const [phase, setPhase] = useState<EnrollPhase>("idle");
@@ -510,86 +538,87 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
             ? `Saved ${savedName ?? ""}`.trim()
             : phase === "error"
               ? "Something went wrong"
-              : "Press enroll when you're ready";
+              : "Ready to enroll";
+
+  const compact = Boolean(props.embedded || props.grok);
+  const enrolling =
+    phase === "countdown" || phase === "recording" || phase === "processing";
+  const showEnrollmentForm =
+    phase === "idle" || phase === "error" || phase === "success";
+
+  const statusClass =
+    phase === "error"
+      ? "text-danger"
+      : phase === "success"
+        ? "text-app"
+        : "text-app-secondary";
+
+  const enrollHint = `${ENROLL_SECONDS} seconds · one person only`;
 
   return (
-    <section className={props.embedded ? "space-y-6" : "space-y-4 border-t border-app pt-8"}>
+    <section
+      className={
+        props.embedded
+          ? compact
+            ? "space-y-5"
+            : "space-y-6"
+          : "space-y-4 border-t border-app pt-8"
+      }
+    >
       {!props.embedded ? (
         <div>
           <p className="text-[9px] tracking-[0.22em] text-app-subtle">SPEAKER MEMORY</p>
           <p className="mt-2 text-[11px] leading-snug text-app-subtle">
-            Enroll one person at a time. ARIA stores Speechmatics speaker identifiers,
+            Enroll one person at a time. ARIA stores Speechmatics speaker identifiers for Kivo,
             not raw audio.
           </p>
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-app bg-app/40 p-5">
-        <div className="flex flex-col items-center gap-4">
-          <EnrollmentOrb
-            phase={phase}
-            level={level}
-            countdown={countdown}
-            secondsLeft={secondsLeft}
-          />
-
-          <Waveform
-            levels={waveform}
-            active={phase === "recording" || phase === "countdown"}
-          />
-
-          <p
-            className={`text-center text-sm transition-colors ${
-              phase === "error"
-                ? "text-danger"
-                : phase === "success"
-                  ? "text-app"
-                  : "text-app-secondary"
-            }`}
+      <div className={props.grok ? "grok-speaker-enroll" : compact ? "" : ""}>
+        {enrolling ? (
+          <div
+            className={
+              compact
+                ? "flex flex-col items-center gap-2 py-1"
+                : "flex flex-col items-center gap-3"
+            }
           >
-            {phase === "error" && error ? error : statusLine}
-          </p>
+            <EnrollmentOrb
+              compact={compact}
+              phase={phase}
+              level={level}
+              countdown={countdown}
+              secondsLeft={secondsLeft}
+            />
 
-          {phase === "recording" || phase === "processing" ? (
-            <div className="h-1 w-full overflow-hidden rounded-full bg-surface">
+            <Waveform
+              compact={compact}
+              levels={waveform}
+              active={phase === "recording" || phase === "countdown"}
+            />
+
+            <p
+              className={`text-center transition-colors ${
+                compact ? "text-xs" : "text-sm"
+              } ${statusClass}`}
+            >
+              {statusLine}
+            </p>
+
+            {phase === "recording" || phase === "processing" ? (
               <div
-                className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          ) : null}
-
-          {phase === "idle" || phase === "error" || phase === "success" ? (
-            <div className="w-full space-y-3">
-              <div>
-                <label
-                  htmlFor="speaker-name"
-                  className="mb-1.5 block text-xs text-app-muted"
-                >
-                  Speaker name
-                </label>
-                <input
-                  id="speaker-name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="e.g. Alex"
-                  className="w-full rounded-lg border border-app bg-surface px-3 py-2.5 text-sm text-app outline-none focus:border-app-strong"
+                className={`overflow-hidden rounded-full bg-surface ${
+                  compact ? "h-0.5 w-full max-w-xs" : "h-1 w-full"
+                }`}
+              >
+                <div
+                  className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
+                  style={{ width: `${progress}%` }}
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => void startEnrollment()}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 text-sm font-normal text-accent-fg transition-opacity hover:opacity-90"
-              >
-                <MicIcon className="h-4 w-4" />
-                {phase === "error" ? "Try again" : "Enroll voice"}
-              </button>
-              <p className="text-center text-xs leading-relaxed text-app-subtle">
-                We&apos;ll record {ENROLL_SECONDS} seconds of your voice. Only one
-                person should speak.
-              </p>
-            </div>
-          ) : (
+            ) : null}
+
             <button
               type="button"
               onClick={() => void cancelEnrollment()}
@@ -597,8 +626,115 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
             >
               Cancel
             </button>
-          )}
-        </div>
+          </div>
+        ) : compact ? (
+          <div className="grok-speaker-enroll-idle">
+            <EnrollmentOrb
+              compact
+              phase={phase}
+              level={level}
+              countdown={countdown}
+              secondsLeft={secondsLeft}
+            />
+            <div className="min-w-0 flex-1 space-y-2.5">
+              {showEnrollmentForm ? (
+                <>
+                  <div>
+                    <label
+                      htmlFor="speaker-name"
+                      className="mb-1 block text-xs text-app-muted"
+                    >
+                      Speaker name
+                    </label>
+                    <input
+                      id="speaker-name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      placeholder="e.g. Alex"
+                      className={
+                        props.grok
+                          ? "grok-settings-input"
+                          : "w-full rounded-lg border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
+                      }
+                    />
+                  </div>
+                  {phase === "error" && error ? (
+                    <p className="text-xs text-danger">{error}</p>
+                  ) : phase === "success" ? (
+                    <p className={`text-xs ${statusClass}`}>{statusLine}</p>
+                  ) : null}
+                  {props.grok ? (
+                    <GrokSettingsButton
+                      variant="primary"
+                      onClick={() => void startEnrollment()}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <MicIcon className="h-3.5 w-3.5" />
+                        {phase === "error" ? "Try again" : "Enroll voice"}
+                      </span>
+                    </GrokSettingsButton>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void startEnrollment()}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm text-accent-fg transition-opacity hover:opacity-90"
+                    >
+                      <MicIcon className="h-4 w-4" />
+                      {phase === "error" ? "Try again" : "Enroll voice"}
+                    </button>
+                  )}
+                  <p className="text-xs leading-relaxed text-app-subtle">{enrollHint}</p>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-app bg-app/30 px-4 py-5">
+            <div className="flex flex-col items-center gap-3">
+              <EnrollmentOrb
+                phase={phase}
+                level={level}
+                countdown={countdown}
+                secondsLeft={secondsLeft}
+              />
+              <Waveform levels={waveform} active={false} />
+              <p className={`text-center text-sm transition-colors ${statusClass}`}>
+                {phase === "error" && error ? error : statusLine}
+              </p>
+              {showEnrollmentForm ? (
+                <div className="w-full space-y-3">
+                  <div>
+                    <label
+                      htmlFor="speaker-name"
+                      className="mb-1.5 block text-xs text-app-muted"
+                    >
+                      Speaker name
+                    </label>
+                    <input
+                      id="speaker-name"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      placeholder="e.g. Alex"
+                      className="w-full rounded-lg border border-app bg-surface px-3 py-2.5 text-sm text-app outline-none focus:border-app-strong"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void startEnrollment()}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-app bg-surface px-4 py-2.5 text-sm text-app transition-colors hover:bg-surface-hover"
+                  >
+                    <MicIcon className="h-4 w-4" />
+                    {phase === "error" ? "Try again" : "Enroll voice"}
+                  </button>
+                  <p className="text-center text-xs leading-relaxed text-app-subtle">
+                    We&apos;ll record {ENROLL_SECONDS} seconds of your voice. Only one
+                    person should speak.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </div>
 
       {error && phase !== "error" ? (
@@ -608,8 +744,14 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
       ) : null}
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <p className="text-xs uppercase tracking-[0.15em] text-app-subtle">
+        <div className="flex items-center justify-between px-0.5">
+          <p
+            className={
+              props.grok
+                ? "grok-connector-group-label"
+                : "text-xs text-app-muted"
+            }
+          >
             Enrolled
           </p>
           <p className="text-xs text-app-subtle">
@@ -618,18 +760,30 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
         </div>
 
         {profiles.length > 0 ? (
-          <ul className="space-y-1.5">
+          <ul
+            className={
+              props.grok
+                ? "grok-speaker-list space-y-1"
+                : "divide-y divide-app rounded-xl border border-app"
+            }
+          >
             {profiles.map((profile) => {
               const editing = editingId === profile.id;
               const hue = avatarHue(profile.name);
               return (
                 <li
                   key={profile.id}
-                  className="group flex items-center gap-3 rounded-xl border border-app bg-surface px-3 py-2.5 transition-colors hover:bg-surface-hover"
+                  className={
+                    props.grok
+                      ? "group flex items-center gap-3 py-2"
+                      : "group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-surface-hover/50"
+                  }
                 >
                   <span
                     aria-hidden
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium text-white"
+                    className={`flex shrink-0 items-center justify-center rounded-full font-medium text-white ${
+                      props.grok ? "h-8 w-8 text-xs" : "h-9 w-9 text-sm"
+                    }`}
                     style={{
                       background: `linear-gradient(135deg, hsl(${hue} 65% 55%), hsl(${(hue + 40) % 360} 65% 45%))`,
                     }}
@@ -648,7 +802,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
                           if (event.key === "Escape") setEditingId(null);
                         }}
                         onBlur={() => void onRename(profile)}
-                        className="w-full rounded-md border border-app bg-app px-2 py-1 text-sm text-app outline-none"
+                        className="w-full rounded-[var(--grok-radius-control,10px)] border border-app bg-app px-2 py-1 text-sm text-app outline-none"
                       />
                     ) : (
                       <>
@@ -672,7 +826,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
                           setEditingId(profile.id);
                           setEditingName(profile.name);
                         }}
-                        className="rounded-md p-1.5 text-app-muted transition-colors hover:bg-surface hover:text-app"
+                        className="rounded-[var(--grok-radius-control,8px)] p-1.5 text-app-muted transition-colors hover:bg-surface hover:text-app"
                       >
                         <PencilIcon />
                       </button>
@@ -680,7 +834,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
                         type="button"
                         aria-label={`Delete ${profile.name}`}
                         onClick={() => void onDelete(profile)}
-                        className="rounded-md p-1.5 text-app-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                        className="rounded-[var(--grok-radius-control,8px)] p-1.5 text-app-muted transition-colors hover:bg-danger/10 hover:text-danger"
                       >
                         <TrashIcon />
                       </button>
@@ -691,11 +845,19 @@ export function SpeakerProfilesManager(props: { embedded?: boolean }) {
             })}
           </ul>
         ) : (
-          <div className="rounded-xl border border-dashed border-app bg-app/30 px-4 py-6 text-center">
+          <div
+            className={
+              props.grok
+                ? "py-3 text-center"
+                : "rounded-xl border border-dashed border-app bg-app/30 px-4 py-6 text-center"
+            }
+          >
             <p className="text-sm text-app-muted">No voices enrolled yet.</p>
-            <p className="mt-1 text-xs text-app-subtle">
-              Add one above so ARIA can recognize who&apos;s speaking.
-            </p>
+            {!props.grok ? (
+              <p className="mt-1 text-xs text-app-subtle">
+                Add one above so Kivo can recognize who&apos;s speaking.
+              </p>
+            ) : null}
           </div>
         )}
       </div>

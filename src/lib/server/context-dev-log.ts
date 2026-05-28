@@ -61,6 +61,7 @@ export type AskCompleteLog = {
   speaker: string | number | null;
   model: string;
   contextBuildMs: number;
+  composioMs: number;
   agentMs: number;
   compactMs: number;
   totalMs: number;
@@ -136,7 +137,7 @@ export function logAskComplete(report: AskCompleteLog): void {
         : `Speaker ${report.speaker + 1}`;
 
   console.log(
-    `${PREFIX} ask done │ ${sid} │ ${speaker} │ ${formatMs(report.totalMs)} total │ context ${formatMs(report.contextBuildMs)} │ agent ${formatMs(report.agentMs)} │ compact ${formatMs(report.compactMs)}`
+    `${PREFIX} ask done │ ${sid} │ ${speaker} │ ${formatMs(report.totalMs)} total │ context ${formatMs(report.contextBuildMs)} │ composio ${formatMs(report.composioMs)} │ agent ${formatMs(report.agentMs)} │ compact ${formatMs(report.compactMs)}`
   );
   console.log(
     `${PREFIX}   tokens ~${report.bundle.tokens} in │ ~${report.answerTokens} out │ answer ${report.answerChars}c │ model ${report.model}`

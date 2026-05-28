@@ -41,6 +41,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (type === "pipeline" && body.data) {
+    const ms =
+      typeof body.data.ms === "number" ? `${Math.round(body.data.ms)}ms` : "—";
+    const extra = Object.entries(body.data)
+      .filter(([k]) => k !== "ms")
+      .map(([k, v]) => `${k}=${v}`)
+      .join(" ");
+    console.log(
+      `[ARIA] client │ ${ms.padStart(6, " ")} │ ${msg}${extra ? ` │ ${extra}` : ""}`
+    );
+    return NextResponse.json({ ok: true });
+  }
+
   const line = body.data && Object.keys(body.data).length > 0
     ? `${msg} ${JSON.stringify(body.data)}`
     : msg;

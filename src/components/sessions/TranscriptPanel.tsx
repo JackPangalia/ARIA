@@ -3,7 +3,7 @@
 import type { SessionFactDoc, SessionPinDoc, TurnDoc } from "@/lib/sessions/types";
 
 function turnLabel(turn: TurnDoc): string {
-  if (turn.role === "assistant") return "ARIA";
+  if (turn.role === "assistant") return "Kivo";
   if (turn.role === "user_question") {
     return turn.speaker == null
       ? "Question"
@@ -41,7 +41,7 @@ export function TranscriptPanel(props: {
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {filteredTurns.length === 0 ? (
           <p className="px-2 py-8 text-sm text-zinc-500">
-            No transcript yet. Start listening and ARIA will log the room.
+            No transcript yet. Start listening and Kivo will log the room.
           </p>
         ) : (
           <ul className="space-y-2">

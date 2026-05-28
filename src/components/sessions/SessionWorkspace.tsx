@@ -17,11 +17,13 @@ import {
 } from "@/lib/sessions/client";
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
-import { useOrbLayout } from "@/components/theme/OrbLayoutProvider";
-import { orbCenterPositionClass } from "@/lib/orb-layout";
 import { readSidebarCollapsed, storeSidebarCollapsed } from "@/lib/sidebar-layout";
 import { SettingsModal } from "@/components/firebase/SettingsModal";
-import { SessionInsightsPanel } from "@/components/sessions/SessionInsightsPanel";
+import {
+  SessionInsightsPanel,
+  TranscriptExpandButton,
+} from "@/components/sessions/SessionInsightsPanel";
+import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
 
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -57,6 +59,7 @@ export function SessionWorkspace() {
     () => readSidebarCollapsed()
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [trashConfirmId, setTrashConfirmId] = useState<string | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(min-width: 1024px)").matches;
@@ -81,7 +84,6 @@ export function SessionWorkspace() {
     storeSidebarCollapsed(collapsed);
   }, []);
 
-  const { mode: orbCenterMode } = useOrbLayout();
   const ariaStatus = useAriaStore((state) => state.status);
   const bootstrappedRef = useRef(false);
   const searchDebounceRef = useRef<number | null>(null);
@@ -129,37 +131,53 @@ export function SessionWorkspace() {
     void (async () => {
       setError(null);
       try {
-        const nextSessions = await refreshSessions();
+        await refreshSessions();
         const existingId = useSessionStore.getState().selectedSessionId;
         if (existingId) {
           await refreshDetail(existingId);
           setPanelsCollapsed(false);
           openSummaryIfDesktop();
-          return;
         }
-
-        const active = nextSessions.find((session) => session.status === "active");
-        if (active) {
-          setSelectedSessionId(active.id);
-          await refreshDetail(active.id);
-          setPanelsCollapsed(false);
-          openSummaryIfDesktop();
-          return;
-        }
-
-        const created = await createSession({ speakerCount: 2 });
-        setSelectedSessionId(created.id);
-        await refreshSessions();
-        await refreshDetail(created.id);
-        setPanelsCollapsed(false);
-        openSummaryIfDesktop();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load sessions.");
       } finally {
         setLoading(false);
       }
     })();
-  }, [refreshDetail, refreshSessions, setError, setLoading, setSelectedSessionId, openSummaryIfDesktop, setPanelsCollapsed]);
+  }, [refreshDetail, refreshSessions, setError, setLoading, openSummaryIfDesktop, setPanelsCollapsed]);
+
+  const goToStartScreen = useCallback(() => {
+    setSelectedSessionId(null);
+    setDetail(null);
+    setError(null);
+    setSidebarOpen(false);
+    setSummaryOpen(false);
+  }, [setDetail, setError, setSelectedSessionId, setSidebarOpen]);
+
+  const ensureSession = useCallback(async () => {
+    setError(null);
+    try {
+      const created = await createSession({ speakerCount: 2 });
+      await refreshSessions(searchQuery);
+      setSelectedSessionId(created.id);
+      await refreshDetail(created.id);
+      setPanelsCollapsed(false);
+      openSummaryIfDesktop();
+      return created.id;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create session.");
+      throw err;
+    }
+  }, [
+    openSummaryIfDesktop,
+    refreshDetail,
+    refreshSessions,
+    searchQuery,
+    setDetail,
+    setError,
+    setPanelsCollapsed,
+    setSelectedSessionId,
+  ]);
 
   useEffect(() => {
     if (!selectedSessionId || !LIVE_ARIA_STATUSES.has(ariaStatus)) return;
@@ -188,22 +206,8 @@ export function SessionWorkspace() {
     };
   }, []);
 
-  const handleCreateSession = async () => {
-    setActionBusy(true);
-    setError(null);
-    try {
-      const created = await createSession({ speakerCount: 2 });
-      await refreshSessions(searchQuery);
-      setSelectedSessionId(created.id);
-      await refreshDetail(created.id);
-      setSidebarOpen(false);
-      setPanelsCollapsed(false);
-      openSummaryIfDesktop();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create session.");
-    } finally {
-      setActionBusy(false);
-    }
+  const handleNewSession = () => {
+    goToStartScreen();
   };
 
   const handleSelectSession = async (sessionId: string) => {
@@ -270,6 +274,49 @@ export function SessionWorkspace() {
     }
   };
 
+  const handleTrashSession = async (sessionId: string) => {
+    setActionBusy(true);
+    setError(null);
+    try {
+      await patchSession(sessionId, { status: "trashed" });
+      if (selectedSessionId === sessionId) {
+        await refreshSessions(searchQuery);
+        goToStartScreen();
+      } else {
+        await refreshSessions(searchQuery);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Move to trash failed.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSessionsChanged = useCallback(async () => {
+    const nextSessions = await refreshSessions(searchQuery);
+    if (selectedSessionId && !nextSessions.some((s) => s.id === selectedSessionId)) {
+      goToStartScreen();
+    }
+  }, [goToStartScreen, refreshSessions, searchQuery, selectedSessionId]);
+
+  const handleArchiveSession = async (sessionId: string) => {
+    setActionBusy(true);
+    setError(null);
+    try {
+      await patchSession(sessionId, { status: "archived" });
+      if (selectedSessionId === sessionId) {
+        await refreshSessions(searchQuery);
+        goToStartScreen();
+      } else {
+        await refreshSessions(searchQuery);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Archive failed.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleSearch = useCallback(
     (value: string) => {
       setSearchQuery(value);
@@ -297,7 +344,7 @@ export function SessionWorkspace() {
     ? "grid-cols-1"
     : "lg:grid-cols-[16rem_minmax(0,1fr)]";
 
-  if (loading && !detail) {
+  if (loading) {
     return (
       <div className="flex h-dvh items-center justify-center bg-app text-app-muted">
         Loading sessions...
@@ -305,31 +352,26 @@ export function SessionWorkspace() {
     );
   }
 
-  if (!selectedSessionId || !detail) {
-    return (
-      <div className="flex h-dvh items-center justify-center bg-app px-6 text-center text-app-muted">
-        {error ?? "Unable to initialize session workspace."}
-      </div>
-    );
-  }
+  const hasSession = Boolean(selectedSessionId && detail);
 
   return (
     <div
       className={`grid h-dvh w-full grid-cols-1 overflow-hidden bg-app text-app ${gridClass}`}
     >
       {!panelsCollapsed ? (
-        <div className="hidden min-h-0 border-r border-app-subtle lg:block">
+        <div className="hidden min-h-0 lg:block">
           <SessionSidebar
             sessions={filteredSessions}
             selectedSessionId={selectedSessionId}
             onOpenSearch={openSearch}
             onSelect={handleSelectSession}
-            onCreate={handleCreateSession}
+            onCreate={handleNewSession}
             onCollapse={() => setPanelsCollapsed(true)}
             onRename={(id, title) => void handleRename(id, title)}
             onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
             onExportMarkdown={(id) => void handleExport(id, "markdown")}
             onExportJson={(id) => void handleExport(id, "json")}
+            onTrash={(id) => setTrashConfirmId(id)}
             onOpenSettings={() => setSettingsOpen(true)}
           />
         </div>
@@ -343,7 +385,7 @@ export function SessionWorkspace() {
             className="absolute inset-0 bg-overlay"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 w-[85%] max-w-xs border-r border-app-subtle bg-app">
+          <div className="absolute inset-y-0 left-0 w-[85%] max-w-xs bg-app">
             <SessionSidebar
               sessions={filteredSessions}
               selectedSessionId={selectedSessionId}
@@ -352,7 +394,7 @@ export function SessionWorkspace() {
                 openSearch();
               }}
               onSelect={handleSelectSession}
-              onCreate={handleCreateSession}
+              onCreate={handleNewSession}
               onClose={() => setSidebarOpen(false)}
               onRename={(id, title) => void handleRename(id, title)}
               onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
@@ -367,7 +409,33 @@ export function SessionWorkspace() {
         </div>
       ) : null}
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSessionsChanged={() => void handleSessionsChanged()}
+      />
+
+      <ConfirmDialog
+        open={trashConfirmId !== null}
+        title="Move session to trash?"
+        description={
+          (() => {
+            const target = sessions.find((s) => s.id === trashConfirmId);
+            const name = target?.title ?? "this session";
+            return `“${name}” will be hidden from the sidebar. You can restore it or delete it forever from Settings → Trash.`;
+          })()
+        }
+        confirmLabel="Move to trash"
+        danger
+        busy={actionBusy}
+        onCancel={() => setTrashConfirmId(null)}
+        onConfirm={() => {
+          const id = trashConfirmId;
+          if (!id) return;
+          setTrashConfirmId(null);
+          void handleTrashSession(id);
+        }}
+      />
 
       <SessionSearchModal
         open={searchOpen}
@@ -376,10 +444,16 @@ export function SessionWorkspace() {
         selectedSessionId={selectedSessionId}
         onQueryChange={handleSearch}
         onSelect={handleSelectSession}
+        onCreateNew={() => {
+          handleNewSession();
+          setSearchOpen(false);
+        }}
+        onRename={handleRename}
+        onArchive={(sessionId) => void handleArchiveSession(sessionId)}
         onClose={() => setSearchOpen(false)}
       />
 
-      <section className="relative h-full min-h-0 min-w-0">
+      <section className="relative h-full min-h-0 min-w-0 bg-app">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-start p-4">
           <div className="pointer-events-auto flex items-center gap-1 justify-self-start">
             {panelsCollapsed ? (
@@ -395,14 +469,8 @@ export function SessionWorkspace() {
           </div>
 
           <div className="pointer-events-auto col-start-3 flex items-center gap-1 justify-self-end">
-            {!summaryOpen ? (
-              <button
-                type="button"
-                onClick={() => setSummaryOpen(true)}
-                className="rounded-lg px-2.5 py-2 text-sm font-normal text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
-              >
-                Transcript
-              </button>
+            {hasSession && !summaryOpen ? (
+              <TranscriptExpandButton onClick={() => setSummaryOpen(true)} />
             ) : null}
           </div>
         </div>
@@ -413,39 +481,43 @@ export function SessionWorkspace() {
           </div>
         ) : null}
 
-        {summaryOpen ? (
-          <div className="pointer-events-none absolute top-0 right-0 bottom-0 z-20 max-w-[calc(100%-1rem)] p-4 pb-4 pl-0">
+        {hasSession && summaryOpen ? (
+          <div className="pointer-events-none absolute top-0 right-0 bottom-0 z-20 max-w-[calc(100%-1rem)] p-4 pl-0">
             <div className="pointer-events-auto ml-auto flex h-full min-h-0 flex-col">
               <SessionInsightsPanel
-                floating
-                turns={detail.turns}
-                onClose={() => setSummaryOpen(false)}
+                turns={detail!.turns}
+                onCollapse={() => setSummaryOpen(false)}
               />
             </div>
           </div>
         ) : null}
 
-        <div className="pointer-events-none absolute inset-0">
-          <div
-            className={`pointer-events-auto w-max max-w-[calc(100%-3rem)] transition-all duration-300 ease-out ${orbCenterPositionClass(orbCenterMode)} ${orbCenterMode === "viewport" ? "z-0" : ""}`}
-          >
-            <div className="flex flex-col items-center gap-10">
-              <div className="relative flex flex-col items-center">
-                <p className="absolute bottom-full left-1/2 mb-8 -translate-x-1/2 select-none whitespace-nowrap pr-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
-                  ARIA
-                </p>
+        {!settingsOpen ? (
+          <div className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center">
+            <div className="pointer-events-auto w-max max-w-[calc(100%-3rem)]">
+              <div className="flex flex-col items-center gap-10">
+                <div className="relative flex flex-col items-center">
+                  <p className="absolute bottom-full left-1/2 mb-8 -translate-x-1/2 select-none whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
+                    KIVO
+                  </p>
 
-                <OrbVisualizer />
+                  <OrbVisualizer
+                    sessionTitle={detail?.session.title}
+                    resume={Boolean(detail && detail.session.turnCount > 0)}
+                  />
+                </div>
+
+                <Controls
+                  sessionId={selectedSessionId}
+                  disabled={detail?.session.status === "archived"}
+                  resume={Boolean(detail && detail.session.turnCount > 0)}
+                  ensureSession={ensureSession}
+                  onActivity={handleSessionActivity}
+                />
               </div>
-
-              <Controls
-                sessionId={selectedSessionId}
-                disabled={detail.session.status === "archived"}
-                onActivity={handleSessionActivity}
-              />
             </div>
           </div>
-        </div>
+        ) : null}
       </section>
     </div>
   );

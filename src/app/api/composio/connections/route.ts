@@ -7,6 +7,7 @@ import {
   isSupportedToolkit,
   listConnectionsForUser,
 } from "@/lib/composio/connections";
+import { invalidateComposioToolsCache } from "@/lib/composio/tools-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  return withAuth(req, async () => {
+  return withAuth(req, async ({ uid }) => {
     if (!isComposioConfigured()) {
       return jsonError("Composio is not configured on the server.", 503);
     }
@@ -64,6 +65,7 @@ export async function DELETE(req: NextRequest) {
     if (!id) return jsonError("Missing connection id.", 400);
     try {
       await deleteConnection(id);
+      invalidateComposioToolsCache(uid);
       return jsonOk({ ok: true });
     } catch (error) {
       return jsonError(

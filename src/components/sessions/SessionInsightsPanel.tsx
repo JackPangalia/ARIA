@@ -4,30 +4,51 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { TurnDoc } from "@/lib/sessions/types";
 
 const LABEL_GUTTER = "5.25rem";
+const LABEL_GAP = "0.75rem";
 const PANEL_WIDTH = "17rem";
+const TEXT_OFFSET = `calc(${LABEL_GUTTER} + ${LABEL_GAP})`;
 
-function CloseIcon({ className }: { className?: string }) {
+/** Reserved width on the right when the transcript is open (labels + text + padding). */
+export const TRANSCRIPT_RESERVE_WIDTH = `calc(${PANEL_WIDTH} + ${TEXT_OFFSET})`;
+
+function ChevronLeftDouble({ className }: { className?: string }) {
   return (
-    <svg
-      className={className}
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden
-    >
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M6 6l12 12M18 6L6 18"
+        d="M11 17l-5-5 5-5M18 17l-5-5 5-5"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );
 }
 
+function TranscriptExpandIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M3 8h5M3 12h5M3 16h5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <rect x="13" y="4" width="8" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
+    </svg>
+  );
+}
+
+export function TranscriptExpandButton(props: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      aria-label="Expand transcript"
+      className="rounded-lg p-2 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
+    >
+      <TranscriptExpandIcon />
+    </button>
+  );
+}
+
 function turnLabel(turn: TurnDoc): string {
-  if (turn.role === "assistant") return "ARIA";
+  if (turn.role === "assistant") return "Kivo";
   if (turn.role === "user_question") {
     return turn.speaker == null
       ? "Q"
@@ -38,51 +59,33 @@ function turnLabel(turn: TurnDoc): string {
 
 export function SessionInsightsPanel(props: {
   turns: TurnDoc[];
-  onClose?: () => void;
-  floating?: boolean;
+  onCollapse?: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  const floating = props.floating ?? false;
   const lastTurnId = props.turns[props.turns.length - 1]?.id;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [lastTurnId, props.turns.length]);
 
-  if (!floating) {
-    return (
-      <aside className="flex h-full min-h-0 w-full flex-col bg-app px-4 py-5">
-        <TranscriptLines turns={props.turns} endRef={endRef} />
-      </aside>
-    );
-  }
-
   return (
     <div
-      className="relative flex h-full min-h-0"
-      style={{ width: `calc(${PANEL_WIDTH} + ${LABEL_GUTTER} + 0.75rem)` }}
+      className="group relative flex h-full min-h-0 flex-col"
+      style={{ width: TRANSCRIPT_RESERVE_WIDTH }}
     >
-      <div
-        className="pointer-events-none absolute top-0 right-0 bottom-0 rounded-2xl bg-app/80 shadow-menu backdrop-blur-sm"
-        style={{ width: PANEL_WIDTH }}
-        aria-hidden
-      />
-
-      {props.onClose ? (
+      {props.onCollapse ? (
         <button
           type="button"
-          onClick={props.onClose}
-          aria-label="Hide transcript"
-          className="absolute top-0 right-0 z-10 rounded-md p-1.5 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
+          onClick={props.onCollapse}
+          aria-label="Collapse transcript"
+          className="absolute top-0 left-0 z-10 rounded-md p-1.5 text-app-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-hover hover:text-app-secondary focus:opacity-100 focus:outline-none"
         >
-          <CloseIcon />
+          <ChevronLeftDouble />
         </button>
       ) : null}
 
-      <div className="relative z-[1] flex h-full min-h-0 flex-col pt-8">
-        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
-          <TranscriptLines turns={props.turns} endRef={endRef} gutter />
-        </div>
+      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
+        <TranscriptLines turns={props.turns} endRef={endRef} gutter />
       </div>
     </div>
   );

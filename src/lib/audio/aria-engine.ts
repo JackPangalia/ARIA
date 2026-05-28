@@ -11,7 +11,11 @@ import {
   type AssembledTranscriptTurn,
 } from "./turn-assembler";
 import { devLog } from "@/lib/client/dev-log";
-import { askSessionQuestion, appendSessionTurn } from "@/lib/sessions/client";
+import {
+  askSessionQuestion,
+  appendSessionTurn,
+  prefetchSessionContext,
+} from "@/lib/sessions/client";
 import { readStoredModel } from "@/lib/aria/model-storage";
 import {
   listSpeakerProfiles,
@@ -23,8 +27,8 @@ import { messagesToText, useAriaStore } from "@/lib/store";
 import type { TranscriptUtterance } from "@/lib/types";
 
 const WAKE_PATTERNS = [
-  /\b(?:hey|hi|okay|ok)\s*,?\s*(?:aria|arya|area)\b[\s,.:;!?-]*/i,
-  /^\s*(?:aria|arya|area)\b[\s,.:;!?-]*/i,
+  /\b(?:hey|hi|okay|ok)\s*,?\s*(?:kivo|keevo|keyvo|quivo)\b[\s,.:;!?-]*/i,
+  /^\s*(?:kivo|keevo|keyvo|quivo)\b[\s,.:;!?-]*/i,
 ];
 
 const QUESTION_SETTLE_MS = 2800;
@@ -32,6 +36,7 @@ const SPEECH_FINAL_SETTLE_MS = 2800;
 const FOLLOW_UP_WINDOW_MS = 8000;
 const PLAYBACK_STT_COOLDOWN_MS = 800;
 const TURN_IDLE_FLUSH_MS = 1800;
+const CONTEXT_PREFETCH_DEBOUNCE_MS = 400;
 
 function extractQuestionAfterWake(text: string): {
   detected: boolean;
@@ -122,6 +127,8 @@ export class AriaEngine {
   private wakeProviderSpeakerLabel: string | null = null;
   private inlineQuestion = "";
   private questionSettleTimer: ReturnType<typeof setTimeout> | null = null;
+  private contextPrefetchTimer: ReturnType<typeof setTimeout> | null = null;
+  private contextPrefetchGeneration = 0;
   private followUpTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpStartTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpListening = false;
@@ -311,7 +318,7 @@ export class AriaEngine {
       return;
     }
 
-    // If the user only said "Hey ARIA", keep the capture window open for the
+    // If the user only said "Hey Kivo", keep the capture window open for the
     // next utterance instead of immediately falling back to passive listening.
     this.wakeUtteranceId = null;
     this.wakeSpeaker = null;
@@ -330,7 +337,7 @@ export class AriaEngine {
       store.status === "speaking" ||
       store.status === "capturing-question"
     ) {
-      // Barge-in: stop ARIA and start capturing a fresh question.
+      // Barge-in: stop Kivo and start capturing a fresh question.
       this.stopPlayback();
       this.abortActiveFetch();
       this.cues.stopThinkingLoop();
@@ -416,12 +423,34 @@ export class AriaEngine {
 
   private scheduleQuestionResolution(delayMs: number) {
     this.clearQuestionSettleTimer();
+    this.scheduleContextPrefetch();
     this.questionSettleTimer = setTimeout(() => {
       this.questionSettleTimer = null;
       const { question } = this.getCapturedQuestion();
       if (!question) return;
       void this.resolveCapturedQuestion(question);
     }, delayMs);
+  }
+
+  private scheduleContextPrefetch() {
+    this.clearContextPrefetchTimer();
+    const generation = ++this.contextPrefetchGeneration;
+    this.contextPrefetchTimer = setTimeout(() => {
+      this.contextPrefetchTimer = null;
+      if (generation !== this.contextPrefetchGeneration) return;
+      const { question } = this.getCapturedQuestion();
+      const draft = sanitizeQuestionText(question);
+      if (!draft) return;
+      void prefetchSessionContext(this.sessionId, draft).catch(() => {
+        // Best-effort; ask path builds context on miss.
+      });
+    }, CONTEXT_PREFETCH_DEBOUNCE_MS);
+  }
+
+  private clearContextPrefetchTimer() {
+    if (!this.contextPrefetchTimer) return;
+    clearTimeout(this.contextPrefetchTimer);
+    this.contextPrefetchTimer = null;
   }
 
   private ensureQuestionResolutionTimer(delayMs: number) {
@@ -433,6 +462,8 @@ export class AriaEngine {
     if (!this.questionSettleTimer) return;
     clearTimeout(this.questionSettleTimer);
     this.questionSettleTimer = null;
+    this.contextPrefetchGeneration += 1;
+    this.clearContextPrefetchTimer();
   }
 
   private scheduleTurnFlush() {
@@ -587,10 +618,8 @@ export class AriaEngine {
     this.activeFetchAbort = controller;
 
     try {
-      const currentStore = useAriaStore.getState();
-      const messages = messagesToText(currentStore.utterances);
-
-      devLog("ask", "Question for ARIA", { question });
+      const clientT0 = performance.now();
+      devLog("pipeline", "fetch_start", { ms: 0 });
 
       const res = await askSessionQuestion(
         this.sessionId,
@@ -601,6 +630,12 @@ export class AriaEngine {
         readStoredModel()
       );
 
+      devLog("pipeline", "response_headers", {
+        ms: Math.round(performance.now() - clientT0),
+        status: res.status,
+        ok: res.ok,
+      });
+
       if (!res.ok || !res.body) {
         const errText = await res.text().catch(() => "");
         throw new Error(`Ask failed: ${res.status} ${errText}`);
@@ -608,6 +643,7 @@ export class AriaEngine {
 
       await this.playAudioResponse(res, "Playing spoken answer in browser.", {
         enableFollowUp: true,
+        clientT0,
       });
       this.onSessionActivity?.();
     } catch (err) {
@@ -630,7 +666,7 @@ export class AriaEngine {
   private async playAudioResponse(
     res: Response,
     logMessage: string,
-    options: { enableFollowUp?: boolean } = {}
+    options: { enableFollowUp?: boolean; clientT0?: number } = {}
   ) {
     if (!res.body) {
       throw new Error("Audio response has no body");
@@ -647,6 +683,12 @@ export class AriaEngine {
 
     // Fallback: buffer the whole MP3 then play it.
     const buf = await res.arrayBuffer();
+    if (options.clientT0 != null) {
+      devLog("pipeline", "buffered_audio", {
+        ms: Math.round(performance.now() - options.clientT0),
+        bytes: buf.byteLength,
+      });
+    }
     const blob = new Blob([buf], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     this.attachPlayback(url, () => URL.revokeObjectURL(url), logMessage, options);
@@ -655,7 +697,7 @@ export class AriaEngine {
   private async playStreamingResponse(
     body: ReadableStream<Uint8Array>,
     logMessage: string,
-    options: { enableFollowUp?: boolean }
+    options: { enableFollowUp?: boolean; clientT0?: number }
   ) {
     const mediaSource = new MediaSource();
     const url = URL.createObjectURL(mediaSource);
@@ -684,6 +726,7 @@ export class AriaEngine {
 
     const sourceBuffer = await sourceOpen;
     const reader = body.getReader();
+    let loggedFirstChunk = false;
 
     const append = (chunk: Uint8Array) =>
       new Promise<void>((resolve, reject) => {
@@ -707,6 +750,13 @@ export class AriaEngine {
         const { done, value } = await reader.read();
         if (done) break;
         if (!value || value.byteLength === 0) continue;
+        if (!loggedFirstChunk && options.clientT0 != null) {
+          loggedFirstChunk = true;
+          devLog("pipeline", "first_audio_chunk", {
+            ms: Math.round(performance.now() - options.clientT0),
+            bytes: value.byteLength,
+          });
+        }
         await append(value);
       }
       if (mediaSource.readyState === "open") {
@@ -728,7 +778,7 @@ export class AriaEngine {
     url: string,
     revoke: () => void,
     logMessage: string,
-    options: { enableFollowUp?: boolean }
+    options: { enableFollowUp?: boolean; clientT0?: number }
   ) {
     this.stopPlayback();
     const audio = new Audio(url);
@@ -740,6 +790,11 @@ export class AriaEngine {
       this.isAssistantSpeaking = true;
       this.cues.stopThinkingLoop();
       useAriaStore.getState().setStatus("speaking");
+      if (options.clientT0 != null) {
+        devLog("pipeline", "speaking", {
+          ms: Math.round(performance.now() - options.clientT0),
+        });
+      }
     };
     audio.onended = () => {
       if (this.currentAudio !== audio) return;

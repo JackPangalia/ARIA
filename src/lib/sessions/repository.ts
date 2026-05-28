@@ -72,6 +72,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
     endedAt: data.endedAt ? toIso(data.endedAt) : null,
+    trashedAt: data.trashedAt ? toIso(data.trashedAt) : null,
     lastSummaryAt: data.lastSummaryAt ? toIso(data.lastSummaryAt) : null,
     tokenEstimate: Number(data.tokenEstimate ?? 0),
     searchableTextPreview: String(data.searchableTextPreview ?? ""),
@@ -166,6 +167,7 @@ export async function createSession(
     createdAt: now,
     updatedAt: now,
     endedAt: null,
+    trashedAt: null,
     lastSummaryAt: null,
     tokenEstimate: 0,
     searchableTextPreview: "",
@@ -191,6 +193,10 @@ export async function listSessions(
   query = query.limit(input.limit);
   const snap = await query.get();
   let sessions = snap.docs.map((doc) => mapSession(doc.id, doc.data()));
+
+  if (!input.status) {
+    sessions = sessions.filter((s) => s.status !== "trashed");
+  }
 
   if (input.q) {
     const needle = input.q.toLowerCase();
@@ -256,14 +262,31 @@ export async function patchSession(
     if (patch.status === "ended" || patch.status === "archived") {
       updates.endedAt = FieldValue.serverTimestamp();
     }
+    if (patch.status === "trashed") {
+      updates.trashedAt = FieldValue.serverTimestamp();
+    }
     if (patch.status === "active") {
       updates.endedAt = null;
+      updates.trashedAt = null;
     }
   }
 
   await ref.update(updates);
   const next = await ref.get();
   return mapSession(sessionId, next.data() ?? {});
+}
+
+export async function deleteSession(
+  uid: string,
+  sessionId: string
+): Promise<void> {
+  const db = getAdminDb();
+  const ref = sessionRef(db, uid, sessionId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new Error("Session not found.");
+  }
+  await db.recursiveDelete(ref);
 }
 
 export async function getNextSequence(
@@ -612,7 +635,7 @@ export async function searchContextTurns(
 
 export function formatTurnForContext(turn: TurnDoc): string {
   if (turn.role === "assistant") {
-    return `ARIA: ${turn.text}`;
+    return `Kivo: ${turn.text}`;
   }
   if (turn.role === "user_question") {
     const speaker =

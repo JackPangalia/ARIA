@@ -24,11 +24,11 @@ Speechmatics Realtime WS (diarization + speaker identification)
                                       ▼
                          Speaker-attributed transcript
                                       │
-                          (detect "Hey ARIA" in interim/final text)
+                          (detect "Hey Kivo" in interim/final text)
                                       │
                                       ▼
-            Next.js /api/ask  ──►  GPT-5.5 (Responses)
-                                  ──►  OpenAI gpt-4o-mini-tts (mp3)
+            Next.js /api/ask  ──►  Gemini 2.5 (Agents SDK)
+                                  ──►  Cartesia Sonic TTS (mp3)
                                       │
                                       ▼
                               Browser plays audio
@@ -38,8 +38,8 @@ Speechmatics Realtime WS (diarization + speaker identification)
 
 - **Next.js 16** (App Router, TypeScript, Tailwind 4)
 - **Speechmatics Realtime** — streaming transcription, diarization, and enrolled speaker identification for single-mic meetings
-- **OpenAI GPT-5.5** — Responses API, streaming
-- **OpenAI gpt-4o-mini-tts** — text-to-speech
+- **Google Gemini 2.5** — Kivo agent (flash / pro), Google Search grounding, streaming
+- **Cartesia Sonic** — low-latency text-to-speech
 - **Zustand** — client state, **Zod** — env validation
 
 ## Setup
@@ -69,14 +69,14 @@ npm run dev
 
 ARIA no longer uses a separate wake-word SDK. The browser streams mic audio to
 Speechmatics, and the app watches interim/final transcript text for wake phrases
-like "Hey ARIA", "Hey Arya", or "Hey Area". If the phrase includes a question,
-ARIA answers that immediately; if you only say "Hey ARIA", it waits for the next
+like "Hey Kivo", "Hey Keevo", or "Hey Keyvo". If the phrase includes a question,
+Kivo answers that immediately; if you only say "Hey Kivo", it waits for the next
 utterance as the question.
 
 ### Speaker memory
 
 Speechmatics speaker identifiers can be enrolled from Settings or during a live
-session with phrases like "Hey ARIA, I'm Bob". ARIA stores the identifier strings
+session with phrases like "Hey Kivo, I'm Bob". ARIA stores the identifier strings
 in Firestore under the signed-in user and passes them to future realtime sessions
 so known speakers appear by name in transcripts and context.
 
@@ -87,7 +87,7 @@ terminal (via `/api/dev-log`, development only).
 
 ## What's NOT in the MVP
 
-- Auto-interjection (ARIA decides when to speak on its own)
+- Auto-interjection (Kivo decides when to speak on its own)
 - Use-case profiles / pre-briefing
 - Persistent storage / accounts
 - Meeting bot (server-side audio capture from Zoom/Meet/Teams)

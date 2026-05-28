@@ -164,7 +164,7 @@ describe("sanitizeQuestionText", () => {
   });
 
   it("strips leading wake prefix", () => {
-    expect(sanitizeQuestionText("Hey ARIA, what is the plan?")).toBe(
+    expect(sanitizeQuestionText("Hey Kivo, what is the plan?")).toBe(
       "what is the plan?"
     );
   });
@@ -196,7 +196,7 @@ describe("formatTurnForContext", () => {
         summarized: false,
         createdAt: new Date().toISOString(),
       })
-    ).toBe("ARIA: Hello there.");
+    ).toBe("Kivo: Hello there.");
 
     expect(
       formatTurnForContext({
@@ -226,6 +226,7 @@ describe("exportSessionMarkdown", () => {
         createdAt: "2026-05-24T00:00:00.000Z",
         updatedAt: "2026-05-24T01:00:00.000Z",
         endedAt: null,
+        trashedAt: null,
         lastSummaryAt: null,
         tokenEstimate: 10,
         searchableTextPreview: "Firestore",
