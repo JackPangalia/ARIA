@@ -156,6 +156,40 @@ export function logContextVerboseBlock(title: string, body: string): void {
   console.log(`${PREFIX} verbose │ end`);
 }
 
+/**
+ * Prints the exact, raw prompt handed to Kivo (system instructions + user
+ * message). The body is left unprefixed so it can be copied verbatim. Prints
+ * by default whenever dev logging is on; set ARIA_PROMPT_DEBUG=0 to silence it
+ * if the full dump gets noisy.
+ */
+export function logRawPrompt(input: {
+  system: string;
+  user: string;
+  model?: string;
+  approxTokens?: number;
+}): void {
+  if (!isContextDevLoggingEnabled()) return;
+  if (process.env.ARIA_PROMPT_DEBUG === "0") return;
+
+  const bar = "━".repeat(64);
+  const meta = [
+    input.model ? `model ${input.model}` : null,
+    input.approxTokens != null ? `~${input.approxTokens} tok` : null,
+    `${input.system.length + input.user.length}c`,
+  ]
+    .filter(Boolean)
+    .join(" │ ");
+
+  console.log(`\n${PREFIX} ${bar}`);
+  console.log(`${PREFIX} RAW PROMPT → Kivo${meta ? `  (${meta})` : ""}`);
+  console.log(`${PREFIX} ${bar}`);
+  console.log(`${PREFIX} ───── SYSTEM ─────`);
+  console.log(input.system);
+  console.log(`${PREFIX} ───── USER ─────`);
+  console.log(input.user);
+  console.log(`${PREFIX} ${bar}\n`);
+}
+
 /** @deprecated Use structured log helpers instead. */
 export function contextDevLog(
   _phase: string,

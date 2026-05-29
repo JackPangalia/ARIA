@@ -633,18 +633,18 @@ export async function searchContextTurns(
   return picked.sort((a, b) => a.sequence - b.sequence);
 }
 
-export function formatTurnForContext(turn: TurnDoc): string {
+export function formatTurnForContext(
+  turn: TurnDoc,
+  options?: { unregisteredLabel?: string }
+): string {
   if (turn.role === "assistant") {
     return `Kivo: ${turn.text}`;
   }
+  const unregistered = options?.unregisteredLabel ?? "Unregistered speaker";
   if (turn.role === "user_question") {
-    const speaker =
-      turn.speakerName ??
-      (turn.speaker == null ? "Someone" : `Speaker ${turn.speaker + 1}`);
+    const speaker = turn.speakerName ?? unregistered;
     return `${speaker} (question): ${turn.text}`;
   }
-  const speaker =
-    turn.speakerName ??
-    (turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`);
+  const speaker = turn.speakerName ?? unregistered;
   return `${speaker}: ${turn.text}`;
 }

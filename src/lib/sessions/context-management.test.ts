@@ -273,6 +273,6 @@ describe("exportSessionMarkdown", () => {
     expect(markdown).toContain("# Planning");
     expect(markdown).toContain("Team chose Firestore.");
     expect(markdown).toContain("Prefer Firestore");
-    expect(markdown).toContain("Speaker 1: Let's use Firestore.");
+    expect(markdown).toContain("Other speaker: Let's use Firestore.");
   });
 });

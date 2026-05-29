@@ -366,8 +366,11 @@ function SessionSearchPanel(props: {
                           </button>
                         )}
 
-                        {hovered && !renaming ? (
-                          <div className="grok-palette-row-actions">
+                        {!renaming ? (
+                          <div
+                            className="grok-palette-row-actions"
+                            data-visible={hovered || undefined}
+                          >
                             <button
                               type="button"
                               aria-label={`Rename ${session.title}`}

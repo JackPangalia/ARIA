@@ -59,12 +59,33 @@ function ThemeModeIcon({ dark }: { dark: boolean }) {
   );
 }
 
+function useIsDesktopSidebar() {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.matchMedia("(min-width: 1024px)").matches;
+  });
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsDesktop(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  return isDesktop;
+}
+
 export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   const { user, signOutUser } = useAuth();
   const { resolvedTheme, toggleTheme } = useTheme();
   const router = useRouter();
+  const isDesktop = useIsDesktopSidebar();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDesktop) setOpen(false);
+  }, [isDesktop]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,9 +122,12 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   };
 
   return (
-    <div ref={rootRef} className="relative shrink-0 px-2 py-2">
-      {open ? (
-        <div className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl bg-menu py-1.5 shadow-menu ring-1 ring-menu">
+    <div
+      ref={rootRef}
+      className="relative shrink-0 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+    >
+      {open && isDesktop ? (
+        <div className="absolute bottom-full inset-x-2 z-50 mb-2 overflow-hidden rounded-xl bg-menu py-1.5 shadow-menu ring-1 ring-menu">
           <button
             type="button"
             className={itemClass}
@@ -129,8 +153,14 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
 
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
+        onClick={() => {
+          if (isDesktop) {
+            setOpen((v) => !v);
+            return;
+          }
+          props.onOpenSettings();
+        }}
+        aria-expanded={isDesktop ? open : undefined}
         className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover"
       >
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500/80 to-violet-600/80 text-sm font-medium text-white">

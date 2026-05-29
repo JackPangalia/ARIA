@@ -77,6 +77,37 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   font-weight: 500;
+  /* Mobile: kill the grey tap flash and rubber-band scroll so the app feels native. */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Keep inputs from triggering iOS auto-zoom on focus (needs >=16px font). */
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* ---- Safe-area helpers (notch / home indicator, for the PWA) ---- */
+.safe-pt {
+  padding-top: max(1rem, env(safe-area-inset-top));
+}
+.safe-pb {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.safe-pl {
+  padding-left: max(1rem, env(safe-area-inset-left));
+}
+.safe-pr {
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+.safe-px {
+  padding-left: max(0.5rem, env(safe-area-inset-left));
+  padding-right: max(0.5rem, env(safe-area-inset-right));
 }
 
 .bg-app {

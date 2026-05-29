@@ -50,11 +50,22 @@ export function TranscriptExpandButton(props: { onClick: () => void }) {
 function turnLabel(turn: TurnDoc): string {
   if (turn.role === "assistant") return "Kivo";
   if (turn.role === "user_question") {
-    return turn.speaker == null
-      ? "Q"
-      : turn.speakerName ?? `Speaker ${turn.speaker + 1}`;
+    return turn.speakerName ?? "Other speaker";
   }
-  return turn.speakerName ?? (turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`);
+  return turn.speakerName ?? "Other speaker";
+}
+
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
 export function SessionInsightsPanel(props: {
@@ -69,16 +80,31 @@ export function SessionInsightsPanel(props: {
   }, [lastTurnId, props.turns.length]);
 
   return (
-    <div
-      className="group relative flex h-full min-h-0 flex-col"
-      style={{ width: TRANSCRIPT_RESERVE_WIDTH }}
-    >
+    <div className="group relative flex h-full min-h-0 w-full flex-col lg:w-[var(--transcript-reserve)] [--transcript-reserve:calc(17rem+5.25rem+0.75rem)]">
+      {/* Mobile: a real header bar with a tappable close control. */}
+      {props.onCollapse ? (
+        <div className="flex shrink-0 items-center justify-between px-1 pb-2 lg:hidden">
+          <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-app-muted">
+            Transcript
+          </span>
+          <button
+            type="button"
+            onClick={props.onCollapse}
+            aria-label="Close transcript"
+            className="-mr-1.5 flex h-10 w-10 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      ) : null}
+
+      {/* Desktop: subtle hover-reveal collapse affordance. */}
       {props.onCollapse ? (
         <button
           type="button"
           onClick={props.onCollapse}
           aria-label="Collapse transcript"
-          className="absolute top-0 left-0 z-10 rounded-md p-1.5 text-app-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-hover hover:text-app-secondary focus:opacity-100 focus:outline-none"
+          className="absolute top-0 left-0 z-10 hidden rounded-md p-1.5 text-app-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-hover hover:text-app-secondary focus:opacity-100 focus:outline-none lg:block"
         >
           <ChevronLeftDouble />
         </button>
@@ -100,7 +126,7 @@ function TranscriptLines(props: {
     return (
       <p
         className={`py-6 text-sm font-normal leading-relaxed text-app-muted ${
-          props.gutter ? "ml-[calc(5.25rem+0.75rem)] w-[17rem]" : "px-1"
+          props.gutter ? "px-1 lg:ml-[calc(5.25rem+0.75rem)] lg:w-[17rem] lg:px-0" : "px-1"
         }`}
       >
         No transcript yet. Start listening and lines will appear here.
@@ -109,27 +135,29 @@ function TranscriptLines(props: {
   }
 
   return (
-    <ul className="space-y-3.5 pb-2">
+    <ul className="w-full space-y-4 px-1 pb-2 lg:space-y-3.5 lg:px-0">
       {props.turns.map((turn) => (
         <li
           key={turn.id}
           className={
             props.gutter
-              ? "flex items-baseline gap-3"
+              ? "flex w-full flex-col items-start gap-1 lg:flex-row lg:items-baseline lg:gap-3"
               : "flex items-baseline gap-2 px-0.5"
           }
         >
           <span
-            className={`shrink-0 text-right text-xs font-medium leading-[1.5] text-app-muted ${
-              props.gutter ? "w-[5.25rem]" : "w-[3.5rem] truncate"
+            className={`max-w-full truncate text-xs font-medium leading-[1.5] text-app-muted ${
+              props.gutter
+                ? "text-left lg:w-[5.25rem] lg:shrink-0 lg:text-right"
+                : "w-[3.5rem] shrink-0 text-right"
             }`}
             title={turnLabel(turn)}
           >
             {turnLabel(turn)}
           </span>
           <p
-            className={`min-w-0 text-sm font-normal leading-[1.65] text-app break-words ${
-              props.gutter ? "w-[17rem] shrink-0" : "flex-1"
+            className={`w-full min-w-0 text-sm font-normal leading-[1.65] text-app break-words ${
+              props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"
             }`}
           >
             {turn.text}

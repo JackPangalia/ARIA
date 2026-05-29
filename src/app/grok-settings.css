@@ -483,6 +483,306 @@
   color: var(--grok-muted);
 }
 
+/* ---- Mobile: stacked settings navigation (Grok-style) ---- */
+.grok-settings-stack-header {
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  flex-shrink: 0;
+  padding: max(0.65rem, env(safe-area-inset-top)) 16px 12px;
+  border-bottom: none;
+}
+
+.grok-settings-stack-header--root,
+.grok-settings-stack-header--detail {
+  grid-template-columns: 44px 1fr 44px;
+}
+
+.grok-settings-stack-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--grok-mobile-fg, var(--grok-fg));
+}
+
+.grok-settings-stack-title--center {
+  grid-column: 2;
+  justify-self: center;
+  text-align: center;
+  font-size: 17px;
+}
+
+.grok-settings-stack-pill-btn {
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  height: 36px;
+  width: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--grok-mobile-pill, #2c2c2e);
+  color: var(--grok-mobile-fg, var(--grok-fg));
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.grok-settings-stack-pill-btn:active {
+  opacity: 0.85;
+}
+
+.grok-settings-mobile-body {
+  padding: 4px 16px calc(28px + env(safe-area-inset-bottom));
+}
+
+.grok-settings-profile-card {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--grok-mobile-card, #1c1c1e);
+  border-radius: 20px;
+  color: var(--grok-mobile-fg, var(--grok-fg));
+  transition: opacity 120ms ease;
+}
+
+.grok-settings-profile-card:active {
+  opacity: 0.92;
+}
+
+.grok-settings-profile-avatar {
+  height: 48px;
+  width: 48px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+
+.grok-settings-profile-avatar--fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+}
+
+.grok-settings-profile-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.grok-settings-profile-name {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--grok-mobile-fg, var(--grok-fg));
+}
+
+.grok-settings-profile-email {
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--grok-mobile-muted, var(--grok-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grok-settings-menu-section {
+  margin-bottom: 22px;
+}
+
+.grok-settings-menu-section-label {
+  margin: 0 0 8px 4px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--grok-mobile-muted, var(--grok-muted));
+}
+
+.grok-settings-menu-card {
+  overflow: hidden;
+  border-radius: 20px;
+  background: var(--grok-mobile-card, #1c1c1e);
+}
+
+.grok-settings-menu-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  font-size: 16px;
+  line-height: 1.25;
+  color: var(--grok-mobile-fg, var(--grok-fg));
+  transition: background 120ms ease;
+}
+
+.grok-settings-menu-row--divided {
+  position: relative;
+}
+
+.grok-settings-menu-row--divided::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  left: 52px;
+  height: 1px;
+  background: var(--grok-mobile-divider, rgba(255, 255, 255, 0.08));
+}
+
+.grok-settings-menu-row:active {
+  background: var(--grok-mobile-row-active, rgba(255, 255, 255, 0.06));
+}
+
+.grok-settings-menu-row-leading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+}
+
+.grok-settings-menu-icon {
+  width: 22px;
+  height: 22px;
+  opacity: 0.72;
+  color: var(--grok-mobile-muted, var(--grok-muted));
+}
+
+.grok-settings-menu-row-label {
+  font-weight: 400;
+}
+
+.grok-settings-menu-chevron {
+  width: 16px;
+  height: 16px;
+  opacity: 0.35;
+  color: var(--grok-mobile-muted, var(--grok-muted));
+}
+
+@media (max-width: 640px) {
+  .grok-settings-overlay {
+    background: #000000;
+    backdrop-filter: none;
+  }
+
+  .dark .grok-settings-overlay {
+    background: #000000;
+  }
+
+  .grok-settings-modal--full,
+  .grok-settings-modal--full.grok-settings-mobile {
+    --grok-bg: #000000;
+    --grok-fg: #ffffff;
+    --grok-muted: #8e8e93;
+    --grok-border: rgba(255, 255, 255, 0.1);
+    --grok-btn-bg: #1c1c1e;
+    --grok-btn-hover: rgba(255, 255, 255, 0.08);
+    --grok-nav-active: #2c2c2e;
+    --grok-mobile-fg: #ffffff;
+    --grok-mobile-muted: #8e8e93;
+    --grok-mobile-card: #1c1c1e;
+    --grok-mobile-pill: #2c2c2e;
+    --grok-mobile-divider: rgba(255, 255, 255, 0.08);
+    --grok-mobile-row-active: rgba(255, 255, 255, 0.06);
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    background: #000000;
+    color: #ffffff;
+  }
+
+  /* Detail screens: comfortable iOS-style side insets (was flush to edges). */
+  .grok-settings-modal--full .grok-settings-content {
+    padding: 10px 16px calc(28px + env(safe-area-inset-bottom));
+  }
+
+  .grok-settings-modal--full .grok-settings-embedded .grok-settings-section-title,
+  .grok-settings-modal--full .grok-settings-embedded .grok-settings-row-title {
+    color: #ffffff;
+  }
+
+  .grok-settings-modal--full .grok-settings-embedded .grok-settings-section-desc,
+  .grok-settings-modal--full .grok-settings-embedded .grok-settings-row-sub {
+    color: #8e8e93;
+  }
+
+  /* Larger, more legible section headers on mobile. */
+  .grok-settings-modal--full .grok-settings-section-title {
+    font-size: 15px;
+  }
+
+  .grok-settings-modal--full .grok-settings-section-desc {
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin-bottom: 18px;
+  }
+
+  /* Roomier rows and comfy tap targets on touch. */
+  .grok-settings-modal--full .grok-settings-row {
+    min-height: 60px;
+  }
+
+  .grok-settings-modal--full .grok-model-row {
+    padding: 18px 0;
+  }
+
+  /* Model / search rows: let long descriptions use the full width. */
+  .grok-model-row-desc {
+    max-width: none;
+  }
+
+  /* Theme picker: rounded cards consistent with the menu's iOS aesthetic. */
+  .grok-settings-modal--full .grok-theme-grid {
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .grok-settings-modal--full .grok-theme-card {
+    min-height: 96px;
+    gap: 12px;
+    border-radius: 16px;
+    border-color: transparent;
+    background: var(--grok-mobile-card, #1c1c1e);
+  }
+
+  .grok-settings-modal--full .grok-theme-card[data-selected="true"] {
+    border-color: var(--grok-mobile-fg, #ffffff);
+    background: var(--grok-mobile-card, #1c1c1e);
+  }
+
+  /* Group simple row lists (account, model, trash) into inset iOS-style cards. */
+  .grok-settings-modal--full .grok-settings-content div:has(> .grok-settings-row),
+  .grok-settings-modal--full .grok-settings-content div:has(> .grok-model-row) {
+    overflow: hidden;
+    padding: 0 16px;
+    border-radius: 18px;
+    background: var(--grok-mobile-card, #1c1c1e);
+  }
+
+  .grok-settings-modal--full .grok-settings-content .grok-settings-row,
+  .grok-settings-modal--full .grok-settings-content .grok-model-row {
+    border-color: var(--grok-mobile-divider, rgba(255, 255, 255, 0.08));
+  }
+
+  /* Search palette: roomier on small screens. */
+  .grok-palette-modal {
+    width: min(94vw, 560px);
+    max-height: min(82vh, 560px);
+  }
+}
+
 .grok-search-modal {
   width: min(92vw, 560px);
   height: auto;
@@ -671,6 +971,36 @@
   align-items: center;
   gap: 2px;
   padding-right: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+/* Reveal on hover/focus (desktop) or when JS flags the row hovered. */
+.grok-palette-row:hover .grok-palette-row-actions,
+.grok-palette-row[data-focused="true"] .grok-palette-row-actions,
+.grok-palette-row-actions:focus-within,
+.grok-palette-row-actions[data-visible="true"] {
+  opacity: 1;
+}
+
+/* Touch devices have no hover — keep the actions reachable. */
+@media (hover: none) {
+  .grok-palette-row-actions {
+    opacity: 1;
+  }
+}
+
+/* Bigger tap targets for the row action icons on touch. */
+@media (max-width: 640px) {
+  .grok-palette-icon-btn {
+    padding: 8px;
+  }
+  .grok-palette-row-main {
+    padding: 11px 10px;
+  }
+  .grok-palette-action {
+    padding: 11px 10px;
+  }
 }
 
 .grok-palette-icon-btn {

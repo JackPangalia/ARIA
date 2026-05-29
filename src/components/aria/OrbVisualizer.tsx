@@ -133,8 +133,8 @@ export function OrbVisualizer(props: {
         : `0 0 40px 4px ${palette[1]}80, inset 0 0 30px ${palette[0]}40`;
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      <div className="relative h-72 w-72 select-none">
+    <div className="flex flex-col items-center gap-4 sm:gap-6">
+      <div className="relative h-72 w-72 origin-center select-none max-sm:-my-5 max-sm:scale-[0.82]">
         {showAmbient ? (
           <div
             className={`absolute inset-0 ${auroraSpin}`}

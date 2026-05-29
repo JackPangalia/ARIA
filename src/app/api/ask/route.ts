@@ -16,7 +16,11 @@ import {
   setAskPipelineForComposio,
   startAskPipeline,
 } from "@/lib/server/ask-pipeline-log";
-import { takePrefetchedContext } from "@/lib/sessions/context-prefetch-cache";
+import { parseGeminiQuotaError } from "@/lib/aria/llm/gemini-errors";
+import {
+  takePrefetchedContext,
+  type PrefetchedContextBundle,
+} from "@/lib/sessions/context-prefetch-cache";
 import { getServerEnv, type ServerEnv } from "@/lib/env";
 import { AskBodySchema } from "@/lib/sessions/types";
 import { authErrorResponse, verifyRequestAuth } from "@/lib/firebase/verify-auth";
@@ -120,108 +124,120 @@ export async function POST(req: NextRequest) {
     toolkits: intentToolkits.join(",") || "none",
   });
 
+  const askStartedAt = performance.now();
+
+  void appendTurn(uid, body.sessionId, {
+    role: "user_question",
+    text: body.question,
+    speaker: body.speaker ?? null,
+    speakerName: body.speakerName ?? null,
+  })
+    .then(() => pipeline.stage("persist.question", { ok: true }))
+    .catch((err) => {
+      console.error("[Ask] Failed to persist user question turn:", err);
+      pipeline.stage("persist.question", { ok: false });
+    });
+
+  let textStream: ReadableStream<string>;
+  let context: PrefetchedContextBundle;
+  let contextBuildMs: number;
+  let composioResult: Awaited<ReturnType<typeof loadComposioAgentTools>>;
+  let composioMs: number;
+  let preLlmMs: number;
+  let agentStart: number;
+  let agentReadyMs: number;
+
+  setAskPipelineForComposio(pipeline);
+  try {
+    pipeline.stage("pre_llm", { phase: "parallel" });
+    const preLlmStart = performance.now();
+
+    const prefetched = takePrefetchedContext(body.sessionId, body.question);
+
+    const contextPromise = prefetched
+      ? (async () => {
+          pipeline.stage("context.prefetch_hit", { ms: 0 });
+          return { bundle: prefetched, ms: 0 };
+        })()
+      : (async () => {
+          const t0 = performance.now();
+          const bundle = await buildContextBundle({
+            uid,
+            session,
+            question: body.question,
+          });
+          const ms = performance.now() - t0;
+          pipeline.stage("context.done", { ms: Math.round(ms) });
+          return { bundle, ms };
+        })();
+
+    const composioPromise = loadComposioAgentTools(uid, {
+      toolkits: intentToolkits,
+    })
+      .then((result) => {
+        pipeline.stage("composio.done", {
+          cache: result.cache,
+          tools: result.toolCount,
+          intent: result.intentToolkits,
+          ms: Math.round(result.fetchMs),
+        });
+        return result;
+      })
+      .catch((err) => {
+        console.error("[Composio] Failed to load tools:", err);
+        pipeline.stage("composio.done", { cache: "error", tools: 0 });
+        return {
+          tools: [] as Awaited<ReturnType<typeof loadComposioAgentTools>>["tools"],
+          cache: "empty" as const,
+          fetchMs: 0,
+          toolCount: 0,
+          toolkitFingerprint: "",
+          intentToolkits: "error",
+        };
+      });
+
+    const [contextResult, composioLoaded] = await Promise.all([
+      contextPromise,
+      composioPromise,
+    ]);
+    context = contextResult.bundle;
+    contextBuildMs = contextResult.ms;
+    composioResult = composioLoaded;
+    composioMs = composioResult.fetchMs;
+    preLlmMs = performance.now() - preLlmStart;
+
+    pipeline.stage("pre_llm.done", {
+      wallMs: Math.round(preLlmMs),
+      contextMs: Math.round(contextBuildMs),
+      composioMs: Math.round(composioMs),
+    });
+
+    agentStart = performance.now();
+    textStream = await runAriaAgentStream({
+      messages: context.messages,
+      question: context.question,
+      env,
+      uid,
+      model: modelOverride ?? undefined,
+      signal: req.signal,
+      composioTools: composioResult.tools,
+      pipeline,
+    });
+    agentReadyMs = performance.now() - agentStart;
+    pipeline.stage("agent.ready", { ms: Math.round(agentReadyMs) });
+  } catch (err) {
+    setAskPipelineForComposio(undefined);
+    if (isAbortError(err, req.signal)) {
+      return new Response(null, { status: 499 });
+    }
+    return askErrorResponse(err);
+  }
+
   const audioStream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const askStartedAt = performance.now();
       setAskPipelineForComposio(pipeline);
 
-      void appendTurn(uid, body.sessionId, {
-        role: "user_question",
-        text: body.question,
-        speaker: body.speaker ?? null,
-        speakerName: body.speakerName ?? null,
-      })
-        .then(() => pipeline.stage("persist.question", { ok: true }))
-        .catch((err) => {
-          console.error("[Ask] Failed to persist user question turn:", err);
-          pipeline.stage("persist.question", { ok: false });
-        });
-
       try {
-        pipeline.stage("pre_llm", { phase: "parallel" });
-        const preLlmStart = performance.now();
-
-        const prefetched = takePrefetchedContext(
-          body.sessionId,
-          body.question
-        );
-
-        const contextPromise = prefetched
-          ? (async () => {
-              pipeline.stage("context.prefetch_hit", {
-                ms: 0,
-              });
-              return { bundle: prefetched, ms: 0 };
-            })()
-          : (async () => {
-              const t0 = performance.now();
-              const bundle = await buildContextBundle({
-                uid,
-                session,
-                question: body.question,
-              });
-              const ms = performance.now() - t0;
-              pipeline.stage("context.done", { ms: Math.round(ms) });
-              return { bundle, ms };
-            })();
-
-        const composioPromise = loadComposioAgentTools(uid, {
-          toolkits: intentToolkits,
-        })
-          .then((result) => {
-            pipeline.stage("composio.done", {
-              cache: result.cache,
-              tools: result.toolCount,
-              intent: result.intentToolkits,
-              ms: Math.round(result.fetchMs),
-            });
-            return result;
-          })
-          .catch((err) => {
-            console.error("[Composio] Failed to load tools:", err);
-            pipeline.stage("composio.done", { cache: "error", tools: 0 });
-            return {
-              tools: [] as Awaited<
-                ReturnType<typeof loadComposioAgentTools>
-              >["tools"],
-              cache: "empty" as const,
-              fetchMs: 0,
-              toolCount: 0,
-              toolkitFingerprint: "",
-              intentToolkits: "error",
-            };
-          });
-
-        const [contextResult, composioResult] = await Promise.all([
-          contextPromise,
-          composioPromise,
-        ]);
-        const context = contextResult.bundle;
-        const contextBuildMs = contextResult.ms;
-        const composioMs = composioResult.fetchMs;
-        const composioTools = composioResult.tools;
-        const preLlmMs = performance.now() - preLlmStart;
-
-        pipeline.stage("pre_llm.done", {
-          wallMs: Math.round(preLlmMs),
-          contextMs: Math.round(contextBuildMs),
-          composioMs: Math.round(composioMs),
-        });
-
-        const agentStart = performance.now();
-        const textStream = await runAriaAgentStream({
-          messages: context.messages,
-          question: context.question,
-          env,
-          uid,
-          model: modelOverride ?? undefined,
-          signal: req.signal,
-          composioTools,
-          pipeline,
-        });
-        const agentReadyMs = performance.now() - agentStart;
-        pipeline.stage("agent.ready", { ms: Math.round(agentReadyMs) });
-
         const streamStartedAt = performance.now();
         const ttsConfig = cartesiaConfig(env);
         let llmFirstTokenMs: number | null = null;
@@ -464,6 +480,29 @@ function jsonError(err: unknown, status: number) {
   const msg = err instanceof Error ? err.message : "unknown error";
   return new Response(JSON.stringify({ error: `Ask failed: ${msg}` }), {
     status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function askErrorResponse(err: unknown): Response {
+  const quota = parseGeminiQuotaError(err);
+  if (quota) {
+    return new Response(
+      JSON.stringify({
+        error: quota.message,
+        code: "gemini_quota_exceeded",
+        retryAfterSeconds: quota.retryAfterSeconds ?? null,
+      }),
+      {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+  }
+
+  const msg = err instanceof Error ? err.message : "Ask failed.";
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 500,
     headers: { "Content-Type": "application/json" },
   });
 }

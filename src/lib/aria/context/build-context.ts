@@ -174,7 +174,8 @@ export async function buildContextBundle(input: {
   if (summary?.rollingSummary) {
     logContextVerboseBlock("rolling summary", summary.rollingSummary);
   }
-  logContextVerboseBlock("messages block", messages);
+  // Full context is now printed verbatim by logRawPrompt() at agent run time,
+  // so we no longer duplicate the assembled messages block here.
 
   return { messages, tokenEstimate, question, log };
 }

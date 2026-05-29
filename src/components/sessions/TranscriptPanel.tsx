@@ -5,11 +5,9 @@ import type { SessionFactDoc, SessionPinDoc, TurnDoc } from "@/lib/sessions/type
 function turnLabel(turn: TurnDoc): string {
   if (turn.role === "assistant") return "Kivo";
   if (turn.role === "user_question") {
-    return turn.speaker == null
-      ? "Question"
-      : `${turn.speakerName ?? `Speaker ${turn.speaker + 1}`} question`;
+    return `${turn.speakerName ?? "Other speaker"} question`;
   }
-  return turn.speakerName ?? (turn.speaker == null ? "Speaker" : `Speaker ${turn.speaker + 1}`);
+  return turn.speakerName ?? "Other speaker";
 }
 
 export function TranscriptPanel(props: {

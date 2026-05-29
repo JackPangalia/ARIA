@@ -28,6 +28,19 @@ function ComposeIcon({ className }: { className?: string }) {
   );
 }
 
+function CloseIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function ChevronLeftDouble({ className }: { className?: string }) {
   return (
     <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -150,6 +163,7 @@ function SessionHistoryMenu(props: {
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [ready, setReady] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -166,22 +180,37 @@ function SessionHistoryMenu(props: {
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
+    const margin = 8;
     const menuWidth = 200;
+    // Use the real rendered height once the menu exists; estimate before that.
+    const menuHeight = menuRef.current?.offsetHeight ?? 280;
+
     const left = Math.min(
-      Math.max(8, rect.right - menuWidth),
-      window.innerWidth - menuWidth - 8
+      Math.max(margin, rect.right - menuWidth),
+      window.innerWidth - menuWidth - margin
     );
 
-    setPosition({
-      top: rect.bottom + 6,
-      left,
-    });
+    // Prefer opening below the trigger; flip above when it would overflow the
+    // bottom of the viewport (the bug on lower session rows).
+    const fitsBelow = rect.bottom + menuHeight + margin <= window.innerHeight;
+    let top = fitsBelow ? rect.bottom + 6 : rect.top - menuHeight - 6;
+    // Never let it run past either edge of the viewport.
+    top = Math.min(
+      Math.max(margin, top),
+      Math.max(margin, window.innerHeight - menuHeight - margin)
+    );
+
+    setPosition({ top, left });
   };
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setReady(false);
+      return;
+    }
 
     updatePosition();
+    setReady(true);
 
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node;
@@ -219,8 +248,12 @@ function SessionHistoryMenu(props: {
           <div
             ref={menuRef}
             role="menu"
-            className="fixed z-[250] flex w-[12.5rem] flex-col rounded-xl border border-app bg-menu p-1.5 shadow-menu"
-            style={{ top: position.top, left: position.left }}
+            className="fixed z-[250] flex max-h-[calc(100dvh-1rem)] w-[12.5rem] flex-col overflow-y-auto rounded-xl border border-app bg-menu p-1.5 shadow-menu"
+            style={{
+              top: position.top,
+              left: position.left,
+              opacity: ready ? 1 : 0,
+            }}
           >
             <button
               type="button"
@@ -305,7 +338,7 @@ function SessionHistoryMenu(props: {
           if (!open) updatePosition();
           setOpen((v) => !v);
         }}
-        className="flex shrink-0 items-center justify-center rounded-lg p-1.5 text-app-muted opacity-0 transition-[opacity,background-color,color] group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-surface-hover hover:text-app-secondary data-[open=true]:bg-surface-hover data-[open=true]:text-app-secondary data-[open=true]:opacity-100"
+        className="mr-0.5 flex shrink-0 items-center justify-center rounded-lg p-2 text-app-muted opacity-100 transition-[opacity,background-color,color] hover:bg-surface-hover hover:text-app-secondary data-[open=true]:bg-surface-hover data-[open=true]:text-app-secondary data-[open=true]:opacity-100 lg:p-1.5 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100"
       >
         <MoreVerticalIcon />
       </button>
@@ -414,7 +447,7 @@ export function SessionSidebar(props: {
             <button
               type="button"
               onClick={() => props.onSelect(session.id)}
-              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-lg px-3 py-2 text-left text-sm font-normal transition-colors hover:bg-surface-hover"
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-lg px-3 py-2.5 text-left text-sm font-normal transition-colors hover:bg-surface-hover lg:py-2"
               title={session.title}
             >
               <span className="truncate">{session.title}</span>
@@ -448,15 +481,16 @@ export function SessionSidebar(props: {
   };
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col bg-app">
-      <header className="flex shrink-0 items-center justify-between px-3 pb-2 pt-3">
+    <aside className="flex h-full min-h-0 w-full flex-col bg-app pl-[env(safe-area-inset-left)]">
+      <header className="flex shrink-0 items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         {props.onClose ? (
           <button
             type="button"
             onClick={props.onClose}
-            className="text-sm font-normal text-app-muted hover:text-app"
+            aria-label="Close sessions"
+            className="-ml-1.5 flex h-10 w-10 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-surface-hover hover:text-app"
           >
-            Close
+            <CloseIcon />
           </button>
         ) : (
           <span

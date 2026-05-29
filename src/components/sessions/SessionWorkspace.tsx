@@ -25,6 +25,15 @@ import {
 } from "@/components/sessions/SessionInsightsPanel";
 import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
 
+function SidebarToggleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9 4v16" stroke="currentColor" strokeWidth="1.6" />
+    </svg>
+  );
+}
+
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -385,7 +394,7 @@ export function SessionWorkspace() {
             className="absolute inset-0 bg-overlay"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 w-[85%] max-w-xs bg-app">
+          <div className="absolute inset-0 w-full bg-app">
             <SessionSidebar
               sessions={filteredSessions}
               selectedSessionId={selectedSessionId}
@@ -454,7 +463,7 @@ export function SessionWorkspace() {
       />
 
       <section className="relative h-full min-h-0 min-w-0 bg-app">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-start p-4">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-start px-3 pb-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
           <div className="pointer-events-auto flex items-center gap-1 justify-self-start">
             {panelsCollapsed ? (
               <SidebarExpandButton onClick={() => setPanelsCollapsed(false)} />
@@ -462,9 +471,10 @@ export function SessionWorkspace() {
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="rounded-lg px-2 py-2 text-sm font-normal text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary lg:hidden"
+              aria-label="Open sessions"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary active:bg-surface-hover lg:hidden"
             >
-              Sessions
+              <SidebarToggleIcon />
             </button>
           </div>
 
@@ -482,8 +492,16 @@ export function SessionWorkspace() {
         ) : null}
 
         {hasSession && summaryOpen ? (
-          <div className="pointer-events-none absolute top-0 right-0 bottom-0 z-20 max-w-[calc(100%-1rem)] p-4 pl-0">
-            <div className="pointer-events-auto ml-auto flex h-full min-h-0 flex-col">
+          <div
+            className="fixed inset-0 z-40 flex flex-col bg-app
+              pt-[max(0.75rem,env(safe-area-inset-top))]
+              pb-[max(0.75rem,env(safe-area-inset-bottom))]
+              pl-[max(0.9rem,env(safe-area-inset-left))]
+              pr-[max(0.9rem,env(safe-area-inset-right))]
+              lg:pointer-events-none lg:absolute lg:inset-auto lg:top-0 lg:right-0 lg:bottom-0 lg:z-20
+              lg:max-w-[calc(100%-1rem)] lg:bg-transparent lg:pt-4 lg:pb-4 lg:pr-4 lg:pl-0"
+          >
+            <div className="flex h-full min-h-0 w-full flex-col lg:pointer-events-auto lg:ml-auto lg:w-auto">
               <SessionInsightsPanel
                 turns={detail!.turns}
                 onCollapse={() => setSummaryOpen(false)}
@@ -494,8 +512,8 @@ export function SessionWorkspace() {
 
         {!settingsOpen ? (
           <div className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center">
-            <div className="pointer-events-auto w-max max-w-[calc(100%-3rem)]">
-              <div className="flex flex-col items-center gap-10">
+            <div className="pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
+              <div className="flex flex-col items-center gap-7 sm:gap-10">
                 <div className="relative flex flex-col items-center">
                   <p className="absolute bottom-full left-1/2 mb-8 -translate-x-1/2 select-none whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
                     KIVO

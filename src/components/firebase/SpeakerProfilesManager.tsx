@@ -818,7 +818,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
                   </div>
 
                   {!editing ? (
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="flex items-center gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                       <button
                         type="button"
                         aria-label={`Rename ${profile.name}`}
@@ -826,7 +826,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
                           setEditingId(profile.id);
                           setEditingName(profile.name);
                         }}
-                        className="rounded-[var(--grok-radius-control,8px)] p-1.5 text-app-muted transition-colors hover:bg-surface hover:text-app"
+                        className="rounded-[var(--grok-radius-control,8px)] p-2 text-app-muted transition-colors hover:bg-surface hover:text-app lg:p-1.5"
                       >
                         <PencilIcon />
                       </button>
@@ -834,7 +834,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
                         type="button"
                         aria-label={`Delete ${profile.name}`}
                         onClick={() => void onDelete(profile)}
-                        className="rounded-[var(--grok-radius-control,8px)] p-1.5 text-app-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                        className="rounded-[var(--grok-radius-control,8px)] p-2 text-app-muted transition-colors hover:bg-danger/10 hover:text-danger lg:p-1.5"
                       >
                         <TrashIcon />
                       </button>

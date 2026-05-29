@@ -37,7 +37,7 @@ export function exportSessionMarkdown(detail: SessionDetailResponse): string {
 
   lines.push("## Transcript", "");
   for (const turn of turns) {
-    lines.push(formatTurnForContext(turn), "");
+    lines.push(formatTurnForContext(turn, { unregisteredLabel: "Other speaker" }), "");
   }
 
   return lines.join("\n").trim() + "\n";

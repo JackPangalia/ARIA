@@ -206,6 +206,7 @@ export class SpeechmaticsLiveClient {
       },
       transcription_config: {
         language: "en",
+        operating_point: "enhanced",
         diarization: "speaker",
         enable_partials: true,
         max_delay: 0.7,
