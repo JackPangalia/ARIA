@@ -46,6 +46,64 @@ export class CueEngine {
     this.master.connect(this.ctx.destination);
   }
 
+  // Play an encoded audio clip (e.g. an MP3 answer) through the already-unlocked
+  // context. On iOS this is the only reliable way to play TTS that arrives after
+  // the initiating tap, because a fresh HTMLAudioElement would be gesture-blocked.
+  // Returns a handle to stop playback early, or null if it could not start.
+  async playClip(
+    data: ArrayBuffer,
+    handlers: {
+      onPlay?: () => void;
+      onEnded?: () => void;
+      onError?: (err: unknown) => void;
+    } = {}
+  ): Promise<{ stop: () => void } | null> {
+    try {
+      await this.ensureReady();
+      if (!this.ctx || !this.master) return null;
+      const ctx = this.ctx;
+      if (ctx.state === "suspended") {
+        try {
+          await ctx.resume();
+        } catch {
+          // ignore — start() below will still surface a real failure
+        }
+      }
+      // decodeAudioData detaches the buffer; the caller does not reuse it.
+      const audioBuffer = await ctx.decodeAudioData(data);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.master);
+      let ended = false;
+      const finish = () => {
+        if (ended) return;
+        ended = true;
+        handlers.onEnded?.();
+      };
+      source.onended = finish;
+      source.start();
+      handlers.onPlay?.();
+      return {
+        stop: () => {
+          source.onended = null;
+          try {
+            source.stop();
+          } catch {
+            // already stopped
+          }
+          try {
+            source.disconnect();
+          } catch {
+            // ignore
+          }
+        },
+      };
+    } catch (err) {
+      handlers.onError?.(err);
+      return null;
+    }
+  }
+
   async dispose() {
     this.stopThinkingLoop();
     if (this.ctx) {

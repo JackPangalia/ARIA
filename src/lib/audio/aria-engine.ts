@@ -42,6 +42,18 @@ function pcmLevel(pcm: Int16Array): number {
   return Math.sqrt(sum / pcm.length);
 }
 
+// iOS (iPhone/iPad) and iPadOS-on-Mac all run WebKit, which blocks
+// HTMLAudioElement.play() unless it happens inside a live user gesture. The
+// spoken answer arrives asynchronously (after STT -> LLM -> TTS), so on these
+// platforms we route playback through the already-unlocked AudioContext instead.
+function isIOSWebKit(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const touchMac =
+    navigator.platform === "MacIntel" && (navigator.maxTouchPoints ?? 0) > 1;
+  return /iPad|iPhone|iPod/.test(ua) || touchMac;
+}
+
 export type AriaEngineOptions = {
   sessionId: string;
   onSessionActivity?: () => void;
@@ -72,6 +84,8 @@ export class AriaEngine {
   private activeFetchAbort: AbortController | null = null;
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioUrl: string | null = null;
+  private currentClipStop: (() => void) | null = null;
+  private playbackGeneration = 0;
   private cues = new CueEngine();
   private isAssistantSpeaking = false;
   private suppressSttUntilMs = 0;
@@ -541,6 +555,13 @@ export class AriaEngine {
       throw new Error("Audio response has no body");
     }
 
+    // iOS WebKit blocks HTMLAudioElement.play() outside a user gesture, so route
+    // the answer through the AudioContext that was unlocked at session start.
+    if (isIOSWebKit()) {
+      await this.playViaAudioContext(res, logMessage, options);
+      return;
+    }
+
     const mseSupported =
       typeof MediaSource !== "undefined" &&
       MediaSource.isTypeSupported?.("audio/mpeg");
@@ -643,6 +664,75 @@ export class AriaEngine {
     }
   }
 
+  // iOS playback path: decode the whole MP3 and play it through the CueEngine's
+  // AudioContext, which was unlocked by the user's tap in start(). Unlike a fresh
+  // HTMLAudioElement, a buffer source on an already-running context plays without
+  // needing its own user gesture.
+  private async playViaAudioContext(
+    res: Response,
+    logMessage: string,
+    options: { enableFollowUp?: boolean; clientT0?: number }
+  ) {
+    const buf = await res.arrayBuffer();
+    if (options.clientT0 != null) {
+      devLog("pipeline", "buffered_audio", {
+        ms: Math.round(performance.now() - options.clientT0),
+        bytes: buf.byteLength,
+      });
+    }
+
+    this.stopPlayback();
+    const generation = this.playbackGeneration;
+
+    const handle = await this.cues.playClip(buf, {
+      onPlay: () => {
+        if (generation !== this.playbackGeneration) return;
+        this.clearFollowUpStartTimer();
+        this.stopFollowUpWindow();
+        this.isAssistantSpeaking = true;
+        this.cues.stopThinkingLoop();
+        useAriaStore.getState().setStatus("speaking");
+        if (options.clientT0 != null) {
+          devLog("pipeline", "speaking", {
+            ms: Math.round(performance.now() - options.clientT0),
+          });
+        }
+        devLog("tts", logMessage);
+      },
+      onEnded: () => {
+        if (generation !== this.playbackGeneration) return;
+        this.currentClipStop = null;
+        this.isAssistantSpeaking = false;
+        this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
+        useAriaStore.getState().setStatus("listening");
+        if (options.enableFollowUp) {
+          this.followUpStartTimer = setTimeout(() => {
+            this.followUpStartTimer = null;
+            this.startFollowUpWindow();
+          }, PLAYBACK_STT_COOLDOWN_MS);
+        }
+      },
+      onError: (err) => {
+        if (generation !== this.playbackGeneration) return;
+        this.currentClipStop = null;
+        this.isAssistantSpeaking = false;
+        this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
+        this.cues.stopThinkingLoop();
+        this.cues.playError();
+        const msg = err instanceof Error ? err.message : "Audio playback error";
+        useAriaStore.getState().setError(msg);
+      },
+    });
+
+    if (!handle) return;
+    if (generation !== this.playbackGeneration) {
+      // A newer turn started while we were decoding — discard this one.
+      handle.stop();
+      return;
+    }
+    this.currentClipStop = handle.stop;
+  }
+
   private attachPlayback(
     url: string,
     revoke: () => void,
@@ -741,6 +831,16 @@ export class AriaEngine {
     this.isAssistantSpeaking = false;
     this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
     this.clearFollowUpStartTimer();
+    // Invalidate any in-flight clip callbacks and stop the active buffer source.
+    this.playbackGeneration++;
+    if (this.currentClipStop) {
+      try {
+        this.currentClipStop();
+      } catch {
+        // ignore
+      }
+      this.currentClipStop = null;
+    }
     if (this.currentAudio) {
       try {
         this.currentAudio.pause();
