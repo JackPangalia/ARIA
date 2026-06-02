@@ -2,7 +2,7 @@ import { Agent, Runner, type Tool } from "@openai/agents";
 import { aisdk } from "@openai/agents-extensions/ai-sdk";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { ServerEnv } from "@/lib/env";
-import { resolveModelId, type ModelId } from "@/lib/aria/models";
+import { resolveModelId } from "@/lib/aria/models";
 import type { AskPipelineHandle } from "@/lib/server/ask-pipeline-log";
 import { logRawPrompt } from "@/lib/server/context-dev-log";
 import { getAriaTools } from "./tools";
@@ -39,7 +39,6 @@ interface RunAriaAgentInput {
   question: string;
   env: ServerEnv;
   uid?: string;
-  model?: ModelId;
   signal?: AbortSignal;
   composioTools?: Tool[];
   pipeline?: AskPipelineHandle;
@@ -61,7 +60,7 @@ function buildGeminiModel(env: ServerEnv, modelId: string) {
 
 async function buildAgent(input: RunAriaAgentInput): Promise<Agent> {
   const buildStart = performance.now();
-  const modelId = resolveModelId(input.model, input.env);
+  const modelId = resolveModelId(input.env);
   const composioTools = input.composioTools ?? [];
 
   const ariaTools = getAriaTools(input.question, modelId, {
@@ -94,7 +93,7 @@ export async function runAriaAgent(input: RunAriaAgentInput): Promise<string> {
   logRawPrompt({
     system: ARIA_SYSTEM_PROMPT,
     user: userPrompt,
-    model: resolveModelId(input.model, input.env),
+    model: resolveModelId(input.env),
   });
   const result = await buildRunner().run(
     agent,
@@ -119,7 +118,7 @@ export async function runAriaAgentStream(
   logRawPrompt({
     system: ARIA_SYSTEM_PROMPT,
     user: userPrompt,
-    model: resolveModelId(input.model, input.env),
+    model: resolveModelId(input.env),
   });
   input.pipeline?.stage("agent.run", { phase: "starting" });
   const result = await buildRunner().run(

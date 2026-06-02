@@ -32,11 +32,7 @@ export function getGeminiProvider() {
   return createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
 }
 
-export function resolveGeminiModelId(
-  modelOverride: string | undefined,
-  env: { GEMINI_MODEL: string; GEMINI_PRO_MODEL: string }
-): string {
-  if (modelOverride) return modelOverride;
+export function resolveGeminiModelId(env: { GEMINI_MODEL: string }): string {
   return env.GEMINI_MODEL;
 }
 
@@ -45,6 +41,7 @@ export async function geminiGenerateText(input: {
   system: string;
   user: string;
   maxOutputTokens?: number;
+  temperature?: number;
 }): Promise<string> {
   const google = getGeminiProvider();
   const { text } = await generateText({
@@ -52,6 +49,7 @@ export async function geminiGenerateText(input: {
     system: input.system,
     prompt: input.user,
     maxOutputTokens: input.maxOutputTokens,
+    temperature: input.temperature,
   });
   return text.trim();
 }

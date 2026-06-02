@@ -2,9 +2,13 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import {
   listSpeakerProfiles,
+  slugifySpeakerProfileId,
   upsertSpeakerProfile,
 } from "@/lib/speakers/repository";
 import { SpeakerProfileInputSchema } from "@/lib/speakers/types";
+import { loadEntitlements } from "@/lib/plan/repository";
+import { canCreateSpeakerProfile } from "@/lib/plan/entitlements";
+import { PLANS } from "@/lib/plan/tiers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +32,20 @@ export async function POST(req: NextRequest) {
     const parsed = SpeakerProfileInputSchema.safeParse(body);
     if (!parsed.success) {
       return jsonError("Invalid speaker profile payload.", 400);
+    }
+
+    // Tier limit applies only to NEW profiles; updating an existing one is fine.
+    const existing = await listSpeakerProfiles(uid);
+    const targetId = slugifySpeakerProfileId(parsed.data.name);
+    const isNew = !existing.some((p) => p.id === targetId);
+    if (isNew) {
+      const { tier, limits } = await loadEntitlements(uid);
+      if (!canCreateSpeakerProfile(limits, existing.length)) {
+        return jsonError(
+          `Your ${PLANS[tier].display.name} plan allows ${limits.maxSpeakerProfiles} speaker profiles. Upgrade for more.`,
+          403
+        );
+      }
     }
 
     try {

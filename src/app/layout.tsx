@@ -50,7 +50,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="flex h-full flex-col overflow-hidden">
+      <body className="flex min-h-full flex-col">
         <Script id="aria-theme-init" strategy="beforeInteractive">
           {themeInitScript}
         </Script>

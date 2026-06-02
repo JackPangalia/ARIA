@@ -8,7 +8,7 @@ function SettingsRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/?settings=1");
+    router.replace("/app?settings=1");
   }, [router]);
 
   return (

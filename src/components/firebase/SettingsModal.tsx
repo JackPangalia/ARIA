@@ -7,7 +7,6 @@ import { useAuth } from "@/components/firebase/AuthProvider";
 import { SpeakerProfilesManager } from "@/components/firebase/SpeakerProfilesManager";
 import { ConnectorsManager } from "@/components/firebase/ConnectorsManager";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { ModelToggle } from "@/components/aria/ModelToggle";
 import { deleteAccount } from "@/lib/account/client";
 import {
   deleteSession,
@@ -15,6 +14,7 @@ import {
   patchSession,
 } from "@/lib/sessions/client";
 import type { SessionDoc } from "@/lib/sessions/types";
+import { BillingPanel } from "@/components/billing/BillingPanel";
 import {
   GrokSettingsButton,
   GrokSettingsRow,
@@ -22,8 +22,8 @@ import {
 
 type SettingsTab =
   | "account"
+  | "billing"
   | "appearance"
-  | "behavior"
   | "speakers"
   | "connectors"
   | "trash";
@@ -97,19 +97,6 @@ function AppearanceIcon({ className }: { className?: string }) {
   );
 }
 
-function BehaviorIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 6h16M4 12h16M4 18h10"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function SpeakersIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -144,6 +131,15 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
+function BillingIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2 10h20" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 function ConnectorsIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -163,8 +159,8 @@ const TABS: {
   Icon: (props: { className?: string }) => React.JSX.Element;
 }[] = [
   { id: "account", label: "Account", Icon: AccountIcon },
+  { id: "billing", label: "Billing", Icon: BillingIcon },
   { id: "appearance", label: "Appearance", Icon: AppearanceIcon },
-  { id: "behavior", label: "Behavior", Icon: BehaviorIcon },
   { id: "speakers", label: "Speakers", Icon: SpeakersIcon },
   { id: "connectors", label: "Connectors", Icon: ConnectorsIcon },
   { id: "trash", label: "Trash", Icon: TrashIcon },
@@ -176,7 +172,7 @@ const TAB_BY_ID = Object.fromEntries(TABS.map((tab) => [tab.id, tab])) as Record
 >;
 
 const MOBILE_MENU_GROUPS: { label: string; tabs: SettingsTab[] }[] = [
-  { label: "App", tabs: ["appearance", "behavior"] },
+  { label: "App", tabs: ["appearance", "billing"] },
   { label: "Kivo", tabs: ["speakers", "connectors", "trash"] },
 ];
 
@@ -452,16 +448,8 @@ function SettingsTabContent(props: {
     );
   }
 
-  if (props.tab === "behavior") {
-    return (
-      <section>
-        <p className="grok-settings-section-title">Model</p>
-        <p className="grok-settings-section-desc">
-          Choose how Kivo thinks. You can switch anytime.
-        </p>
-        <ModelToggle variant="grok" />
-      </section>
-    );
+  if (props.tab === "billing") {
+    return <BillingPanel />;
   }
 
   if (props.tab === "speakers") {

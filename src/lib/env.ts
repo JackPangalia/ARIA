@@ -3,14 +3,24 @@ import { z } from "zod";
 const ServerEnvSchema = z.object({
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
-  GEMINI_MODEL: z.string().default("gemini-3.5-flash"),
-  GEMINI_PRO_MODEL: z.string().default("gemini-3.1-pro"),
+  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   GEMINI_SUMMARY_MODEL: z.string().optional(),
   CARTESIA_API_KEY: z.string().min(1),
   CARTESIA_MODEL_ID: z.string().default("sonic-2"),
   CARTESIA_VOICE_ID: z.string().min(1),
   SPEECHMATICS_API_KEY: z.string().min(1),
   COMPOSIO_API_KEY: z.string().min(1).optional(),
+  // Recall.ai meeting-bot mode (optional — in-person app boots without these).
+  RECALL_API_KEY: z.string().min(1).optional(),
+  RECALL_REGION: z.string().min(1).optional(),
+  RECALL_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** Public wss/https URL of the bot worker, handed to Recall as the real-time target. */
+  BOT_WORKER_PUBLIC_URL: z.string().url().optional(),
+  /**
+   * Recall streaming-ASR: "low_latency" (default) for fast join + transcripts;
+   * "accuracy" enables key_terms for "Kivo" but is much slower end-to-end.
+   */
+  RECALL_TRANSCRIPT_MODE: z.enum(["accuracy", "low_latency"]).default("low_latency"),
 });
 
 export type ServerEnv = z.infer<typeof ServerEnvSchema> & {

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controls } from "@/components/aria/Controls";
+import { MeetingBotControls } from "@/components/aria/MeetingBotControls";
 import { OrbVisualizer } from "@/components/aria/OrbVisualizer";
+import { UsageMeter } from "@/components/aria/UsageMeter";
 import {
   SessionSidebar,
   SidebarExpandButton,
@@ -14,6 +16,7 @@ import {
   getSessionDetail,
   listSessions,
   patchSession,
+  subscribeSessionTurns,
 } from "@/lib/sessions/client";
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
@@ -24,6 +27,7 @@ import {
   TranscriptExpandButton,
 } from "@/components/sessions/SessionInsightsPanel";
 import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
+import { MEETING_BOT_ENABLED } from "@/lib/features";
 
 function SidebarToggleIcon({ className }: { className?: string }) {
   return (
@@ -69,6 +73,9 @@ export function SessionWorkspace() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [trashConfirmId, setTrashConfirmId] = useState<string | null>(null);
+  // false = in-person (mic) mode, true = meeting (bot) mode. One per session so
+  // the two capture paths never run at once. Kept in sync with whatever is live.
+  const [meetingMode, setMeetingMode] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(min-width: 1024px)").matches;
@@ -123,9 +130,16 @@ export function SessionWorkspace() {
     async (sessionId: string) => {
       const next = await getSessionDetail(sessionId);
       setDetail(next);
+      setSessions(
+        useSessionStore.getState().sessions.map((session) =>
+          session.id === sessionId
+            ? { ...session, title: next.session.title, autoTitled: next.session.autoTitled }
+            : session
+        )
+      );
       return next;
     },
-    [setDetail]
+    [setDetail, setSessions]
   );
 
   const handleSessionActivity = useCallback(() => {
@@ -188,15 +202,42 @@ export function SessionWorkspace() {
     setSelectedSessionId,
   ]);
 
-  useEffect(() => {
-    if (!selectedSessionId || !LIVE_ARIA_STATUSES.has(ariaStatus)) return;
+  const botActive =
+    MEETING_BOT_ENABLED &&
+    (detail?.session.botStatus === "joining" ||
+      detail?.session.botStatus === "live");
+  const micLive = LIVE_ARIA_STATUSES.has(ariaStatus);
 
+  // The mode actually shown: a running bot forces "meeting", a live mic forces
+  // "in-person", otherwise the user's toggle choice. Switching is disabled while
+  // either is active, so the two modes can never capture simultaneously.
+  const meetingModeActive = botActive ? true : micLive ? false : meetingMode;
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    if (!micLive && !botActive) return;
+
+    // Bot mode: live Firestore subscription for turns (worker persists server-side).
+    // Fall back to polling for session metadata and when the listener is unavailable.
+    let unsubscribeTurns: (() => void) | undefined;
+    if (botActive) {
+      unsubscribeTurns = subscribeSessionTurns(selectedSessionId, (turns) => {
+        const current = useSessionStore.getState().detail;
+        if (!current || current.session.id !== selectedSessionId) return;
+        setDetail({ ...current, turns });
+      });
+    }
+
+    const intervalMs = botActive ? 10000 : 8000;
     const timer = window.setInterval(() => {
       void refreshDetail(selectedSessionId).catch(() => undefined);
-    }, 8000);
+    }, intervalMs);
 
-    return () => window.clearInterval(timer);
-  }, [LIVE_ARIA_STATUSES, ariaStatus, refreshDetail, selectedSessionId]);
+    return () => {
+      unsubscribeTurns?.();
+      window.clearInterval(timer);
+    };
+  }, [micLive, botActive, refreshDetail, selectedSessionId, setDetail]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -525,13 +566,64 @@ export function SessionWorkspace() {
                   />
                 </div>
 
-                <Controls
-                  sessionId={selectedSessionId}
-                  disabled={detail?.session.status === "archived"}
-                  resume={Boolean(detail && detail.session.turnCount > 0)}
-                  ensureSession={ensureSession}
-                  onActivity={handleSessionActivity}
-                />
+                {MEETING_BOT_ENABLED ? (
+                  <div className="flex flex-col items-center gap-5">
+                    <div className="inline-flex items-center rounded-full border border-app-strong bg-app p-0.5 text-[10px] tracking-[0.18em]">
+                      <button
+                        type="button"
+                        onClick={() => setMeetingMode(false)}
+                        disabled={botActive}
+                        className={`rounded-full px-4 py-1.5 transition-colors disabled:opacity-40 ${
+                          !meetingModeActive
+                            ? "bg-accent text-accent-fg"
+                            : "text-app-subtle hover:text-app-secondary"
+                        }`}
+                      >
+                        IN PERSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMeetingMode(true)}
+                        disabled={micLive}
+                        className={`rounded-full px-4 py-1.5 transition-colors disabled:opacity-40 ${
+                          meetingModeActive
+                            ? "bg-accent text-accent-fg"
+                            : "text-app-subtle hover:text-app-secondary"
+                        }`}
+                      >
+                        MEETING
+                      </button>
+                    </div>
+
+                    {meetingModeActive ? (
+                      <MeetingBotControls
+                        sessionId={selectedSessionId}
+                        botId={detail?.session.botId ?? null}
+                        botStatus={detail?.session.botStatus ?? null}
+                        disabled={detail?.session.status === "archived"}
+                        ensureSession={ensureSession}
+                        onChanged={handleSessionActivity}
+                      />
+                    ) : (
+                      <Controls
+                        sessionId={selectedSessionId}
+                        disabled={detail?.session.status === "archived"}
+                        resume={Boolean(detail && detail.session.turnCount > 0)}
+                        ensureSession={ensureSession}
+                        onActivity={handleSessionActivity}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <Controls
+                    sessionId={selectedSessionId}
+                    disabled={detail?.session.status === "archived"}
+                    resume={Boolean(detail && detail.session.turnCount > 0)}
+                    ensureSession={ensureSession}
+                    onActivity={handleSessionActivity}
+                  />
+                )}
+                <UsageMeter />
               </div>
             </div>
           </div>

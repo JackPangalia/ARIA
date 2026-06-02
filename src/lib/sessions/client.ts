@@ -1,12 +1,21 @@
 "use client";
 
-import { auth } from "@/lib/firebase/client";
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  type DocumentData,
+} from "firebase/firestore";
+import { auth, db } from "@/lib/firebase/client";
 import type {
   CreateSessionSchema,
   PatchSessionSchema,
   SessionDetailResponse,
   SessionDoc,
   TurnDoc,
+  TurnRole,
 } from "@/lib/sessions/types";
 import type { z } from "zod";
 
@@ -147,6 +156,28 @@ export async function exportSession(
   return res.text();
 }
 
+export async function sendMeetingBot(
+  sessionId: string,
+  meetingUrl: string
+): Promise<{ botId: string; session: SessionDoc }> {
+  return apiFetch<{ botId: string; session: SessionDoc }>("/api/recall/bots", {
+    method: "POST",
+    body: JSON.stringify({ sessionId, meetingUrl }),
+  });
+}
+
+export async function stopMeetingBot(
+  sessionId: string,
+  botId: string
+): Promise<void> {
+  await apiFetch<{ ok: true }>(
+    `/api/recall/bots/${encodeURIComponent(botId)}?sessionId=${encodeURIComponent(
+      sessionId
+    )}`,
+    { method: "DELETE" }
+  );
+}
+
 export async function prefetchSessionContext(
   sessionId: string,
   question: string
@@ -160,19 +191,76 @@ export async function prefetchSessionContext(
   );
 }
 
+function mapTurnDoc(id: string, data: DocumentData): TurnDoc {
+  const toIso = (value: unknown): string => {
+    if (value instanceof Date) return value.toISOString();
+    if (
+      value &&
+      typeof value === "object" &&
+      "toDate" in value &&
+      typeof (value as { toDate: () => Date }).toDate === "function"
+    ) {
+      return (value as { toDate: () => Date }).toDate().toISOString();
+    }
+    if (typeof value === "string") return value;
+    return new Date().toISOString();
+  };
+
+  return {
+    id,
+    role: data.role as TurnRole,
+    text: String(data.text ?? ""),
+    speaker: data.speaker == null ? null : Number(data.speaker),
+    speakerName: data.speakerName == null ? null : String(data.speakerName),
+    sourceUtteranceIds: Array.isArray(data.sourceUtteranceIds)
+      ? data.sourceUtteranceIds.map(String)
+      : [],
+    sequence: Number(data.sequence ?? 0),
+    tokenEstimate: Number(data.tokenEstimate ?? 0),
+    summarized: Boolean(data.summarized),
+    createdAt: toIso(data.createdAt),
+  };
+}
+
+/** Live Firestore listener for session turns — used in bot mode where the worker
+ *  persists server-side and the browser has no local STT stream. */
+export function subscribeSessionTurns(
+  sessionId: string,
+  onTurns: (turns: TurnDoc[]) => void
+): () => void {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return () => {};
+
+  const turnsQuery = query(
+    collection(db, "users", uid, "sessions", sessionId, "turns"),
+    orderBy("sequence", "asc"),
+    limit(200)
+  );
+
+  return onSnapshot(
+    turnsQuery,
+    (snapshot) => {
+      const turns = snapshot.docs.map((doc) => mapTurnDoc(doc.id, doc.data()));
+      onTurns(turns);
+    },
+    (err) => {
+      console.error("[sessions] turn subscription failed:", err);
+    }
+  );
+}
+
 export async function askSessionQuestion(
   sessionId: string,
   question: string,
   speaker?: number | null,
   speakerName?: string | null,
-  signal?: AbortSignal,
-  model?: string
+  signal?: AbortSignal
 ): Promise<Response> {
   const headers = await getAuthHeader();
   return fetch("/api/ask", {
     method: "POST",
     headers,
-    body: JSON.stringify({ sessionId, question, speaker, speakerName, model }),
+    body: JSON.stringify({ sessionId, question, speaker, speakerName }),
     signal,
   });
 }

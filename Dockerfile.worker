@@ -1,0 +1,24 @@
+# Kivo meeting-bot worker (long-lived Node process — NOT the Next.js app).
+# Deploy target: Railway (or any container host). Start command: npm run worker.
+#
+# Build:  docker build -f Dockerfile.worker -t kivo-worker .
+# Run:    docker run --env-file .env.local -p 8787:8787 kivo-worker
+#
+# All server env vars must be present (Gemini, Cartesia, Firebase admin, RECALL_*,
+# BOT_WORKER_PUBLIC_URL). Recall connects inbound to ws(s)://$BOT_WORKER_PUBLIC_URL/recall.
+
+FROM node:20-slim
+WORKDIR /app
+
+# Install all deps (tsx runs the worker from source — keep dev deps).
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+COPY . .
+
+ENV NODE_ENV=production
+# Railway injects $PORT; default matches the worker's fallback.
+ENV PORT=8787
+EXPOSE 8787
+
+CMD ["npm", "run", "worker"]

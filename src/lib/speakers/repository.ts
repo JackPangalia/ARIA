@@ -70,20 +70,19 @@ export async function upsertSpeakerProfile(
   const snap = await ref.get();
   const existing = snap.exists ? mapSpeakerProfile(snap.id, snap.data() ?? {}) : null;
   const now = FieldValue.serverTimestamp();
-  const MAX_IDENTIFIERS = 3;
+  // Settings enrollment only — replace the stored print; never merge with prior IDs.
   const identifiers = Array.from(
-    new Set([
-      ...(existing?.speakerIdentifiers ?? []),
-      ...input.speakerIdentifiers,
-    ])
-  ).slice(-MAX_IDENTIFIERS);
+    new Set(input.speakerIdentifiers.map(String))
+  ).filter(Boolean);
+  if (identifiers.length === 0) {
+    throw new Error("At least one speaker identifier is required.");
+  }
 
   await ref.set(
     {
       name: input.name.trim(),
       speakerIdentifiers: identifiers,
-      sampleCount:
-        (existing?.sampleCount ?? 0) + Math.max(1, input.sampleCount ?? 1),
+      sampleCount: 1,
       createdAt: existing ? snap.data()?.createdAt ?? now : now,
       updatedAt: now,
     },

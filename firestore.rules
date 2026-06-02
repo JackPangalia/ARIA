@@ -222,6 +222,20 @@ service cloud.firestore {
         request.resource.data.updatedAt == request.time;
       allow delete: if false;
 
+      // Subscription tier + usage counters. Readable by the owner so the client
+      // can render the usage meter, but NEVER client-writable — only the Firebase
+      // Admin SDK (server) writes these. This prevents a user from granting
+      // themselves a higher tier or zeroing their own usage.
+      match /private/{docId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      match /usage/{periodKey} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
       match /speakerProfiles/{profileId} {
         allow read: if isOwner(userId);
         allow create, update: if isOwner(userId) &&

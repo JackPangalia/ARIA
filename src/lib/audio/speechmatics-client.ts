@@ -366,6 +366,16 @@ export class SpeechmaticsLiveClient {
     this.sendJson({ message: "GetSpeakers", final: options.final ?? false });
   }
 
+  /** Ends recognition; required before `GetSpeakers({ final: true })` can return. */
+  sendEndOfStream() {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !this.recognitionStarted) {
+      return;
+    }
+    this.recognitionStarted = false;
+    ws.send(JSON.stringify({ message: "EndOfStream", last_seq_no: this.seqNo }));
+  }
+
   close() {
     this.closedByClient = true;
     if (this.reconnectTimer) {
@@ -375,7 +385,7 @@ export class SpeechmaticsLiveClient {
     const ws = this.ws;
     if (!ws) return;
     try {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN && this.recognitionStarted) {
         ws.send(JSON.stringify({ message: "EndOfStream", last_seq_no: this.seqNo }));
       }
       ws.close();

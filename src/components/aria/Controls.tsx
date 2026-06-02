@@ -46,7 +46,13 @@ export function Controls(props: {
       }
       const engine = new AriaEngine({
         sessionId: activeSessionId,
-        onSessionActivity: onActivity,
+        onSessionActivity: () => {
+          onActivity?.();
+          window.dispatchEvent(new Event("kivo:usage-refresh"));
+        },
+        onUsageExhausted: () => {
+          window.dispatchEvent(new Event("kivo:usage-refresh"));
+        },
       });
       engineRef.current = engine;
       await engine.start();

@@ -14,6 +14,7 @@ import { GrokSettingsButton } from "@/components/settings/SettingsRow";
 
 const ENROLL_SECONDS = 8;
 const COUNTDOWN_SECONDS = 3;
+const ENROLL_PROCESSING_TIMEOUT_MS = 15_000;
 const WAVEFORM_BARS = 28;
 
 type EnrollPhase =
@@ -271,6 +272,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
   const clientRef = useRef<SpeechmaticsLiveClient | null>(null);
   const micRef = useRef<MicPcmStreamer | null>(null);
   const requestTimerRef = useRef<number | null>(null);
+  const processingTimeoutRef = useRef<number | null>(null);
   const countdownTickRef = useRef<number | null>(null);
   const recordTickRef = useRef<number | null>(null);
   const preTimerRef = useRef<number | null>(null);
@@ -287,6 +289,10 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     if (requestTimerRef.current) {
       window.clearTimeout(requestTimerRef.current);
       requestTimerRef.current = null;
+    }
+    if (processingTimeoutRef.current) {
+      window.clearTimeout(processingTimeoutRef.current);
+      processingTimeoutRef.current = null;
     }
     if (countdownTickRef.current) {
       window.clearInterval(countdownTickRef.current);
@@ -382,13 +388,38 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       }, 1000);
 
       requestTimerRef.current = window.setTimeout(() => {
-        setPhase("processing");
-        clientRef.current?.requestSpeakers({ final: false });
+        void (async () => {
+          setPhase("processing");
+          if (recordTickRef.current) {
+            window.clearInterval(recordTickRef.current);
+            recordTickRef.current = null;
+          }
+          await micRef.current?.stop();
+          micRef.current = null;
+
+          const client = clientRef.current;
+          if (!client) {
+            setError("Enrollment connection was lost. Try again.");
+            setPhase("error");
+            return;
+          }
+
+          processingTimeoutRef.current = window.setTimeout(() => {
+            setError(
+              "Creating your voice profile timed out. Try again in a quiet room."
+            );
+            setPhase("error");
+            void teardown();
+          }, ENROLL_PROCESSING_TIMEOUT_MS);
+
+          client.requestSpeakers({ final: true });
+          client.sendEndOfStream();
+        })();
       }, ENROLL_SECONDS * 1000);
 
       void trimmed;
     },
-    []
+    [teardown]
   );
 
   const startEnrollment = async () => {
@@ -413,9 +444,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         // user sees the prep beats regardless of how long the WS takes to open.
       },
       onClose: () => {
-        if (!completed && phase !== "success") {
-          setPhase("idle");
-        }
+        // Wait for SpeakersResult or the processing timeout — do not reset UI here.
       },
       onError: (err) => {
         setError(err.message);
@@ -427,6 +456,10 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       onSpeakersResult: (speakers) => {
         void (async () => {
           if (completed) return;
+          if (processingTimeoutRef.current) {
+            window.clearTimeout(processingTimeoutRef.current);
+            processingTimeoutRef.current = null;
+          }
           if (speakers.length !== 1 || speakers[0]!.speakerIdentifiers.length === 0) {
             setError(
               "We couldn't detect a single clear voice. Try again in a quiet room, speaking naturally."
@@ -809,10 +842,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
                         <p className="truncate text-sm font-normal text-app">
                           {profile.name}
                         </p>
-                        <p className="text-xs text-app-muted">
-                          {profile.speakerIdentifiers.length} voice identifier
-                          {profile.speakerIdentifiers.length === 1 ? "" : "s"}
-                        </p>
+                        <p className="text-xs text-app-muted">Voice enrolled</p>
                       </>
                     )}
                   </div>

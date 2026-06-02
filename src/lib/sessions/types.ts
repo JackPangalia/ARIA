@@ -6,9 +6,25 @@ export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export const TurnRoleSchema = z.enum(["speaker", "user_question", "assistant"]);
 export type TurnRole = z.infer<typeof TurnRoleSchema>;
 
+export const SessionModeSchema = z.enum(["in_person", "bot"]);
+export type SessionMode = z.infer<typeof SessionModeSchema>;
+
+export const MeetingPlatformSchema = z.enum(["zoom", "meet", "teams", "webex"]);
+export type MeetingPlatform = z.infer<typeof MeetingPlatformSchema>;
+
+export const BotStatusSchema = z.enum([
+  "joining",
+  "live",
+  "ended",
+  "error",
+]);
+export type BotStatus = z.infer<typeof BotStatusSchema>;
+
 export interface SessionDoc {
   id: string;
   title: string;
+  /** True when the title was set by auto-naming (can be upgraded after Q&A). */
+  autoTitled: boolean;
   status: SessionStatus;
   speakerCount: number;
   pinned: boolean;
@@ -20,6 +36,12 @@ export interface SessionDoc {
   tokenEstimate: number;
   searchableTextPreview: string;
   turnCount: number;
+  /** "in_person" (default, mic) or "bot" (Recall meeting bot). */
+  mode: SessionMode;
+  /** Recall bot id when a meeting bot is/was attached, else null. */
+  botId: string | null;
+  meetingPlatform: MeetingPlatform | null;
+  botStatus: BotStatus | null;
 }
 
 export interface TurnDoc {
@@ -88,6 +110,11 @@ export const CreateTurnSchema = z.object({
   sourceUtteranceIds: z.array(z.string()).max(50).optional(),
 });
 
+export const CreateBotRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  meetingUrl: z.string().url().max(2000),
+});
+
 export const CreatePinSchema = z.object({
   turnId: z.string().min(1),
   label: z.string().trim().min(1).max(120).optional(),
@@ -98,7 +125,6 @@ export const AskBodySchema = z.object({
   question: z.string().trim().min(1).max(4000),
   speaker: z.number().int().min(0).max(9).nullable().optional(),
   speakerName: z.string().trim().min(1).max(100).nullable().optional(),
-  model: z.string().min(1).max(64).optional(),
 });
 
 export interface ContextBundle {

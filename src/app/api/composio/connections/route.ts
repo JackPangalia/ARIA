@@ -8,6 +8,9 @@ import {
   listConnectionsForUser,
 } from "@/lib/composio/connections";
 import { invalidateComposioToolsCache } from "@/lib/composio/tools-cache";
+import { loadEntitlements } from "@/lib/plan/repository";
+import { canAddConnector } from "@/lib/plan/entitlements";
+import { PLANS } from "@/lib/plan/tiers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +45,22 @@ export async function POST(req: NextRequest) {
     if (!toolkit || !isSupportedToolkit(toolkit)) {
       return jsonError(`Unsupported toolkit: ${toolkit ?? "(missing)"}`, 400);
     }
+
+    // Tier connector limit — only gate connecting a NEW toolkit, not re-auth.
+    const existingConnections = await listConnectionsForUser(uid);
+    const alreadyConnected = existingConnections.some(
+      (c) => c.toolkit === toolkit
+    );
+    if (!alreadyConnected) {
+      const { tier, limits } = await loadEntitlements(uid);
+      if (!canAddConnector(limits, existingConnections.length)) {
+        return jsonError(
+          `Your ${PLANS[tier].display.name} plan allows ${limits.maxConnectors} app connector${limits.maxConnectors === 1 ? "" : "s"}. Upgrade for more.`,
+          403
+        );
+      }
+    }
+
     try {
       const result = await initiateConnection(uid, toolkit, body.callbackUrl);
       return jsonOk(result, 201);

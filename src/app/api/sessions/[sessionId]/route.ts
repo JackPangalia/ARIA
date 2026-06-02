@@ -6,6 +6,8 @@ import {
   getSessionDetail,
   patchSession,
 } from "@/lib/sessions/repository";
+import { loadEntitlements } from "@/lib/plan/repository";
+import { historyCutoffIso } from "@/lib/plan/entitlements";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const { sessionId } = await context.params;
     const detail = await getSessionDetail(uid, sessionId);
     if (!detail) {
+      return jsonError("Session not found.", 404);
+    }
+    // Plan history retention: hide (never delete) sessions past the window.
+    const { limits } = await loadEntitlements(uid);
+    const cutoff = historyCutoffIso(limits, new Date());
+    if (cutoff && detail.session.updatedAt < cutoff) {
       return jsonError("Session not found.", 404);
     }
     return jsonOk(detail);

@@ -1,6 +1,9 @@
 import { NextRequest } from "next/server";
 import { getServerEnv } from "@/lib/env";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
+import { loadEntitlements } from "@/lib/plan/repository";
+import { remainingListeningSeconds } from "@/lib/plan/entitlements";
+import { PLANS } from "@/lib/plan/tiers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,7 +11,20 @@ export const dynamic = "force-dynamic";
 const REALTIME_TOKEN_TTL_SECONDS = 600;
 
 export async function POST(req: NextRequest) {
-  return withAuth(req, async () => {
+  return withAuth(req, async ({ uid }) => {
+    // Listening quota gate: refuse to mint a token (start OR reconnect) when the
+    // user has no listening budget left this period.
+    const { tier, limits, usage } = await loadEntitlements(uid);
+    if (remainingListeningSeconds(limits, usage) <= 0) {
+      return new Response(
+        JSON.stringify({
+          error: `You've used all your ${PLANS[tier].display.name} listening time this month. Upgrade to keep listening.`,
+          code: "listening_quota_exhausted",
+        }),
+        { status: 402, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     let env;
     try {
       env = getServerEnv();

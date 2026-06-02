@@ -26,9 +26,15 @@ export async function POST(req: NextRequest, context: RouteContext) {
     try {
       const session = await assertSessionOwner(uid, sessionId);
       const turn = await appendTurn(uid, sessionId, parsed.data);
-      import("@/lib/aria/context/auto-title").then(({ autoTitleSession }) => {
-        void autoTitleSession(uid, sessionId, session.title);
-      }).catch(err => console.error("[Auto-Title] failed to import:", err));
+      if (parsed.data.role === "speaker") {
+        import("@/lib/aria/context/auto-title")
+          .then(({ autoTitleSession }) => {
+            void autoTitleSession(uid, sessionId, { source: "listening" });
+          })
+          .catch((err) =>
+            console.error("[Auto-Title] failed to import:", err)
+          );
+      }
       return jsonOk(turn, 201);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Failed to save turn.";

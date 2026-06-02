@@ -221,6 +221,7 @@ describe("exportSessionMarkdown", () => {
       session: {
         id: "s1",
         title: "Planning",
+        autoTitled: false,
         status: "active",
         speakerCount: 2,
         createdAt: "2026-05-24T00:00:00.000Z",
@@ -232,6 +233,10 @@ describe("exportSessionMarkdown", () => {
         searchableTextPreview: "Firestore",
         turnCount: 1,
         pinned: false,
+        mode: "in_person",
+        botId: null,
+        meetingPlatform: null,
+        botStatus: null,
       },
       turns: [
         {

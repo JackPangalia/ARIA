@@ -1,18 +1,27 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { AuthScreenLoader } from "@/components/firebase/AuthScreenLoader";
 import { SignInForm } from "@/components/firebase/SignInForm";
 import { useAuth } from "@/components/firebase/AuthProvider";
+import { isPaidTier } from "@/lib/plan/tiers";
 
 export function SignInScreen() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!loading && user) router.replace("/");
-  }, [user, loading, router]);
+    if (!loading && user) {
+      const plan = searchParams.get("plan");
+      if (plan && isPaidTier(plan)) {
+        router.replace(`/app?checkout=${plan}`);
+      } else {
+        router.replace("/app");
+      }
+    }
+  }, [user, loading, router, searchParams]);
 
   if (loading) return <AuthScreenLoader />;
   if (user) return <AuthScreenLoader />;

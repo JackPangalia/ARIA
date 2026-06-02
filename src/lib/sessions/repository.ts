@@ -67,6 +67,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
   return {
     id,
     title: String(data.title ?? "Untitled session"),
+    autoTitled: Boolean(data.autoTitled),
     status: (data.status ?? "active") as SessionStatus,
     speakerCount: Number(data.speakerCount ?? 2),
     createdAt: toIso(data.createdAt),
@@ -78,6 +79,14 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
     searchableTextPreview: String(data.searchableTextPreview ?? ""),
     turnCount: Number(data.turnCount ?? 0),
     pinned: Boolean(data.pinned),
+    mode: data.mode === "bot" ? "bot" : "in_person",
+    botId: data.botId ? String(data.botId) : null,
+    meetingPlatform: data.meetingPlatform
+      ? (String(data.meetingPlatform) as SessionDoc["meetingPlatform"])
+      : null,
+    botStatus: data.botStatus
+      ? (String(data.botStatus) as SessionDoc["botStatus"])
+      : null,
   };
 }
 
@@ -162,6 +171,7 @@ export async function createSession(
 
   await ref.set({
     title,
+    autoTitled: false,
     status: "active",
     speakerCount: input.speakerCount,
     createdAt: now,
@@ -181,7 +191,7 @@ export async function createSession(
 
 export async function listSessions(
   uid: string,
-  input: { status?: SessionStatus; q?: string; limit: number }
+  input: { status?: SessionStatus; q?: string; limit: number; since?: string | null }
 ): Promise<SessionDoc[]> {
   const db = getAdminDb();
   let query: Query = sessionsCol(db, uid).orderBy("updatedAt", "desc");
@@ -196,6 +206,12 @@ export async function listSessions(
 
   if (!input.status) {
     sessions = sessions.filter((s) => s.status !== "trashed");
+  }
+
+  // Plan history retention: hide (never delete) sessions older than the window.
+  if (input.since) {
+    const since = input.since;
+    sessions = sessions.filter((s) => s.updatedAt >= since);
   }
 
   if (input.q) {
@@ -241,6 +257,7 @@ export async function patchSession(
     status?: SessionStatus;
     speakerCount?: number;
     pinned?: boolean;
+    autoTitled?: boolean;
   }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
@@ -254,7 +271,13 @@ export async function patchSession(
     updatedAt: FieldValue.serverTimestamp(),
   };
 
-  if (patch.title !== undefined) updates.title = patch.title;
+  if (patch.title !== undefined) {
+    updates.title = patch.title;
+    if (patch.autoTitled === undefined) {
+      updates.autoTitled = false;
+    }
+  }
+  if (patch.autoTitled !== undefined) updates.autoTitled = patch.autoTitled;
   if (patch.pinned !== undefined) updates.pinned = patch.pinned;
   if (patch.speakerCount !== undefined) updates.speakerCount = patch.speakerCount;
   if (patch.status !== undefined) {
@@ -270,6 +293,38 @@ export async function patchSession(
       updates.trashedAt = null;
     }
   }
+
+  await ref.update(updates);
+  const next = await ref.get();
+  return mapSession(sessionId, next.data() ?? {});
+}
+
+export async function setSessionBotState(
+  uid: string,
+  sessionId: string,
+  patch: {
+    mode?: SessionDoc["mode"];
+    botId?: string | null;
+    meetingPlatform?: SessionDoc["meetingPlatform"];
+    botStatus?: SessionDoc["botStatus"];
+  }
+): Promise<SessionDoc> {
+  const db = getAdminDb();
+  const ref = sessionRef(db, uid, sessionId);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    throw new Error("Session not found.");
+  }
+
+  const updates: Record<string, unknown> = {
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (patch.mode !== undefined) updates.mode = patch.mode;
+  if (patch.botId !== undefined) updates.botId = patch.botId;
+  if (patch.meetingPlatform !== undefined) {
+    updates.meetingPlatform = patch.meetingPlatform;
+  }
+  if (patch.botStatus !== undefined) updates.botStatus = patch.botStatus;
 
   await ref.update(updates);
   const next = await ref.get();

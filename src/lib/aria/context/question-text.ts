@@ -1,5 +1,6 @@
-const WAKE_PREFIX =
-  /^(?:hey\s+)?(?:kivo|keevo|keyvo|quivo)[,!\s]*/i;
+import { KIVO_WAKE_TOKEN } from "@/lib/aria/conversation/wake";
+
+const WAKE_PREFIX = new RegExp(`^(?:hey\\s+)?${KIVO_WAKE_TOKEN}[,!\\s]*`, "i");
 
 const EARLY_SESSION_INTENT =
   /\b(beginning|start|started|first|originally|earlier|opening|initially)\b/i;

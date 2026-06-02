@@ -2,10 +2,7 @@
 
 import { CueEngine } from "./cue-engine";
 import { MicPcmStreamer } from "./mic-pcm-streamer";
-import {
-  SpeechmaticsLiveClient,
-  type SpeechmaticsSpeakerResult,
-} from "./speechmatics-client";
+import { SpeechmaticsLiveClient } from "./speechmatics-client";
 import {
   TranscriptTurnAssembler,
   type AssembledTranscriptTurn,
@@ -16,87 +13,24 @@ import {
   appendSessionTurn,
   prefetchSessionContext,
 } from "@/lib/sessions/client";
-import { readStoredModel } from "@/lib/aria/model-storage";
-import {
-  listSpeakerProfiles,
-  saveSpeakerProfile,
-} from "@/lib/speakers/client";
+import { listSpeakerProfiles } from "@/lib/speakers/client";
+import { sendHeartbeat } from "@/lib/plan/client";
+import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
 import { sanitizeQuestionText } from "@/lib/aria/context/question-text";
+import {
+  extractQuestionAfterWake,
+  isSubstantiveQuestion,
+  FOLLOW_UP_WINDOW_MS,
+  QUESTION_SETTLE_MS,
+  SPEECH_FINAL_SETTLE_MS,
+} from "@/lib/aria/conversation/wake";
 import { joinText } from "@/lib/text/join-text";
 import { messagesToText, useAriaStore } from "@/lib/store";
 import type { TranscriptUtterance } from "@/lib/types";
 
-const WAKE_PATTERNS = [
-  /\b(?:hey|hi|okay|ok)\s*,?\s*(?:kivo|keevo|keyvo|quivo)\b[\s,.:;!?-]*/i,
-  /^\s*(?:kivo|keevo|keyvo|quivo)\b[\s,.:;!?-]*/i,
-];
-
-const QUESTION_SETTLE_MS = 2800;
-const SPEECH_FINAL_SETTLE_MS = 2800;
-const FOLLOW_UP_WINDOW_MS = 8000;
 const PLAYBACK_STT_COOLDOWN_MS = 800;
 const TURN_IDLE_FLUSH_MS = 1800;
 const CONTEXT_PREFETCH_DEBOUNCE_MS = 400;
-
-function extractQuestionAfterWake(text: string): {
-  detected: boolean;
-  question: string;
-} {
-  for (const pattern of WAKE_PATTERNS) {
-    const match = pattern.exec(text);
-    if (!match) continue;
-    return {
-      detected: true,
-      question: text.slice(match.index + match[0].length).trim(),
-    };
-  }
-  return { detected: false, question: "" };
-}
-
-function isSubstantiveQuestion(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length < 2) return false;
-  return /[a-zA-Z0-9]/.test(trimmed);
-}
-
-// Words that frequently follow "I'm" / "my name is" in casual speech and
-// almost never start a real name. Used to reject false-positive enrollments
-// like "I'm not too sure" → name "not too sure".
-const ENROLLMENT_REJECT_LEADING = new Set([
-  "a", "an", "the",
-  "not", "no", "never",
-  "going", "doing", "trying", "feeling", "looking", "wondering", "thinking",
-  "sure", "okay", "ok", "fine", "good", "great", "bad", "tired", "ready",
-  "really", "just", "still", "kind", "sort", "pretty", "very", "quite",
-  "sorry", "afraid", "happy", "glad",
-  "here", "there", "back",
-  "from",
-  "what", "where", "when", "why", "how", "can", "could", "would", "should",
-  "telling", "saying", "asking",
-]);
-
-function extractSpeakerEnrollment(text: string): { name: string } | null {
-  // Only accept deliberate enrollment phrases. "I'm" / "I am" / "this is" are
-  // too ambiguous in conversation and are intentionally excluded.
-  const pattern =
-    /\b(?:my name is|call me|remember me as|please call me)\s+([A-Za-z][A-Za-z' -]{0,79})\b/i;
-  const match = pattern.exec(text.trim());
-  const rawName = match?.[1]
-    ?.replace(/[.!?,]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!rawName) return null;
-
-  // Cap at 3 tokens — real spoken names rarely run longer.
-  const tokens = rawName.split(" ").slice(0, 3);
-  if (tokens.length === 0) return null;
-
-  const first = tokens[0]!.toLowerCase();
-  if (ENROLLMENT_REJECT_LEADING.has(first)) return null;
-  if (first.length < 2) return null;
-
-  return { name: tokens.join(" ") };
-}
 
 function pcmLevel(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;
@@ -111,6 +45,8 @@ function pcmLevel(pcm: Int16Array): number {
 export type AriaEngineOptions = {
   sessionId: string;
   onSessionActivity?: () => void;
+  /** Called when the listening budget runs out mid-session (engine auto-stops). */
+  onUsageExhausted?: () => void;
 };
 
 export class AriaEngine {
@@ -141,19 +77,13 @@ export class AriaEngine {
   private suppressSttUntilMs = 0;
   private turnAssembler = new TranscriptTurnAssembler();
   private turnFlushTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingEnrollment:
-    | {
-        name: string;
-        providerSpeakerLabel: string | null;
-        resolve: (speaker: SpeechmaticsSpeakerResult) => void;
-        reject: (err: Error) => void;
-        timer: ReturnType<typeof setTimeout>;
-      }
-    | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private onUsageExhausted?: () => void;
 
   constructor(options: AriaEngineOptions) {
     this.sessionId = options.sessionId;
     this.onSessionActivity = options.onSessionActivity;
+    this.onUsageExhausted = options.onUsageExhausted;
   }
 
   async start() {
@@ -173,6 +103,7 @@ export class AriaEngine {
           this.stt?.sendPcm(frame);
         }
       });
+      this.startHeartbeat();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
       this.cues.playError();
@@ -205,23 +136,18 @@ export class AriaEngine {
       },
       onUtterance: (u) => this.handleUtterance(u),
       onUtteranceEnd: () => this.handleUtteranceEnd(),
-      onSpeakersResult: (speakers) => this.handleSpeakersResult(speakers),
     }, profiles);
 
     await this.stt.connect();
   }
 
   async stop() {
+    this.stopHeartbeat();
     await this.mic?.stop();
     this.mic = null;
     if (this.stt) {
       this.stt.close();
       this.stt = null;
-    }
-    if (this.pendingEnrollment) {
-      clearTimeout(this.pendingEnrollment.timer);
-      this.pendingEnrollment.reject(new Error("Enrollment cancelled."));
-      this.pendingEnrollment = null;
     }
     this.resetQuestionCapture();
     this.stopFollowUpWindow();
@@ -234,6 +160,36 @@ export class AriaEngine {
     void this.cues.dispose();
     useAriaStore.getState().setMicLevel(0);
     useAriaStore.getState().setStatus("idle");
+  }
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    // Fire one immediately to establish the baseline, then on a fixed interval.
+    void this.sendListeningHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      void this.sendListeningHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat() {
+    if (!this.heartbeatTimer) return;
+    clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
+  }
+
+  private async sendListeningHeartbeat() {
+    try {
+      const result = await sendHeartbeat(this.sessionId);
+      if (result.stop) {
+        await this.stop();
+        useAriaStore
+          .getState()
+          .setError("You've used all your listening time this month. Upgrade to keep listening.");
+        this.onUsageExhausted?.();
+      }
+    } catch {
+      // Best-effort — a failed heartbeat must not interrupt listening.
+    }
   }
 
   private shouldSendMicToStt(): boolean {
@@ -487,15 +443,6 @@ export class AriaEngine {
       return;
     }
     const captured = this.getCapturedQuestion();
-    const enrollment = extractSpeakerEnrollment(question);
-    if (enrollment) {
-      this.resetQuestionCapture();
-      await this.rememberCurrentSpeaker(
-        enrollment.name,
-        captured.providerSpeakerLabel
-      );
-      return;
-    }
     await this.askAndReset(
       captured.question,
       captured.speaker,
@@ -527,83 +474,6 @@ export class AriaEngine {
     this.captureWholeAnchorUtterance = false;
   }
 
-  private handleSpeakersResult(speakers: SpeechmaticsSpeakerResult[]) {
-    const pending = this.pendingEnrollment;
-    if (!pending) return;
-
-    const match = pending.providerSpeakerLabel
-      ? speakers.find((speaker) => speaker.label === pending.providerSpeakerLabel)
-      : speakers.length === 1
-        ? speakers[0]
-        : null;
-
-    if (!match || match.speakerIdentifiers.length === 0) {
-      return;
-    }
-
-    clearTimeout(pending.timer);
-    this.pendingEnrollment = null;
-    pending.resolve(match);
-  }
-
-  private waitForSpeakerIdentifiers(
-    name: string,
-    providerSpeakerLabel: string | null
-  ): Promise<SpeechmaticsSpeakerResult> {
-    if (!this.stt) {
-      return Promise.reject(new Error("Speechmatics is not connected."));
-    }
-    if (this.pendingEnrollment) {
-      return Promise.reject(new Error("A speaker enrollment is already pending."));
-    }
-
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        if (this.pendingEnrollment?.name === name) {
-          this.pendingEnrollment = null;
-        }
-        reject(new Error("No speaker identifier was returned yet."));
-      }, 6000);
-
-      this.pendingEnrollment = {
-        name,
-        providerSpeakerLabel,
-        resolve,
-        reject,
-        timer,
-      };
-      this.stt?.requestSpeakers({ final: false });
-    });
-  }
-
-  private async rememberCurrentSpeaker(
-    name: string,
-    providerSpeakerLabel: string | null
-  ) {
-    const store = useAriaStore.getState();
-    store.setStatus("thinking");
-    try {
-      const speaker = await this.waitForSpeakerIdentifiers(
-        name,
-        providerSpeakerLabel
-      );
-      await saveSpeakerProfile({
-        name,
-        speakerIdentifiers: speaker.speakerIdentifiers,
-        sampleCount: 1,
-      });
-      this.onSessionActivity?.();
-      this.cues.playFollowUp();
-      devLog("speaker", `Saved speaker profile for ${name}.`);
-      store.setStatus("listening");
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "speaker enrollment failed";
-      devLog("speaker", `Could not save speaker profile for ${name}: ${msg}`);
-      this.cues.playError();
-      store.setError(msg);
-    }
-  }
-
   private async askAria(
     question: string,
     speaker: number | null,
@@ -626,8 +496,7 @@ export class AriaEngine {
         question,
         speaker,
         speakerName,
-        controller.signal,
-        readStoredModel()
+        controller.signal
       );
 
       devLog("pipeline", "response_headers", {

@@ -5,6 +5,8 @@ import {
 } from "@/lib/sessions/types";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import { createSession, listSessions } from "@/lib/sessions/repository";
+import { loadEntitlements } from "@/lib/plan/repository";
+import { historyCutoffIso } from "@/lib/plan/entitlements";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +19,9 @@ export async function GET(req: NextRequest) {
       return jsonError("Invalid query parameters.", 400);
     }
 
-    const sessions = await listSessions(uid, parsed.data);
+    const { limits } = await loadEntitlements(uid);
+    const since = historyCutoffIso(limits, new Date());
+    const sessions = await listSessions(uid, { ...parsed.data, since });
     return jsonOk({ sessions });
   });
 }
