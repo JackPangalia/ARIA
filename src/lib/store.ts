@@ -23,11 +23,7 @@ export const useAriaStore = create<AriaState>((set) => ({
   errorMessage: null,
   micLevel: 0,
 
-  setStatus: (s) =>
-    set((state) => ({
-      status: s,
-      errorMessage: s === "error" ? state.errorMessage : null,
-    })),
+  setStatus: (s) => set({ status: s }),
   setError: (msg) =>
     set({ errorMessage: msg, status: msg ? "error" : "idle" }),
 

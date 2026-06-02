@@ -31,7 +31,6 @@ import type { TranscriptUtterance } from "@/lib/types";
 const PLAYBACK_STT_COOLDOWN_MS = 800;
 const TURN_IDLE_FLUSH_MS = 1800;
 const CONTEXT_PREFETCH_DEBOUNCE_MS = 400;
-const PLAYBACK_SETUP_TIMEOUT_MS = 5000;
 
 function pcmLevel(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;
@@ -41,35 +40,6 @@ function pcmLevel(pcm: Int16Array): number {
     sum += v * v;
   }
   return Math.sqrt(sum / pcm.length);
-}
-
-function isIOSWebKit(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  const platform = navigator.platform;
-  const touchMac =
-    platform === "MacIntel" && (navigator.maxTouchPoints ?? 0) > 1;
-  return /iPad|iPhone|iPod/.test(ua) || touchMac;
-}
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      }
-    );
-  });
 }
 
 export type AriaEngineOptions = {
@@ -572,7 +542,6 @@ export class AriaEngine {
     }
 
     const mseSupported =
-      !isIOSWebKit() &&
       typeof MediaSource !== "undefined" &&
       MediaSource.isTypeSupported?.("audio/mpeg");
 
@@ -581,18 +550,8 @@ export class AriaEngine {
       return;
     }
 
-    await this.playBufferedResponse(res.body, logMessage, options);
-  }
-
-  private async playBufferedResponse(
-    body: ReadableStream<Uint8Array>,
-    logMessage: string,
-    options: { enableFollowUp?: boolean; clientT0?: number }
-  ) {
-    // Fallback: buffer the whole MP3 then play it. This is also the safest path
-    // for all iOS browsers, including Chrome/Google on iOS, because they all use
-    // WebKit and can leave MediaSource playback setup suspended.
-    const buf = await new Response(body).arrayBuffer();
+    // Fallback: buffer the whole MP3 then play it.
+    const buf = await res.arrayBuffer();
     if (options.clientT0 != null) {
       devLog("pipeline", "buffered_audio", {
         ms: Math.round(performance.now() - options.clientT0),
@@ -634,24 +593,7 @@ export class AriaEngine {
       options
     );
 
-    let sourceBuffer: SourceBuffer;
-    try {
-      sourceBuffer = await withTimeout(
-        sourceOpen,
-        PLAYBACK_SETUP_TIMEOUT_MS,
-        "Timed out waiting for streaming audio setup"
-      );
-    } catch (err) {
-      devLog(
-        "tts",
-        `Streaming playback setup failed; falling back to buffered audio: ${
-          err instanceof Error ? err.message : "unknown"
-        }`
-      );
-      this.stopPlayback();
-      await this.playBufferedResponse(body, logMessage, options);
-      return;
-    }
+    const sourceBuffer = await sourceOpen;
     const reader = body.getReader();
     let loggedFirstChunk = false;
 
@@ -709,8 +651,6 @@ export class AriaEngine {
   ) {
     this.stopPlayback();
     const audio = new Audio(url);
-    audio.preload = "auto";
-    audio.setAttribute("playsinline", "true");
     this.currentAudio = audio;
     this.currentAudioUrl = url;
     audio.onplay = () => {
@@ -742,39 +682,21 @@ export class AriaEngine {
     };
     audio.onerror = () => {
       if (this.currentAudio !== audio) return;
-      this.recoverFromPlaybackFailure(audio, revoke, "Audio playback error");
+      revoke();
+      this.currentAudio = null;
+      this.currentAudioUrl = null;
+      this.isAssistantSpeaking = false;
+      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
+      this.cues.stopThinkingLoop();
+      this.cues.playError();
+      useAriaStore.getState().setError("Audio playback error");
     };
     void audio.play().catch((err) => {
       if (this.currentAudio !== audio) return;
       const msg = err instanceof Error ? err.message : "play failed";
-      this.recoverFromPlaybackFailure(audio, revoke, msg);
+      useAriaStore.getState().setError(msg);
     });
     devLog("tts", logMessage);
-  }
-
-  private recoverFromPlaybackFailure(
-    audio: HTMLAudioElement,
-    revoke: () => void,
-    reason: string
-  ) {
-    if (this.currentAudio !== audio) return;
-    try {
-      audio.pause();
-      audio.src = "";
-    } catch {
-      // ignore
-    }
-    revoke();
-    this.currentAudio = null;
-    this.currentAudioUrl = null;
-    this.isAssistantSpeaking = false;
-    this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
-    this.cues.stopThinkingLoop();
-    devLog("tts", `Playback unavailable; returning to listening: ${reason}`);
-    const store = useAriaStore.getState();
-    if (store.status === "thinking" || store.status === "speaking") {
-      store.setStatus("listening");
-    }
   }
 
   private startFollowUpWindow() {
