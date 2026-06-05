@@ -41,9 +41,17 @@ const KIVO_ALIAS_SET = new Set(
   ].map((s) => s.toLowerCase())
 );
 
-// Settle windows for accumulating a spoken question after the wake word.
+// Settle windows for accumulating a spoken question after the wake word. These
+// are the *fallback* used while the speaker is still mid-utterance, or when the
+// provider never reports end-of-turn.
 export const QUESTION_SETTLE_MS = 2800;
 export const SPEECH_FINAL_SETTLE_MS = 2800;
+// Once Speechmatics reports end-of-turn (an EndOfUtterance message, fired after
+// `end_of_utterance_silence_trigger` of silence) we already know the speaker
+// stopped. Collapse the long settle to this short grace — enough to allow an
+// immediate continuation, but far quicker than waiting the full settle from the
+// last transcript. Best case fast, worst case (no EndOfUtterance) unchanged.
+export const END_OF_UTTERANCE_GRACE_MS = 500;
 // How long Kivo keeps listening for a follow-up (no wake word) after answering.
 export const FOLLOW_UP_WINDOW_MS = 8000;
 

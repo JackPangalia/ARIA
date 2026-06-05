@@ -20,6 +20,7 @@ import { sanitizeQuestionText } from "@/lib/aria/context/question-text";
 import {
   extractQuestionAfterWake,
   isSubstantiveQuestion,
+  END_OF_UTTERANCE_GRACE_MS,
   FOLLOW_UP_WINDOW_MS,
   QUESTION_SETTLE_MS,
   SPEECH_FINAL_SETTLE_MS,
@@ -284,7 +285,14 @@ export class AriaEngine {
     if (!this.capturingQuestion) return;
 
     if (this.getCapturedQuestion().question.length > 0) {
-      this.ensureQuestionResolutionTimer(QUESTION_SETTLE_MS);
+      // Speechmatics has detected end-of-turn — the speaker has gone silent for
+      // `end_of_utterance_silence_trigger`. Trust it: collapse any pending long
+      // settle timer to a short grace so we dispatch quickly instead of waiting
+      // the full QUESTION_SETTLE_MS from the last transcript. Context was already
+      // prefetched while capturing, so we skip re-scheduling it here.
+      this.scheduleQuestionResolution(END_OF_UTTERANCE_GRACE_MS, {
+        prefetch: false,
+      });
       return;
     }
 
@@ -391,9 +399,14 @@ export class AriaEngine {
     };
   }
 
-  private scheduleQuestionResolution(delayMs: number) {
+  private scheduleQuestionResolution(
+    delayMs: number,
+    options: { prefetch?: boolean } = {}
+  ) {
     this.clearQuestionSettleTimer();
-    this.scheduleContextPrefetch();
+    if (options.prefetch ?? true) {
+      this.scheduleContextPrefetch();
+    }
     this.questionSettleTimer = setTimeout(() => {
       this.questionSettleTimer = null;
       const { question } = this.getCapturedQuestion();
@@ -421,11 +434,6 @@ export class AriaEngine {
     if (!this.contextPrefetchTimer) return;
     clearTimeout(this.contextPrefetchTimer);
     this.contextPrefetchTimer = null;
-  }
-
-  private ensureQuestionResolutionTimer(delayMs: number) {
-    if (this.questionSettleTimer) return;
-    this.scheduleQuestionResolution(delayMs);
   }
 
   private clearQuestionSettleTimer() {

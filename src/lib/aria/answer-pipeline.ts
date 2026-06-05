@@ -58,6 +58,16 @@ function cartesiaConfig(env: ServerEnv): CartesiaTtsConfig {
   };
 }
 
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const merged = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
+}
+
 export interface AnswerPipelineInput {
   uid: string;
   session: SessionDoc;
@@ -75,6 +85,14 @@ export interface AnswerPipelineInput {
    * can play into the call immediately instead of waiting for the full answer MP3.
    */
   onTtsSegment?: (mp3: Uint8Array) => void | Promise<void>;
+  /**
+   * iOS playback path: emit the answer as a sequence of self-contained MP3
+   * segments, each length-prefixed ([uint32 big-endian length][mp3 bytes]),
+   * instead of one raw concatenated stream. Lets the native client play each
+   * sentence with AVAudioPlayer as it arrives. Defaults to false — the browser
+   * and worker keep the raw, MediaSource-friendly stream byte-for-byte.
+   */
+  framed?: boolean;
 }
 
 export interface AnswerPipelineResult {
@@ -99,6 +117,7 @@ export async function runAnswerPipeline(
   const { uid, session, question, env, signal } = input;
   const speaker = input.speaker ?? null;
   const speakerName = input.speakerName ?? null;
+  const framed = input.framed ?? false;
   const sessionId = session.id;
 
   const pipeline = input.pipeline ?? startAskPipeline(sessionId, question);
@@ -286,18 +305,22 @@ export async function runAnswerPipeline(
                     ms: Math.round(firstAudioByteMs),
                   });
                 }
-                controller.enqueue(value);
+                // Default (browser/worker): stream raw MP3 bytes as they arrive so
+                // MediaSource playback starts immediately. Framed mode (iOS) emits
+                // one self-contained, length-prefixed MP3 segment per chunk below.
+                if (!framed) controller.enqueue(value);
               }
             }
-            if (segmentBytes.length > 0 && input.onTtsSegment) {
-              const merged = new Uint8Array(
-                segmentBytes.reduce((n, c) => n + c.length, 0)
-              );
-              let offset = 0;
-              for (const chunk of segmentBytes) {
-                merged.set(chunk, offset);
-                offset += chunk.length;
-              }
+            const merged =
+              segmentBytes.length > 0 ? concatChunks(segmentBytes) : null;
+            if (framed && merged) {
+              // [uint32 big-endian length][MP3 segment] — one playable clip per chunk.
+              const header = new Uint8Array(4);
+              new DataView(header.buffer).setUint32(0, merged.length, false);
+              controller.enqueue(header);
+              controller.enqueue(merged);
+            }
+            if (merged && input.onTtsSegment) {
               await input.onTtsSegment(merged);
             }
           }

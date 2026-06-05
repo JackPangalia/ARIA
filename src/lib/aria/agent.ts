@@ -77,6 +77,21 @@ async function buildAgent(input: RunAriaAgentInput): Promise<Agent> {
     name: "Kivo",
     instructions: ARIA_SYSTEM_PROMPT,
     model: buildGeminiModel(input.env, modelId),
+    // Gemini 2.5 Flash enables "thinking" by default, which burns internal
+    // reasoning tokens before the first visible token and directly inflates
+    // time-to-first-token — the single biggest LLM-side latency cost for a live
+    // voice assistant. Disable it (budget 0) to keep first-token latency low.
+    // The aisdk wrapper spreads `modelSettings.providerData` straight into the
+    // underlying LanguageModel request, so this maps to providerOptions.google.
+    modelSettings: {
+      providerData: {
+        providerOptions: {
+          google: {
+            thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
+          },
+        },
+      },
+    },
     tools: [...ariaTools, ...composioTools],
   });
 }

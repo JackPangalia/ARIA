@@ -83,6 +83,11 @@ export async function POST(req: NextRequest) {
     setupMs: Math.round(performance.now() - requestStart),
   });
 
+  // Native clients (iOS) ask for length-prefixed MP3 segments so they can play
+  // each sentence with AVAudioPlayer as it arrives. The browser sends no such
+  // header and keeps the raw `audio/mpeg` MediaSource stream unchanged.
+  const framed = req.headers.get("x-kivo-stream") === "framed";
+
   let audioStream: ReadableStream<Uint8Array>;
   try {
     ({ audioStream } = await runAnswerPipeline({
@@ -95,6 +100,7 @@ export async function POST(req: NextRequest) {
       signal: req.signal,
       pipeline,
       authSessionMs: performance.now() - requestStart,
+      framed,
     }));
   } catch (err) {
     if (isAbortError(err, req.signal)) {
@@ -105,7 +111,9 @@ export async function POST(req: NextRequest) {
 
   return new Response(audioStream, {
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": framed
+        ? "application/x-kivo-audio-frames"
+        : "audio/mpeg",
       "Cache-Control": "no-store",
       "X-Accel-Buffering": "no",
     },

@@ -1,5 +1,6 @@
 "use client";
 
+import { devLog } from "@/lib/client/dev-log";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import type { TranscriptUtterance } from "@/lib/types";
 
@@ -145,6 +146,7 @@ export class SpeechmaticsLiveClient {
   private speakerLabelToName = new Map<string, string>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByClient = false;
+  private loggedStartConfig = false;
 
   constructor(
     private callbacks: SpeechmaticsClientCallbacks,
@@ -197,6 +199,22 @@ export class SpeechmaticsLiveClient {
   }
 
   private buildStartRecognitionMessage() {
+    const enrolledIdentifierCount = this.profiles.reduce(
+      (total, profile) => total + profile.speakerIdentifiers.length,
+      0
+    );
+    if (!this.loggedStartConfig) {
+      this.loggedStartConfig = true;
+      devLog("speaker", "Starting Speechmatics speaker identification.", {
+        profiles: this.profiles.map((profile) => ({
+          name: safeSpeakerLabel(profile.name),
+          identifiers: profile.speakerIdentifiers.length,
+        })),
+        enrolledIdentifierCount,
+        preferCurrentSpeaker: this.profiles.length === 0,
+      });
+    }
+
     return {
       message: "StartRecognition",
       audio_format: {
@@ -235,7 +253,9 @@ export class SpeechmaticsLiveClient {
         ],
         speaker_diarization_config: {
           max_speakers: 10,
-          prefer_current_speaker: true,
+          // When known profiles are present, let Speechmatics recover from an
+          // early generic S1/S2 assignment instead of sticking to it all session.
+          prefer_current_speaker: this.profiles.length === 0,
           speakers: this.profiles.map((profile) => ({
             label: safeSpeakerLabel(profile.name),
             speaker_identifiers: profile.speakerIdentifiers,
@@ -303,6 +323,16 @@ export class SpeechmaticsLiveClient {
         (/^s\d+$/i.test(group.providerSpeakerLabel)
           ? null
           : safeSpeakerLabel(group.providerSpeakerLabel));
+
+      if (isFinal) {
+        devLog("speaker", "Speechmatics speaker label mapped.", {
+          providerSpeakerLabel: group.providerSpeakerLabel,
+          speaker,
+          speakerName: speakerName ?? null,
+          mappedAs: speakerName ?? "Other speaker",
+          textPreview: group.text.slice(0, 120),
+        });
+      }
 
       this.callbacks.onUtterance({
         id: `${baseId}-${index}`,

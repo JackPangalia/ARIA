@@ -279,6 +279,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
   const levelRef = useRef(0);
   const waveformRef = useRef<number[]>(Array(WAVEFORM_BARS).fill(0));
   const rafRef = useRef<number | null>(null);
+  const enrollmentAudioActiveRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const next = await listSpeakerProfiles();
@@ -318,6 +319,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     micRef.current = null;
     clientRef.current?.close();
     clientRef.current = null;
+    enrollmentAudioActiveRef.current = false;
     levelRef.current = 0;
     waveformRef.current = Array(WAVEFORM_BARS).fill(0);
     setLevel(0);
@@ -373,6 +375,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     (trimmed: string) => {
       setPhase("recording");
       setSecondsLeft(ENROLL_SECONDS);
+      enrollmentAudioActiveRef.current = true;
 
       recordTickRef.current = window.setInterval(() => {
         setSecondsLeft((s) => {
@@ -390,6 +393,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       requestTimerRef.current = window.setTimeout(() => {
         void (async () => {
           setPhase("processing");
+          enrollmentAudioActiveRef.current = false;
           if (recordTickRef.current) {
             window.clearInterval(recordTickRef.current);
             recordTickRef.current = null;
@@ -436,6 +440,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     setSecondsLeft(ENROLL_SECONDS);
     levelRef.current = 0;
     waveformRef.current = Array(WAVEFORM_BARS).fill(0);
+    enrollmentAudioActiveRef.current = false;
 
     let completed = false;
     const client = new SpeechmaticsLiveClient({
@@ -498,7 +503,9 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       const mic = new MicPcmStreamer();
       micRef.current = mic;
       await mic.start((frame) => {
-        client.sendPcm(frame);
+        if (enrollmentAudioActiveRef.current) {
+          client.sendPcm(frame);
+        }
         const rms = rmsFromInt16(frame);
         levelRef.current = rms;
         const next = waveformRef.current.slice(1);
