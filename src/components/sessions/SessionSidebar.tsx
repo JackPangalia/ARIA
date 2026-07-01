@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SidebarProfileFooter } from "@/components/sessions/SidebarProfileFooter";
+import type { ProjectDoc } from "@/lib/projects/types";
 import type { SessionDoc } from "@/lib/sessions/types";
 
 function SearchIcon({ className }: { className?: string }) {
@@ -153,10 +154,39 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
+function FolderIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MoveIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M7 7h10M13 3l4 4-4 4M17 17H7M11 13l-4 4 4 4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function SessionHistoryMenu(props: {
   session: SessionDoc;
   onRename: () => void;
   onTogglePin: () => void;
+  onMoveToProject?: (sessionId: string) => void;
   onExportMarkdown?: (sessionId: string) => void;
   onExportJson?: (sessionId: string) => void;
   onTrash?: (sessionId: string) => void;
@@ -279,6 +309,18 @@ function SessionHistoryMenu(props: {
               <PinIcon className="shrink-0 text-app-muted" />
               {props.session.pinned ? "Unpin" : "Pin"}
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={menuItemClass}
+              onClick={() => {
+                props.onMoveToProject?.(props.session.id);
+                setOpen(false);
+              }}
+            >
+              <MoveIcon className="shrink-0 text-app-muted" />
+              Move to project
+            </button>
             <div className="mx-2 my-1 border-t border-app" role="separator" />
             <p className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-app-subtle">
               Export
@@ -347,11 +389,16 @@ function SessionHistoryMenu(props: {
   );
 }
 
+function PlusIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const navRowClass =
   "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-normal text-app-secondary transition-colors hover:bg-surface-hover hover:text-app";
-
-const sectionToggleClass =
-  "flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-normal text-app-muted transition-colors hover:text-app-secondary";
 
 function SessionSectionToggle(props: {
   label: string;
@@ -359,23 +406,86 @@ function SessionSectionToggle(props: {
   onToggle: () => void;
 }) {
   return (
-    <button type="button" onClick={props.onToggle} className={sectionToggleClass}>
+    <button
+      type="button"
+      onClick={props.onToggle}
+      className="group flex w-full items-center gap-1.5 rounded-lg px-3 pb-1.5 pt-3 text-left transition-colors"
+    >
+      <span className="text-[13px] font-semibold text-app-secondary">{props.label}</span>
       <ChevronDown
-        className={`shrink-0 transition-transform ${props.open ? "" : "-rotate-90"}`}
+        className={`shrink-0 text-app-muted transition-transform group-hover:text-app-secondary ${
+          props.open ? "" : "-rotate-90"
+        }`}
       />
-      {props.label}
     </button>
   );
 }
 
+type SessionTimeGroup = { label: string; sessions: SessionDoc[] };
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function groupSessionsByPeriod(sessions: SessionDoc[]): SessionTimeGroup[] {
+  const now = new Date();
+  const today = startOfDay(now);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+
+  const sorted = [...sessions].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+  const buckets = new Map<string, SessionDoc[]>();
+
+  for (const session of sorted) {
+    const day = startOfDay(new Date(session.updatedAt));
+    let label: string;
+
+    if (day.getTime() >= today.getTime()) label = "Today";
+    else if (day.getTime() >= yesterday.getTime()) label = "Yesterday";
+    else if (day.getTime() >= weekAgo.getTime()) label = "Previous 7 days";
+    else if (day.getTime() >= monthStart.getTime()) label = "This month";
+    else if (day.getTime() >= yearStart.getTime()) label = "This year";
+    else label = "Older";
+
+    const list = buckets.get(label) ?? [];
+    list.push(session);
+    buckets.set(label, list);
+  }
+
+  const order = [
+    "Today",
+    "Yesterday",
+    "Previous 7 days",
+    "This month",
+    "This year",
+    "Older",
+  ];
+
+  return order
+    .filter((label) => buckets.has(label))
+    .map((label) => ({ label, sessions: buckets.get(label)! }));
+}
+
 export function SessionSidebar(props: {
+  projects: ProjectDoc[];
   sessions: SessionDoc[];
   selectedSessionId: string | null;
+  selectedProjectId: string | null;
   onOpenSearch: () => void;
+  onSelectProject: (projectId: string) => void;
+  onCreateProject: () => void;
+  onEditProject: (project: ProjectDoc) => void;
   onSelect: (sessionId: string) => void;
   onCreate: () => void;
   onRename: (sessionId: string, title: string) => void;
   onTogglePin: (sessionId: string, pinned: boolean) => void;
+  onMoveToProject?: (sessionId: string) => void;
   onCollapse?: () => void;
   onClose?: () => void;
   onExportMarkdown?: (sessionId: string) => void;
@@ -383,20 +493,49 @@ export function SessionSidebar(props: {
   onTrash?: (sessionId: string) => void;
   onOpenSettings: () => void;
 }) {
-  const [pinsOpen, setPinsOpen] = useState(true);
-  const [recentsOpen, setRecentsOpen] = useState(true);
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  const { pinnedSessions, recentSessions } = useMemo(() => {
-    const pinned: SessionDoc[] = [];
-    const recents: SessionDoc[] = [];
+  const { sessionsByProject, unassignedSessions } = useMemo(() => {
+    const byProject = new Map<string, SessionDoc[]>();
+    const unassigned: SessionDoc[] = [];
+
     for (const session of props.sessions) {
-      if (session.pinned) pinned.push(session);
-      else recents.push(session);
+      if (session.projectId) {
+        const list = byProject.get(session.projectId) ?? [];
+        list.push(session);
+        byProject.set(session.projectId, list);
+      } else {
+        unassigned.push(session);
+      }
     }
-    return { pinnedSessions: pinned, recentSessions: recents };
+
+    for (const [projectId, list] of byProject) {
+      byProject.set(
+        projectId,
+        [...list].sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        )
+      );
+    }
+
+    return { sessionsByProject: byProject, unassignedSessions: unassigned };
   }, [props.sessions]);
+
+  const { pinnedSessions, timeGroups } = useMemo(() => {
+    const pinned: SessionDoc[] = [];
+    const rest: SessionDoc[] = [];
+    for (const session of unassignedSessions) {
+      if (session.pinned) pinned.push(session);
+      else rest.push(session);
+    }
+    return {
+      pinnedSessions: pinned,
+      timeGroups: groupSessionsByPeriod(rest),
+    };
+  }, [unassignedSessions]);
 
   const startRename = (session: SessionDoc) => {
     setRenamingId(session.id);
@@ -409,6 +548,46 @@ export function SessionSidebar(props: {
     if (!next) return;
     const session = props.sessions.find((s) => s.id === sessionId);
     if (session && next !== session.title) props.onRename(sessionId, next);
+  };
+
+  const projectRowClass = (selected: boolean) =>
+    `group flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-normal transition-colors ${
+      selected
+        ? "bg-surface-hover text-app"
+        : "text-app-secondary hover:bg-surface-hover hover:text-app"
+    }`;
+
+  const renderProjectRow = (project: ProjectDoc) => {
+    const hubSelected =
+      props.selectedProjectId === project.id && !props.selectedSessionId;
+    const projectSessions = sessionsByProject.get(project.id) ?? [];
+
+    return (
+      <li key={project.id} className="group flex items-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => props.onSelectProject(project.id)}
+          className={`${projectRowClass(hubSelected)} min-w-0 flex-1`}
+          title={project.name}
+        >
+          <FolderIcon className="shrink-0 text-app-muted" />
+          <span className="truncate">{project.name}</span>
+          {projectSessions.length > 0 ? (
+            <span className="ml-auto shrink-0 text-xs text-app-subtle">
+              {projectSessions.length}
+            </span>
+          ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onEditProject(project)}
+          aria-label={`Edit ${project.name}`}
+          className="mr-1 rounded-md p-1.5 text-app-muted opacity-100 transition-colors hover:bg-surface-hover hover:text-app-secondary lg:opacity-0 lg:group-hover:opacity-100"
+        >
+          <PencilIcon />
+        </button>
+      </li>
+    );
   };
 
   const renderSessionRow = (session: SessionDoc) => {
@@ -450,6 +629,9 @@ export function SessionSidebar(props: {
               className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden rounded-lg px-3 py-2.5 text-left text-sm font-normal transition-colors hover:bg-surface-hover lg:py-2"
               title={session.title}
             >
+              {session.pinned ? (
+                <PinIcon className="shrink-0 text-app-muted" />
+              ) : null}
               <span className="truncate">{session.title}</span>
             </button>
           )}
@@ -459,6 +641,7 @@ export function SessionSidebar(props: {
                 session={session}
                 onRename={() => startRename(session)}
                 onTogglePin={() => props.onTogglePin(session.id, !session.pinned)}
+                onMoveToProject={props.onMoveToProject}
                 onExportMarkdown={props.onExportMarkdown}
                 onExportJson={props.onExportJson}
                 onTrash={props.onTrash}
@@ -477,11 +660,15 @@ export function SessionSidebar(props: {
       );
     }
 
-    return <ul className="mt-0.5 space-y-0.5">{sessions.map(renderSessionRow)}</ul>;
+    return (
+      <ul className="mt-0.5 space-y-0.5">
+        {sessions.map((session) => renderSessionRow(session))}
+      </ul>
+    );
   };
 
   return (
-    <aside className="flex h-full min-h-0 w-full flex-col bg-app pl-[env(safe-area-inset-left)]">
+    <aside className="kivo-stagger flex h-full min-h-0 w-full flex-col bg-transparent pl-[env(safe-area-inset-left)]">
       <header className="flex shrink-0 items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         {props.onClose ? (
           <button
@@ -512,42 +699,69 @@ export function SessionSidebar(props: {
         ) : null}
       </header>
 
-      <div className="shrink-0 space-y-0.5 px-2 pb-2">
+      <div className="shrink-0 space-y-0.5 px-2 pb-1">
         <button type="button" onClick={props.onOpenSearch} className={navRowClass}>
           <SearchIcon className="shrink-0 text-app-muted" />
           <span>Search</span>
         </button>
 
-        <button
-          type="button"
-          onClick={props.onCreate}
-          className="flex w-full items-center gap-3 rounded-xl bg-surface px-3 py-2.5 text-sm font-normal text-app transition-colors hover:bg-surface-hover"
-        >
+        <button type="button" onClick={props.onCreate} className={navRowClass}>
           <ComposeIcon className="shrink-0 text-app-muted" />
-          New session
+          <span>New session</span>
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         <SessionSectionToggle
-          label="Pins"
-          open={pinsOpen}
-          onToggle={() => setPinsOpen((v) => !v)}
+          label="Projects"
+          open={projectsOpen}
+          onToggle={() => setProjectsOpen((v) => !v)}
         />
-        {pinsOpen ? renderSessionList(pinnedSessions, "No pinned sessions.") : null}
+        {projectsOpen ? (
+          <div className="mb-1 space-y-0.5">
+            <button
+              type="button"
+              onClick={props.onCreateProject}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-normal text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
+            >
+              <PlusIcon className="shrink-0" />
+              <span>New project</span>
+            </button>
+            {props.projects.length > 0 ? (
+              <ul className="space-y-1">{props.projects.map(renderProjectRow)}</ul>
+            ) : null}
+          </div>
+        ) : null}
 
-        <div className="mt-1">
-          <SessionSectionToggle
-            label="Recents"
-            open={recentsOpen}
-            onToggle={() => setRecentsOpen((v) => !v)}
-          />
-        </div>
-        {recentsOpen ? (
-          recentSessions.length === 0 && pinnedSessions.length === 0 ? (
-            <p className="px-3 py-2 text-sm font-normal text-app-subtle">No sessions yet.</p>
+        <SessionSectionToggle
+          label="History"
+          open={historyOpen}
+          onToggle={() => setHistoryOpen((v) => !v)}
+        />
+        {historyOpen ? (
+          pinnedSessions.length === 0 && timeGroups.length === 0 ? (
+            <p className="px-3 py-2 text-sm font-normal text-app-subtle">
+              No unassigned sessions yet.
+            </p>
           ) : (
-            renderSessionList(recentSessions, "No recent sessions.")
+            <div className="space-y-1">
+              {pinnedSessions.length > 0 ? (
+                <div>
+                  <p className="px-3 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-app-subtle">
+                    Pinned
+                  </p>
+                  {renderSessionList(pinnedSessions, "")}
+                </div>
+              ) : null}
+              {timeGroups.map((group) => (
+                <div key={group.label}>
+                  <p className="px-3 pb-0.5 pt-2 text-[11px] font-medium uppercase tracking-wider text-app-subtle">
+                    {group.label}
+                  </p>
+                  {renderSessionList(group.sessions, "")}
+                </div>
+              ))}
+            </div>
           )
         ) : null}
       </div>

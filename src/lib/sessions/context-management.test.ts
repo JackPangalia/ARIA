@@ -221,6 +221,7 @@ describe("exportSessionMarkdown", () => {
       session: {
         id: "s1",
         title: "Planning",
+        projectId: null,
         autoTitled: false,
         status: "active",
         speakerCount: 2,

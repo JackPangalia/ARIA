@@ -20,6 +20,19 @@ export const WAKE_PATTERNS = [
 
 const WAKE_GREETING = /^(?:hey|hi|okay|ok)$/i;
 
+// Close phrases that end conversation mode. The name "Kivo" is required so an
+// offhand "thank you" mid-conversation never closes the loop. Built from the
+// same KIVO_WAKE_TOKEN spellings so ASR mishears still match.
+export const CLOSE_PATTERNS = [
+  new RegExp(`\\bthanks?(?:\\s+you)?\\s*,?\\s*${KIVO_WAKE_TOKEN}\\b`, "i"),
+  new RegExp(`\\bthank\\s+you\\s*,?\\s*${KIVO_WAKE_TOKEN}\\b`, "i"),
+];
+
+/** True when the utterance is a "thank you, Kivo" style close phrase. */
+export function detectCloseWord(text: string): boolean {
+  return CLOSE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 const KIVO_ALIAS_SET = new Set(
   [
     "kivo",

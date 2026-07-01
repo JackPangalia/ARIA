@@ -9,13 +9,20 @@ import {
   patchSpeakerProfile,
   saveSpeakerProfile,
 } from "@/lib/speakers/client";
+import {
+  ENROLLMENT_IDLE_HINT,
+  ENROLLMENT_READ_ALOUD_SCRIPT,
+  ENROLLMENT_SCRIPT_LABEL,
+} from "@/lib/speakers/enrollment-script";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { GrokSettingsButton } from "@/components/settings/SettingsRow";
 
-const ENROLL_SECONDS = 8;
+const ENROLL_SECONDS = 15;
 const COUNTDOWN_SECONDS = 3;
-const ENROLL_PROCESSING_TIMEOUT_MS = 15_000;
+const ENROLL_PROCESSING_TIMEOUT_MS = 25_000;
 const WAVEFORM_BARS = 28;
+const MIN_ENROLL_PEAK_RMS = 0.012;
+const ENROLL_TOO_LOUD_RMS = 0.45;
 
 type EnrollPhase =
   | "idle"
@@ -104,6 +111,39 @@ function rmsFromInt16(frame: Int16Array): number {
     sum += v * v;
   }
   return Math.sqrt(sum / frame.length);
+}
+
+function recordingQualityHint(
+  level: number,
+  peak: number,
+  secondsLeft: number
+): string | null {
+  if (level >= ENROLL_TOO_LOUD_RMS) {
+    return "A little softer — you're very close to the mic.";
+  }
+  // Avoid nagging on natural pauses: only nudge if we're past halfway and
+  // we still haven't picked up any clear speech at all.
+  if (secondsLeft <= 7 && peak < MIN_ENROLL_PEAK_RMS) {
+    return "Keep reading the script aloud — we haven't heard enough yet.";
+  }
+  return null;
+}
+
+function EnrollmentScriptCard() {
+  return (
+    <div className="relative w-full overflow-hidden rounded-xl border border-app/60 bg-surface/50 px-4 py-3.5 text-left shadow-sm">
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-accent/50 to-accent/10"
+      />
+      <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-app-muted">
+        {ENROLLMENT_SCRIPT_LABEL}
+      </p>
+      <p className="mt-2 text-[15px] leading-relaxed text-app-secondary">
+        {ENROLLMENT_READ_ALOUD_SCRIPT}
+      </p>
+    </div>
+  );
 }
 
 function EnrollmentOrb(props: {
@@ -265,6 +305,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [level, setLevel] = useState(0);
+  const [qualityHint, setQualityHint] = useState<string | null>(null);
   const [waveform, setWaveform] = useState<number[]>(() =>
     Array(WAVEFORM_BARS).fill(0)
   );
@@ -280,6 +321,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
   const waveformRef = useRef<number[]>(Array(WAVEFORM_BARS).fill(0));
   const rafRef = useRef<number | null>(null);
   const enrollmentAudioActiveRef = useRef(false);
+  const enrollPeakRmsRef = useRef(0);
 
   const refresh = useCallback(async () => {
     const next = await listSpeakerProfiles();
@@ -320,9 +362,11 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     clientRef.current?.close();
     clientRef.current = null;
     enrollmentAudioActiveRef.current = false;
+    enrollPeakRmsRef.current = 0;
     levelRef.current = 0;
     waveformRef.current = Array(WAVEFORM_BARS).fill(0);
     setLevel(0);
+    setQualityHint(null);
     setWaveform(Array(WAVEFORM_BARS).fill(0));
   }, [clearTimers]);
 
@@ -361,6 +405,9 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       const smoothed = last * 0.7 + raw * 0.3;
       last = smoothed;
       setLevel(smoothed);
+      setQualityHint(
+        recordingQualityHint(smoothed, enrollPeakRmsRef.current, secondsLeft)
+      );
       setWaveform([...waveformRef.current]);
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -369,13 +416,15 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, [phase]);
+  }, [phase, secondsLeft]);
 
   const beginRecording = useCallback(
     (trimmed: string) => {
       setPhase("recording");
       setSecondsLeft(ENROLL_SECONDS);
       enrollmentAudioActiveRef.current = true;
+      enrollPeakRmsRef.current = 0;
+      setQualityHint(null);
 
       recordTickRef.current = window.setInterval(() => {
         setSecondsLeft((s) => {
@@ -392,7 +441,6 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
 
       requestTimerRef.current = window.setTimeout(() => {
         void (async () => {
-          setPhase("processing");
           enrollmentAudioActiveRef.current = false;
           if (recordTickRef.current) {
             window.clearInterval(recordTickRef.current);
@@ -400,6 +448,19 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
           }
           await micRef.current?.stop();
           micRef.current = null;
+
+          if (enrollPeakRmsRef.current < MIN_ENROLL_PEAK_RMS) {
+            setError(
+              "We didn't hear enough. Try again in a quiet room, speaking clearly for the full recording."
+            );
+            setPhase("error");
+            setQualityHint(null);
+            await teardown();
+            return;
+          }
+
+          setPhase("processing");
+          setQualityHint(null);
 
           const client = clientRef.current;
           if (!client) {
@@ -416,7 +477,6 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
             void teardown();
           }, ENROLL_PROCESSING_TIMEOUT_MS);
 
-          client.requestSpeakers({ final: true });
           client.sendEndOfStream();
         })();
       }, ENROLL_SECONDS * 1000);
@@ -443,64 +503,67 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     enrollmentAudioActiveRef.current = false;
 
     let completed = false;
-    const client = new SpeechmaticsLiveClient({
-      onOpen: () => {
-        // Connection is live; the countdown UI runs on its own timer so the
-        // user sees the prep beats regardless of how long the WS takes to open.
-      },
-      onClose: () => {
-        // Wait for SpeakersResult or the processing timeout — do not reset UI here.
-      },
-      onError: (err) => {
-        setError(err.message);
-        setPhase("error");
-        void teardown();
-      },
-      onUtterance: () => {},
-      onUtteranceEnd: () => {},
-      onSpeakersResult: (speakers) => {
-        void (async () => {
-          if (completed) return;
-          if (processingTimeoutRef.current) {
-            window.clearTimeout(processingTimeoutRef.current);
-            processingTimeoutRef.current = null;
-          }
-          if (speakers.length !== 1 || speakers[0]!.speakerIdentifiers.length === 0) {
-            setError(
-              "We couldn't detect a single clear voice. Try again in a quiet room, speaking naturally."
-            );
-            setPhase("error");
-            await teardown();
-            return;
-          }
-          completed = true;
-          await saveSpeakerProfile({
-            name: trimmed,
-            speakerIdentifiers: speakers[0]!.speakerIdentifiers,
-            sampleCount: 1,
-          });
-          setName("");
-          setSavedName(trimmed);
-          setPhase("success");
-          await refresh();
-          await teardown();
-          window.setTimeout(() => {
-            setPhase("idle");
-            setSavedName(null);
-            setSecondsLeft(ENROLL_SECONDS);
-          }, 2400);
-        })().catch((err) => {
-          setError(err instanceof Error ? err.message : "Failed to save speaker.");
+    const client = new SpeechmaticsLiveClient(
+      {
+        onOpen: () => {
+          clientRef.current?.requestSpeakers({ final: true });
+        },
+        onClose: () => {
+          // Wait for SpeakersResult or the processing timeout — do not reset UI here.
+        },
+        onError: (err) => {
+          setError(err.message);
           setPhase("error");
           void teardown();
-        });
+        },
+        onUtterance: () => {},
+        onUtteranceEnd: () => {},
+        onSpeakersResult: (speakers) => {
+          void (async () => {
+            if (completed) return;
+            if (processingTimeoutRef.current) {
+              window.clearTimeout(processingTimeoutRef.current);
+              processingTimeoutRef.current = null;
+            }
+            if (speakers.length !== 1 || speakers[0]!.speakerIdentifiers.length === 0) {
+              setError(
+                "We couldn't detect a single clear voice. Try again in a quiet room, speaking naturally."
+              );
+              setPhase("error");
+              await teardown();
+              return;
+            }
+            completed = true;
+            await saveSpeakerProfile({
+              name: trimmed,
+              speakerIdentifiers: speakers[0]!.speakerIdentifiers,
+              sampleCount: 1,
+            });
+            setName("");
+            setSavedName(trimmed);
+            setPhase("success");
+            await refresh();
+            await teardown();
+            window.setTimeout(() => {
+              setPhase("idle");
+              setSavedName(null);
+              setSecondsLeft(ENROLL_SECONDS);
+            }, 2400);
+          })().catch((err) => {
+            setError(err instanceof Error ? err.message : "Failed to save speaker.");
+            setPhase("error");
+            void teardown();
+          });
+        },
       },
-    });
+      [],
+      { enrollment: true }
+    );
 
     try {
       clientRef.current = client;
       await client.connect();
-      const mic = new MicPcmStreamer();
+      const mic = new MicPcmStreamer({ voiceIdentification: true });
       micRef.current = mic;
       await mic.start((frame) => {
         if (enrollmentAudioActiveRef.current) {
@@ -508,6 +571,9 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         }
         const rms = rmsFromInt16(frame);
         levelRef.current = rms;
+        if (enrollmentAudioActiveRef.current) {
+          enrollPeakRmsRef.current = Math.max(enrollPeakRmsRef.current, rms);
+        }
         const next = waveformRef.current.slice(1);
         next.push(rms);
         waveformRef.current = next;
@@ -560,22 +626,15 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     }
   };
 
-  const progress =
-    phase === "recording"
-      ? ((ENROLL_SECONDS - secondsLeft) / ENROLL_SECONDS) * 100
-      : phase === "processing"
-        ? 100
-        : 0;
-
   const statusLine =
     phase === "countdown"
-      ? "Get ready…"
+      ? "Get ready to speak…"
       : phase === "recording"
-        ? "Listening — speak naturally"
+        ? qualityHint ?? "Read the script below aloud"
         : phase === "processing"
           ? "Creating voice profile…"
           : phase === "success"
-            ? `Saved ${savedName ?? ""}`.trim()
+            ? `${savedName ?? "Voice"} saved — Kivo can recognize this speaker`
             : phase === "error"
               ? "Something went wrong"
               : "Ready to enroll";
@@ -593,8 +652,6 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         ? "text-app"
         : "text-app-secondary";
 
-  const enrollHint = `${ENROLL_SECONDS} seconds · one person only`;
-
   return (
     <section
       className={
@@ -609,8 +666,8 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         <div>
           <p className="text-[9px] tracking-[0.22em] text-app-subtle">SPEAKER MEMORY</p>
           <p className="mt-2 text-[11px] leading-snug text-app-subtle">
-            Enroll one person at a time. ARIA stores Speechmatics speaker identifiers for Kivo,
-            not raw audio.
+            One read-aloud recording per person so Kivo knows who is speaking. We store a
+            voice identifier, not raw audio.
           </p>
         </div>
       ) : null}
@@ -620,8 +677,8 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
           <div
             className={
               compact
-                ? "flex flex-col items-center gap-2 py-1"
-                : "flex flex-col items-center gap-3"
+                ? "mx-auto flex w-full max-w-md flex-col items-center gap-3 py-1"
+                : "flex flex-col items-center gap-4"
             }
           >
             <EnrollmentOrb
@@ -641,22 +698,13 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
             <p
               className={`text-center transition-colors ${
                 compact ? "text-xs" : "text-sm"
-              } ${statusClass}`}
+              } ${phase === "recording" && qualityHint ? "text-amber-600 dark:text-amber-400" : statusClass}`}
             >
               {statusLine}
             </p>
 
-            {phase === "recording" || phase === "processing" ? (
-              <div
-                className={`overflow-hidden rounded-full bg-surface ${
-                  compact ? "h-0.5 w-full max-w-xs" : "h-1 w-full"
-                }`}
-              >
-                <div
-                  className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
+            {phase === "countdown" || phase === "recording" ? (
+              <EnrollmentScriptCard />
             ) : null}
 
             <button
@@ -667,112 +715,66 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
               Cancel
             </button>
           </div>
-        ) : compact ? (
-          <div className="grok-speaker-enroll-idle">
-            <EnrollmentOrb
-              compact
-              phase={phase}
-              level={level}
-              countdown={countdown}
-              secondsLeft={secondsLeft}
-            />
-            <div className="min-w-0 flex-1 space-y-2.5">
-              {showEnrollmentForm ? (
-                <>
-                  <div>
-                    <label
-                      htmlFor="speaker-name"
-                      className="mb-1 block text-xs text-app-muted"
-                    >
-                      Speaker name
-                    </label>
-                    <input
-                      id="speaker-name"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      placeholder="e.g. Alex"
-                      className={
-                        props.grok
-                          ? "grok-settings-input"
-                          : "w-full rounded-lg border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
-                      }
-                    />
-                  </div>
-                  {phase === "error" && error ? (
-                    <p className="text-xs text-danger">{error}</p>
-                  ) : phase === "success" ? (
-                    <p className={`text-xs ${statusClass}`}>{statusLine}</p>
-                  ) : null}
-                  {props.grok ? (
-                    <GrokSettingsButton
-                      variant="primary"
-                      onClick={() => void startEnrollment()}
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <MicIcon className="h-3.5 w-3.5" />
-                        {phase === "error" ? "Try again" : "Enroll voice"}
-                      </span>
-                    </GrokSettingsButton>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void startEnrollment()}
-                      className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2 text-sm text-accent-fg transition-opacity hover:opacity-90"
-                    >
-                      <MicIcon className="h-4 w-4" />
-                      {phase === "error" ? "Try again" : "Enroll voice"}
-                    </button>
-                  )}
-                  <p className="text-xs leading-relaxed text-app-subtle">{enrollHint}</p>
-                </>
-              ) : null}
-            </div>
-          </div>
         ) : (
-          <div className="rounded-xl border border-app bg-app/30 px-4 py-5">
-            <div className="flex flex-col items-center gap-3">
-              <EnrollmentOrb
-                phase={phase}
-                level={level}
-                countdown={countdown}
-                secondsLeft={secondsLeft}
-              />
-              <Waveform levels={waveform} active={false} />
-              <p className={`text-center text-sm transition-colors ${statusClass}`}>
-                {phase === "error" && error ? error : statusLine}
-              </p>
-              {showEnrollmentForm ? (
-                <div className="w-full space-y-3">
-                  <div>
-                    <label
-                      htmlFor="speaker-name"
-                      className="mb-1.5 block text-xs text-app-muted"
-                    >
-                      Speaker name
-                    </label>
-                    <input
-                      id="speaker-name"
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      placeholder="e.g. Alex"
-                      className="w-full rounded-lg border border-app bg-surface px-3 py-2.5 text-sm text-app outline-none focus:border-app-strong"
-                    />
-                  </div>
+          <div
+            className={
+              compact
+                ? "grok-speaker-enroll-idle space-y-3"
+                : "rounded-xl border border-app bg-app/20 px-4 py-4"
+            }
+          >
+            {showEnrollmentForm ? (
+              <div className="space-y-3">
+                <div>
+                  <label
+                    htmlFor="speaker-name"
+                    className="mb-1.5 block text-xs text-app-muted"
+                  >
+                    Speaker name
+                  </label>
+                  <input
+                    id="speaker-name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="e.g. Alex"
+                    className={
+                      props.grok
+                        ? "grok-settings-input"
+                        : "w-full rounded-lg border border-app bg-surface px-3 py-2.5 text-sm text-app outline-none focus:border-app-strong"
+                    }
+                  />
+                </div>
+                {phase === "error" && error ? (
+                  <p className="text-xs text-danger">{error}</p>
+                ) : phase === "success" ? (
+                  <p className={`text-sm ${statusClass}`}>{statusLine}</p>
+                ) : (
+                  <p className="text-xs leading-relaxed text-app-subtle">
+                    {ENROLLMENT_IDLE_HINT}
+                  </p>
+                )}
+                {props.grok ? (
+                  <GrokSettingsButton
+                    variant="primary"
+                    onClick={() => void startEnrollment()}
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <MicIcon className="h-3.5 w-3.5" />
+                      {phase === "error" ? "Try again" : "Enroll voice"}
+                    </span>
+                  </GrokSettingsButton>
+                ) : (
                   <button
                     type="button"
                     onClick={() => void startEnrollment()}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-app bg-surface px-4 py-2.5 text-sm text-app transition-colors hover:bg-surface-hover"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm text-accent-fg transition-opacity hover:opacity-90"
                   >
                     <MicIcon className="h-4 w-4" />
                     {phase === "error" ? "Try again" : "Enroll voice"}
                   </button>
-                  <p className="text-center text-xs leading-relaxed text-app-subtle">
-                    We&apos;ll record {ENROLL_SECONDS} seconds of your voice. Only one
-                    person should speak.
-                  </p>
-                </div>
-              ) : null}
-            </div>
+                )}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -783,7 +785,8 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         </p>
       ) : null}
 
-      <div className="space-y-2">
+      {!enrolling ? (
+      <div className={`space-y-2 ${compact ? "mt-6" : "mt-4"}`}>
         <div className="flex items-center justify-between px-0.5">
           <p
             className={
@@ -898,6 +901,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
           </div>
         )}
       </div>
+      ) : null}
 
     </section>
   );

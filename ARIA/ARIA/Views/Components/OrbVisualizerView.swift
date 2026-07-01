@@ -39,6 +39,7 @@ struct OrbVisualizerView: View {
             // Layout footprint stays small; canvas overflows centered (web OrbVisualizer fix).
             Color.clear
                 .frame(width: AriaTheme.orbSize, height: AriaTheme.orbSize)
+                .clipped()
                 .overlay {
                     OrbParticlesView(color: mode.accent, energy: energy)
                         .frame(

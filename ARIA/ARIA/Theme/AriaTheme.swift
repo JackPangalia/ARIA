@@ -1,19 +1,22 @@
 import SwiftUI
+import UIKit
 
-/// Matches web `globals.css` dark theme tokens (`--app-*`).
+/// Matches web `globals.css` `--app-*` tokens. Chrome colors are dynamic: they
+/// resolve to a light or dark value based on the active trait collection, so a
+/// single `.preferredColorScheme` at the root flips the whole UI.
 enum AriaTheme {
-    static let background = Color(hex: 0x000000)
-    static let foreground = Color(hex: 0xF4F4F5)
-    static let foregroundSecondary = Color(hex: 0xD4D4D8)
-    static let foregroundMuted = Color(hex: 0xA1A1AA)
-    static let foregroundSubtle = Color(hex: 0x71717A)
-    static let surface = Color(hex: 0x18181B)
-    static let surfaceHover = Color(hex: 0x27272A)
-    static let borderStrong = Color(hex: 0x3F3F46)
-    static let accent = Color(hex: 0xF4F4F5)
-    static let accentForeground = Color(hex: 0x09090B)
-    static let danger = Color(hex: 0xFECACA)
-    static let dangerBackground = Color(red: 69 / 255, green: 10 / 255, blue: 10 / 255, opacity: 0.9)
+    static let background = Color.appDynamic(light: 0xFFFFFF, dark: 0x000000)
+    static let foreground = Color.appDynamic(light: 0x18181B, dark: 0xF4F4F5)
+    static let foregroundSecondary = Color.appDynamic(light: 0x3F3F46, dark: 0xD4D4D8)
+    static let foregroundMuted = Color.appDynamic(light: 0x71717A, dark: 0xA1A1AA)
+    static let foregroundSubtle = Color.appDynamic(light: 0xA1A1AA, dark: 0x71717A)
+    static let surface = Color.appDynamic(light: 0xF4F4F5, dark: 0x18181B)
+    static let surfaceHover = Color.appDynamic(light: 0xE4E4E7, dark: 0x27272A)
+    static let borderStrong = Color.appDynamic(light: 0xD4D4D8, dark: 0x3F3F46)
+    static let accent = Color.appDynamic(light: 0x18181B, dark: 0xF4F4F5)
+    static let accentForeground = Color.appDynamic(light: 0xFAFAFA, dark: 0x09090B)
+    static let danger = Color.appDynamic(light: 0xDC2626, dark: 0xFECACA)
+    static let dangerBackground = Color.appDynamic(light: 0xFEE2E2, dark: 0x450A0A)
     static let overlay = Color.black.opacity(0.7)
 
     static let contentMaxWidth: CGFloat = 304 // 19rem
@@ -90,6 +93,25 @@ extension Color {
             green: Double((hex >> 8) & 0xFF) / 255,
             blue: Double(hex & 0xFF) / 255,
             opacity: opacity
+        )
+    }
+
+    /// A color that resolves to `light` or `dark` based on the active interface
+    /// style — lets `AriaTheme` tokens flip with the chosen appearance.
+    static func appDynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            UIColor(appHex: traits.userInterfaceStyle == .dark ? dark : light)
+        })
+    }
+}
+
+extension UIColor {
+    convenience init(appHex hex: UInt32) {
+        self.init(
+            red: CGFloat((hex >> 16) & 0xFF) / 255,
+            green: CGFloat((hex >> 8) & 0xFF) / 255,
+            blue: CGFloat(hex & 0xFF) / 255,
+            alpha: 1
         )
     }
 }

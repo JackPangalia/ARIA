@@ -12,9 +12,12 @@ import {
 } from "@/lib/server/context-dev-log";
 import {
   CONTEXT_BUDGET_TOKENS,
+  CHARS_PER_TOKEN,
   MAX_SEARCH_HITS,
   RECENT_TURN_COUNT,
 } from "@/lib/sessions/constants";
+import { getProject } from "@/lib/projects/repository";
+import { listSourcesForContext } from "@/lib/projects/sources-repository";
 import {
   formatTurnForContext,
   getRecentContextTurns,
@@ -23,7 +26,13 @@ import {
   listPins,
   searchContextTurns,
 } from "@/lib/sessions/repository";
+import type {
+  ProjectDoc,
+  ProjectSourceDoc,
+} from "@/lib/projects/types";
 import type { ContextBundle, SessionDoc } from "@/lib/sessions/types";
+
+const PROJECT_CONTEXT_TOKEN_BUDGET = 1600;
 
 function speakerLabel(id: number | null): string {
   return id == null ? "Speaker" : `Speaker ${id + 1}`;
@@ -33,10 +42,61 @@ function buildSessionHeader(session: SessionDoc): string {
   return [
     `# Session`,
     `Title: ${session.title}`,
+    session.projectId ? `Project ID: ${session.projectId}` : null,
     `Status: ${session.status}`,
     `Speakers expected: ${session.speakerCount}`,
     `Updated: ${session.updatedAt}`,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function trimProjectInstructionsForContext(
+  instructions: string,
+  tokenBudget = PROJECT_CONTEXT_TOKEN_BUDGET
+): string {
+  const trimmed = instructions.trim();
+  if (!trimmed) return "";
+  const maxChars = tokenBudget * CHARS_PER_TOKEN;
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, maxChars - 24)).trimEnd()}\n[Project instructions truncated]`;
+}
+
+export function buildProjectContextSection(project: ProjectDoc | null): string | null {
+  if (!project || project.status !== "active") return null;
+  const instructions = trimProjectInstructionsForContext(project.instructions);
+  const lines = [`# Project`, `Name: ${project.name}`];
+  if (instructions) {
+    lines.push("", `Instructions/context:`, instructions);
+  }
+  return lines.join("\n");
+}
+
+function buildProjectSourcesSection(sources: ProjectSourceDoc[]): string | null {
+  if (sources.length === 0) return null;
+  return [
+    "# Project sources",
+    "",
+    ...sources.map((source) =>
+      [
+        `## ${source.name}`,
+        `Type: ${source.kind}`,
+        "",
+        source.text,
+      ].join("\n")
+    ),
+  ].join("\n\n");
+}
+
+export function buildProjectKnowledgeSection(input: {
+  project: ProjectDoc | null;
+  sources: ProjectSourceDoc[];
+}): string | null {
+  const sections = [
+    buildProjectContextSection(input.project),
+    buildProjectSourcesSection(input.sources),
+  ].filter(Boolean);
+  return sections.length > 0 ? sections.join("\n\n") : null;
 }
 
 export async function buildContextBundle(input: {
@@ -47,7 +107,12 @@ export async function buildContextBundle(input: {
   const buildStart = performance.now();
   const question = sanitizeQuestionText(input.question);
 
-  const [summary, facts, pins, recentTurnsRaw] = await Promise.all([
+  const projectId = input.session.projectId;
+  const [project, projectSources, summary, facts, pins, recentTurnsRaw] = await Promise.all([
+    input.session.projectId ? getProject(input.uid, input.session.projectId) : null,
+    projectId
+      ? listSourcesForContext(input.uid, projectId).catch(() => [])
+      : Promise.resolve([]),
     getSummary(input.uid, input.session.id),
     listFacts(input.uid, input.session.id),
     listPins(input.uid, input.session.id),
@@ -70,20 +135,24 @@ export async function buildContextBundle(input: {
   const recentIds = new Set(recentTurns.map((turn) => turn.id));
   const supplementalHits = searchHits.filter((turn) => !recentIds.has(turn.id));
 
-  const sections: string[] = [buildSessionHeader(input.session)];
+  const projectSection = buildProjectKnowledgeSection({
+    project,
+    sources: projectSources,
+  });
+  const dynamicSections: string[] = [buildSessionHeader(input.session)];
 
   if (summary?.rollingSummary) {
-    sections.push(`# Rolling summary\n\n${summary.rollingSummary}`);
+    dynamicSections.push(`# Rolling summary\n\n${summary.rollingSummary}`);
   }
 
   if (summary && summary.keyDecisions.length > 0) {
-    sections.push(
+    dynamicSections.push(
       `# Key decisions\n\n${summary.keyDecisions.map((item) => `- ${item}`).join("\n")}`
     );
   }
 
   if (summary && summary.openQuestions.length > 0) {
-    sections.push(
+    dynamicSections.push(
       `# Open questions\n\n${summary.openQuestions.map((item) => `- ${item}`).join("\n")}`
     );
   }
@@ -96,11 +165,11 @@ export async function buildContextBundle(input: {
       ...pinnedFacts.map((fact) => `- [pinned ${fact.category}] ${fact.text}`),
       ...generatedFacts.map((fact) => `- [${fact.category}] ${fact.text}`),
     ];
-    sections.push(`# Key facts\n\n${lines.join("\n")}`);
+    dynamicSections.push(`# Key facts\n\n${lines.join("\n")}`);
   }
 
   if (pins.length > 0) {
-    sections.push(
+    dynamicSections.push(
       `# Pinned snippets\n\n${pins
         .map((pin) => `- ${pin.label}: ${pin.snippet}`)
         .join("\n")}`
@@ -108,7 +177,7 @@ export async function buildContextBundle(input: {
   }
 
   if (supplementalHits.length > 0) {
-    sections.push(
+    dynamicSections.push(
       `# Relevant earlier context\n\n${supplementalHits
         .map((turn) => formatTurnForContext(turn))
         .join("\n")}`
@@ -116,18 +185,19 @@ export async function buildContextBundle(input: {
   }
 
   if (recentTurns.length > 0) {
-    sections.push(
+    dynamicSections.push(
       `# Recent turns\n\n${recentTurns
         .map((turn) => formatTurnForContext(turn))
         .join("\n")}`
     );
   }
 
-  let messages = sections.join("\n\n");
+  let dynamicMessages = dynamicSections.join("\n\n");
+  let messages = [projectSection, dynamicMessages].filter(Boolean).join("\n\n");
   let tokenEstimate = estimateTokensForTexts([messages, question]);
   let budgetTrimApplied = false;
 
-  if (tokenEstimate > CONTEXT_BUDGET_TOKENS) {
+  if (estimateTokensForTexts([dynamicMessages, question]) > CONTEXT_BUDGET_TOKENS) {
     budgetTrimApplied = true;
     const trimmedRecent = recentTurns.slice(-10);
     const compactSections = [
@@ -142,7 +212,8 @@ export async function buildContextBundle(input: {
         : null,
     ].filter(Boolean);
 
-    messages = compactSections.join("\n\n");
+    dynamicMessages = compactSections.join("\n\n");
+    messages = [projectSection, dynamicMessages].filter(Boolean).join("\n\n");
     tokenEstimate = estimateTokensForTexts([messages, question]);
   }
 
@@ -161,6 +232,8 @@ export async function buildContextBundle(input: {
     openQuestions: summary?.openQuestions?.length ?? 0,
     facts: pinnedFacts.length + generatedFacts.length,
     pins: pins.length,
+    project: Boolean(projectSection),
+    projectInstructionChars: project?.instructions?.trim().length ?? 0,
     searchHits: supplementalHits.length,
     searchTerms,
     recentTurns: recentTurns.length,
@@ -173,6 +246,9 @@ export async function buildContextBundle(input: {
 
   if (summary?.rollingSummary) {
     logContextVerboseBlock("rolling summary", summary.rollingSummary);
+  }
+  if (projectSection) {
+    logContextVerboseBlock("project context", projectSection);
   }
   // Full context is now printed verbatim by logRawPrompt() at agent run time,
   // so we no longer duplicate the assembled messages block here.

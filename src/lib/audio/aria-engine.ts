@@ -11,6 +11,7 @@ import { devLog } from "@/lib/client/dev-log";
 import {
   askSessionQuestion,
   appendSessionTurn,
+  finalizeSessionTitle,
   prefetchSessionContext,
 } from "@/lib/sessions/client";
 import { listSpeakerProfiles } from "@/lib/speakers/client";
@@ -18,6 +19,7 @@ import { sendHeartbeat } from "@/lib/plan/client";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
 import { sanitizeQuestionText } from "@/lib/aria/context/question-text";
 import {
+  detectCloseWord,
   extractQuestionAfterWake,
   isSubstantiveQuestion,
   END_OF_UTTERANCE_GRACE_MS,
@@ -26,7 +28,7 @@ import {
   SPEECH_FINAL_SETTLE_MS,
 } from "@/lib/aria/conversation/wake";
 import { joinText } from "@/lib/text/join-text";
-import { messagesToText, useAriaStore } from "@/lib/store";
+import { useAriaStore } from "@/lib/store";
 import type { TranscriptUtterance } from "@/lib/types";
 
 const PLAYBACK_STT_COOLDOWN_MS = 800;
@@ -94,6 +96,7 @@ export class AriaEngine {
   private turnFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private onUsageExhausted?: () => void;
+  private titleFinalized = false;
 
   constructor(options: AriaEngineOptions) {
     this.sessionId = options.sessionId;
@@ -110,8 +113,10 @@ export class AriaEngine {
 
     try {
       await this.cues.ensureReady();
-      await this.connectStt();
-      this.mic = new MicPcmStreamer();
+      const profileCount = await this.connectStt();
+      this.mic = new MicPcmStreamer({
+        voiceIdentification: profileCount > 0,
+      });
       await this.mic.start((frame) => {
         useAriaStore.getState().setMicLevel(pcmLevel(frame));
         if (this.shouldSendMicToStt()) {
@@ -127,7 +132,7 @@ export class AriaEngine {
     }
   }
 
-  private async connectStt() {
+  private async connectStt(): Promise<number> {
     const profiles = await listSpeakerProfiles().catch((err) => {
       devLog(
         "speaker",
@@ -135,7 +140,7 @@ export class AriaEngine {
           err instanceof Error ? err.message : "unknown error"
         }`
       );
-      return [];
+      throw new Error("Could not load saved speaker profiles. Try restarting Kivo.");
     });
 
     this.stt = new SpeechmaticsLiveClient({
@@ -154,6 +159,7 @@ export class AriaEngine {
     }, profiles);
 
     await this.stt.connect();
+    return profiles.length;
   }
 
   async stop() {
@@ -168,13 +174,21 @@ export class AriaEngine {
     this.stopFollowUpWindow();
     this.clearFollowUpStartTimer();
     this.clearTurnFlushTimer();
-    void this.flushPersistedSpeakerTurn();
+    void this.flushPersistedSpeakerTurn().then(() => this.finalizeTitle());
     this.abortActiveFetch();
     this.stopPlayback();
     this.cues.stopThinkingLoop();
     void this.cues.dispose();
     useAriaStore.getState().setMicLevel(0);
     useAriaStore.getState().setStatus("idle");
+  }
+
+  private finalizeTitle() {
+    // Once per session: regenerate the sidebar title from the whole
+    // conversation now that it has ended.
+    if (this.titleFinalized) return;
+    this.titleFinalized = true;
+    void finalizeSessionTitle(this.sessionId);
   }
 
   private startHeartbeat() {
@@ -208,6 +222,8 @@ export class AriaEngine {
   }
 
   private shouldSendMicToStt(): boolean {
+    // Mute the mic while Kivo is speaking so STT never transcribes Kivo's own
+    // voice off the speakers (which otherwise feeds back as a new "question").
     return !this.isAssistantSpeaking && Date.now() >= this.suppressSttUntilMs;
   }
 
@@ -217,6 +233,17 @@ export class AriaEngine {
 
   private handleUtterance(u: TranscriptUtterance) {
     if (this.shouldIgnoreIncomingUtterance()) {
+      return;
+    }
+
+    const wake = extractQuestionAfterWake(u.text);
+    const utteranceStable = u.speechFinal || u.isFinal;
+
+    // "Thank you, Kivo" ends the conversation. The mic is muted while Kivo
+    // speaks, so this fires from listening / thinking / follow-up — not during
+    // an answer.
+    if (utteranceStable && detectCloseWord(u.text)) {
+      this.handleClose();
       return;
     }
 
@@ -232,8 +259,6 @@ export class AriaEngine {
     if (u.isFinal && u.speechFinal) {
       void this.bufferSpeakerTurn(u);
     }
-    const wake = extractQuestionAfterWake(u.text);
-    const utteranceStable = u.speechFinal || u.isFinal;
 
     if (!this.capturingQuestion && utteranceStable) {
       if (wake.detected) {
@@ -333,6 +358,19 @@ export class AriaEngine {
     this.cues.playWake();
     store.setStatus("capturing-question");
     devLog("wake", "Wake phrase detected — say your question (or continue).");
+  }
+
+  private handleClose() {
+    // "Thank you, Kivo" — tear down any in-flight answer/capture and return to
+    // passive listening. The inverse of handleWake.
+    this.stopPlayback();
+    this.abortActiveFetch();
+    this.cues.stopThinkingLoop();
+    this.stopFollowUpWindow();
+    this.resetQuestionCapture();
+    this.cues.playClose();
+    useAriaStore.getState().setStatus("listening");
+    devLog("wake", "Close phrase detected — conversation ended.");
   }
 
   private handleFollowUp(

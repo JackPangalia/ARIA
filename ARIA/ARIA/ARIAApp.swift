@@ -6,6 +6,7 @@ import SwiftUI
 struct ARIAApp: App {
     @StateObject private var auth: AuthService
     @StateObject private var consent: ConsentStore
+    @StateObject private var theme = ThemeStore()
 
     init() {
         if FirebaseApp.app() == nil {
@@ -22,6 +23,7 @@ struct ARIAApp: App {
             RootView()
                 .environmentObject(auth)
                 .environmentObject(consent)
+                .environmentObject(theme)
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }

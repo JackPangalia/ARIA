@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SignInView: View {
     @EnvironmentObject private var auth: AuthService
+    @EnvironmentObject private var theme: ThemeStore
     @State private var email = ""
     @State private var password = ""
     @State private var isCreatingAccount = false
@@ -86,7 +87,7 @@ struct SignInView: View {
             .padding(AriaTheme.horizontalPadding)
         }
         .background(AriaTheme.background.ignoresSafeArea())
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(theme.colorScheme)
     }
 
     private func submitEmail() async {

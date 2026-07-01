@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var consent: ConsentStore
+    @EnvironmentObject private var theme: ThemeStore
 
     var body: some View {
         Group {
@@ -20,7 +21,7 @@ struct RootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AriaTheme.background.ignoresSafeArea())
         .foregroundStyle(AriaTheme.foreground)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(theme.colorScheme)
     }
 }
 
@@ -28,4 +29,5 @@ struct RootView: View {
     RootView()
         .environmentObject(AuthService.shared)
         .environmentObject(ConsentStore.shared)
+        .environmentObject(ThemeStore())
 }

@@ -111,30 +111,102 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidProjectStatus(value) {
+      return value in ['active', 'archived'];
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasOnly([
+        'name', 'instructions', 'status', 'createdAt', 'updatedAt', 'archivedAt'
+      ]) &&
+        data.name is string &&
+        data.name.size() > 0 && data.name.size() <= 120 &&
+        data.instructions is string &&
+        data.instructions.size() <= 12000 &&
+        isValidProjectStatus(data.status) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (data.archivedAt == null || data.archivedAt is timestamp);
+    }
+
+    function isValidProjectSourceKind(value) {
+      return value in ['text', 'markdown', 'pdf', 'docx', 'code', 'csv', 'json'];
+    }
+
+    function isValidProjectSourceStatus(value) {
+      return value in ['ready', 'error'];
+    }
+
+    function isValidProjectSource(data) {
+      return data.keys().hasOnly([
+        'name', 'mimeType', 'kind', 'byteSize', 'charCount', 'tokenEstimate',
+        'text', 'status', 'error', 'createdAt', 'updatedAt'
+      ]) &&
+        data.name is string &&
+        data.name.size() > 0 && data.name.size() <= 180 &&
+        data.mimeType is string &&
+        data.mimeType.size() > 0 && data.mimeType.size() <= 180 &&
+        isValidProjectSourceKind(data.kind) &&
+        data.byteSize is number &&
+        data.byteSize >= 0 && data.byteSize <= 2000000 &&
+        data.charCount is number &&
+        data.charCount >= 0 && data.charCount <= 700000 &&
+        data.tokenEstimate is number &&
+        data.tokenEstimate >= 0 && data.tokenEstimate <= 30000 &&
+        data.text is string &&
+        data.text.size() > 0 && data.text.size() <= 700000 &&
+        isValidProjectSourceStatus(data.status) &&
+        (data.error == null || (data.error is string && data.error.size() <= 500)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidSessionStatus(value) {
-      return value in ['active', 'ended', 'archived'];
+      return value in ['active', 'ended', 'archived', 'trashed'];
+    }
+
+    function isValidSessionMode(value) {
+      return value in ['in_person', 'bot'];
+    }
+
+    function isValidMeetingPlatform(value) {
+      return value == null || value in ['zoom', 'meet', 'teams', 'webex'];
+    }
+
+    function isValidBotStatus(value) {
+      return value == null || value in ['joining', 'live', 'ended', 'error'];
     }
 
     function isValidSession(data) {
       return data.keys().hasOnly([
-        'title', 'status', 'speakerCount', 'createdAt', 'updatedAt',
-        'endedAt', 'lastSummaryAt', 'tokenEstimate', 'searchableTextPreview', 'turnCount'
+        'title', 'projectId', 'autoTitled', 'status', 'speakerCount', 'createdAt',
+        'updatedAt', 'endedAt', 'trashedAt', 'lastSummaryAt', 'tokenEstimate',
+        'searchableTextPreview', 'turnCount', 'pinned', 'mode', 'botId',
+        'meetingPlatform', 'botStatus'
       ]) &&
         data.title is string &&
         data.title.size() > 0 && data.title.size() <= 120 &&
+        (data.projectId == null || (data.projectId is string && data.projectId.size() > 0 && data.projectId.size() <= 256)) &&
+        data.autoTitled is bool &&
         isValidSessionStatus(data.status) &&
         data.speakerCount is number &&
         data.speakerCount >= 1 && data.speakerCount <= 10 &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp &&
         (data.endedAt == null || data.endedAt is timestamp) &&
+        (data.trashedAt == null || data.trashedAt is timestamp) &&
         (data.lastSummaryAt == null || data.lastSummaryAt is timestamp) &&
         data.tokenEstimate is number &&
         data.tokenEstimate >= 0 &&
         data.searchableTextPreview is string &&
         data.searchableTextPreview.size() <= 500 &&
         data.turnCount is number &&
-        data.turnCount >= 0;
+        data.turnCount >= 0 &&
+        data.pinned is bool &&
+        isValidSessionMode(data.mode) &&
+        (data.botId == null || (data.botId is string && data.botId.size() <= 256)) &&
+        isValidMeetingPlatform(data.meetingPlatform) &&
+        isValidBotStatus(data.botStatus);
     }
 
     function isValidTurnRole(value) {
@@ -242,6 +314,25 @@ service cloud.firestore {
           isValidSpeakerProfile(request.resource.data) &&
           request.resource.data.updatedAt == request.time;
         allow delete: if isOwner(userId);
+      }
+
+      match /projects/{projectId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidProject(request.resource.data) &&
+          request.resource.data.createdAt == request.time &&
+          request.resource.data.updatedAt == request.time;
+        allow update: if isOwner(userId) &&
+          isValidProject(request.resource.data) &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          request.resource.data.updatedAt == request.time;
+        allow delete: if isOwner(userId);
+
+        match /sources/{sourceId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
+
       }
 
       match /sessions/{sessionId} {

@@ -55,6 +55,29 @@ function turnLabel(turn: TurnDoc): string {
   return turn.speakerName ?? "Other speaker";
 }
 
+// Deterministic hue per speaker name so each person keeps a consistent dot
+// color across renders (mirrors SpeakerProfilesManager's avatarHue).
+function speakerHue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return Math.abs(h) % 360;
+}
+
+function SpeakerDot({ turn }: { turn: TurnDoc }) {
+  const isKivo = turn.role === "assistant";
+  return (
+    <span
+      aria-hidden
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${isKivo ? "bg-accent" : ""}`}
+      style={
+        isKivo
+          ? undefined
+          : { background: `hsl(${speakerHue(turnLabel(turn))} 60% 55%)` }
+      }
+    />
+  );
+}
+
 function CloseIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -146,19 +169,22 @@ function TranscriptLines(props: {
           }
         >
           <span
-            className={`max-w-full truncate text-xs font-medium leading-[1.5] text-app-muted ${
+            className={`flex max-w-full items-center gap-1.5 text-xs font-medium leading-[1.5] ${
+              turn.role === "assistant" ? "text-app-secondary" : "text-app-muted"
+            } ${
               props.gutter
-                ? "text-left lg:w-[5.25rem] lg:shrink-0 lg:text-right"
-                : "w-[3.5rem] shrink-0 text-right"
+                ? "justify-start lg:w-[5.25rem] lg:shrink-0 lg:justify-end"
+                : "w-[4rem] shrink-0 justify-end"
             }`}
             title={turnLabel(turn)}
           >
-            {turnLabel(turn)}
+            <SpeakerDot turn={turn} />
+            <span className="truncate">{turnLabel(turn)}</span>
           </span>
           <p
-            className={`w-full min-w-0 text-sm font-normal leading-[1.65] text-app break-words ${
-              props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"
-            }`}
+            className={`w-full min-w-0 text-sm font-normal leading-[1.65] break-words ${
+              turn.role === "assistant" ? "text-app" : "text-app-secondary"
+            } ${props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"}`}
           >
             {turn.text}
           </p>

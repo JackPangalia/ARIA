@@ -24,10 +24,12 @@ final class SpeechmaticsLiveClient: NSObject {
     private var closedByClient = false
     private var reconnectTask: Task<Void, Never>?
     private let profiles: [SpeakerProfileDoc]
+    private let enrollment: Bool
     private var loggedStartConfig = false
 
-    init(profiles: [SpeakerProfileDoc] = []) {
+    init(profiles: [SpeakerProfileDoc] = [], enrollment: Bool = false) {
         self.profiles = profiles
+        self.enrollment = enrollment
         super.init()
         for profile in profiles {
             speakerLabelToName[Self.safeSpeakerLabel(profile.name)] = profile.name
@@ -65,6 +67,17 @@ final class SpeechmaticsLiveClient: NSObject {
                 }
             }
         }
+    }
+
+    func requestSpeakers(final: Bool = false) {
+        sendJSON(["message": "GetSpeakers", "final": final])
+    }
+
+    /// Ends recognition; required before final speaker identifiers are returned.
+    func sendEndOfStream() {
+        guard recognitionStarted else { return }
+        recognitionStarted = false
+        sendJSON(["message": "EndOfStream", "last_seq_no": seqNo])
     }
 
     func close() {
@@ -243,23 +256,50 @@ final class SpeechmaticsLiveClient: NSObject {
         }
     }
 
+    private static let defaultMaxSpeakers = 10
+    private static let enrolledSpeakerSensitivity = 0.2
+
+    private static func preferCurrentSpeaker(for profileCount: Int) -> Bool {
+        return true
+    }
+
+    private static func maxSpeakers(for profileCount: Int) -> Int {
+        if profileCount == 0 { return defaultMaxSpeakers }
+        return min(defaultMaxSpeakers, max(2, profileCount + 1))
+    }
+
+    private static func speakerSensitivity(for profileCount: Int) -> Double? {
+        if profileCount == 0 { return nil }
+        return enrolledSpeakerSensitivity
+    }
+
     private func buildStartRecognitionMessage() -> [String: Any] {
         let profileSummaries = profiles.map { profile in
             "\(Self.safeSpeakerLabel(profile.name)):\(profile.speakerIdentifiers.count)"
         }
         let enrolledIdentifierCount = profiles.reduce(0) { $0 + $1.speakerIdentifiers.count }
-        let preferCurrentSpeaker = profiles.isEmpty
-        let speakers: [[String: Any]] = profiles.map { profile in
-            [
-                "label": Self.safeSpeakerLabel(profile.name),
-                "speaker_identifiers": profile.speakerIdentifiers,
-            ]
-        }
-        let speakerDiarizationConfig: [String: Any] = [
-            "max_speakers": 10,
+        let preferCurrentSpeaker = Self.preferCurrentSpeaker(for: profiles.count)
+        let maxSpeakers = enrollment ? 2 : Self.maxSpeakers(for: profiles.count)
+        let speakerSensitivity = Self.speakerSensitivity(for: profiles.count)
+        var speakerDiarizationConfig: [String: Any] = [
+            "max_speakers": maxSpeakers,
             "prefer_current_speaker": preferCurrentSpeaker,
-            "speakers": speakers,
         ]
+        if enrollment {
+            // Recommended enrollment mode: auto-return speaker identifiers.
+            speakerDiarizationConfig["get_speakers"] = true
+        } else if !profiles.isEmpty {
+            let speakers: [[String: Any]] = profiles.map { profile in
+                [
+                    "label": Self.safeSpeakerLabel(profile.name),
+                    "speaker_identifiers": profile.speakerIdentifiers,
+                ]
+            }
+            speakerDiarizationConfig["speakers"] = speakers
+            if let speakerSensitivity {
+                speakerDiarizationConfig["speaker_sensitivity"] = speakerSensitivity
+            }
+        }
         let transcriptionConfig: [String: Any] = [
             "language": "en",
             "operating_point": "enhanced",
@@ -285,7 +325,7 @@ final class SpeechmaticsLiveClient: NSObject {
         if !loggedStartConfig {
             loggedStartConfig = true
             debugLog(
-                "Starting Speechmatics speaker identification. profiles=\(profileSummaries) enrolledIdentifierCount=\(enrolledIdentifierCount) preferCurrentSpeaker=\(preferCurrentSpeaker)"
+                "Starting Speechmatics speaker identification. profiles=\(profileSummaries) enrolledIdentifierCount=\(enrolledIdentifierCount) maxSpeakers=\(maxSpeakers) preferCurrentSpeaker=\(preferCurrentSpeaker) speakerSensitivity=\(speakerSensitivity.map { String($0) } ?? "default")"
             )
         }
 

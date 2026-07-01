@@ -20,20 +20,30 @@ struct SidebarUserInfo {
 /// top, one collapsible "Conversations" list of two-line rows (title + date) with
 /// long-press menus, and a bottom bar with search / settings / new session.
 struct SessionSidebarView: View {
+    let projects: [ProjectDoc]
     let sessions: [SessionDoc]
     let selectedSessionId: String?
+    let selectedProjectId: String?
+    let showUnassignedOnly: Bool
     let user: SidebarUserInfo?
+    let onSelectAllProjects: () -> Void
+    let onSelectUnassigned: () -> Void
+    let onSelectProject: (ProjectDoc) -> Void
+    let onCreateProject: () -> Void
+    let onEditProject: (ProjectDoc) -> Void
     let onSelect: (SessionDoc) -> Void
     let onCreate: () -> Void
     let onClose: () -> Void
     let onOpenSettings: () -> Void
     let onRename: (SessionDoc, String) -> Void
     let onTogglePin: (SessionDoc) -> Void
+    let onMoveToProject: (SessionDoc, String?) -> Void
     let onArchive: (SessionDoc) -> Void
     let onTrash: (SessionDoc) -> Void
 
     @State private var pinsOpen = true
     @State private var conversationsOpen = true
+    @State private var projectsOpen = true
     @State private var searchText = ""
     @State private var renameTarget: SessionDoc?
     @State private var renameText = ""
@@ -127,6 +137,48 @@ struct SessionSidebarView: View {
     private var conversationList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                sectionHeader("Projects", isOpen: projectsOpen) { projectsOpen.toggle() }
+                if projectsOpen {
+                    projectRow(title: "All sessions", systemImage: "tray.full", selected: selectedProjectId == nil && !showUnassignedOnly) {
+                        onSelectAllProjects()
+                    }
+                    projectRow(title: "Unassigned", systemImage: "tray", selected: selectedProjectId == nil && showUnassignedOnly) {
+                        onSelectUnassigned()
+                    }
+                    ForEach(projects) { project in
+                        projectRow(
+                            title: project.name,
+                            systemImage: "folder",
+                            selected: selectedProjectId == project.id
+                        ) {
+                            onSelectProject(project)
+                        }
+                        .contextMenu {
+                            Button {
+                                onEditProject(project)
+                            } label: {
+                                Label("Edit project", systemImage: "pencil")
+                            }
+                        }
+                    }
+                    Button {
+                        Haptics.tap()
+                        onCreateProject()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("New project")
+                                .font(.system(size: 14))
+                        }
+                        .foregroundStyle(AriaTheme.foregroundMuted)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 if !pinnedSessions.isEmpty {
                     sectionHeader("Pins", isOpen: pinsOpen) { pinsOpen.toggle() }
                     if pinsOpen {
@@ -173,6 +225,35 @@ struct SessionSidebarView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func projectRow(
+        title: String,
+        systemImage: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(AriaTheme.foregroundMuted)
+                Text(title)
+                    .font(.system(size: 15))
+                    .foregroundStyle(selected ? AriaTheme.foreground : AriaTheme.foregroundSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(selected ? AriaTheme.surfaceHover : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
     }
@@ -224,6 +305,20 @@ struct SessionSidebarView: View {
                 onTogglePin(session)
             } label: {
                 Label(session.pinned ? "Unpin" : "Pin", systemImage: session.pinned ? "pin.slash" : "pin")
+            }
+            Menu("Move to project") {
+                Button {
+                    onMoveToProject(session, nil)
+                } label: {
+                    Label("Unassigned", systemImage: "tray")
+                }
+                ForEach(projects) { project in
+                    Button {
+                        onMoveToProject(session, project.id)
+                    } label: {
+                        Label(project.name, systemImage: "folder")
+                    }
+                }
             }
             if session.status == .active {
                 Button {

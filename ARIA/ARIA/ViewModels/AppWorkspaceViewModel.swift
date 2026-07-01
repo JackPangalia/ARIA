@@ -3,7 +3,10 @@ import Foundation
 
 @MainActor
 final class AppWorkspaceViewModel: ObservableObject {
+    @Published var projects: [ProjectDoc] = []
     @Published var sessions: [SessionDoc] = []
+    @Published var selectedProjectId: String?
+    @Published var showUnassignedOnly = false
     @Published var selectedSessionId: String?
     @Published var detail: SessionDetailResponse?
     @Published var usage: UsageSummary?
@@ -30,6 +33,7 @@ final class AppWorkspaceViewModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         do {
+            projects = try await APIClient.shared.listProjects()
             sessions = try await APIClient.shared.listSessions(limit: 50)
             if let first = sessions.first {
                 await selectSession(first)
@@ -55,7 +59,9 @@ final class AppWorkspaceViewModel: ObservableObject {
 
     func createSession() async {
         do {
-            let session = try await APIClient.shared.createSession(CreateSessionRequest())
+            let session = try await APIClient.shared.createSession(
+                CreateSessionRequest(projectId: selectedProjectId)
+            )
             sessions.insert(session, at: 0)
             await selectSession(session)
         } catch {
@@ -65,7 +71,9 @@ final class AppWorkspaceViewModel: ObservableObject {
 
     func ensureSession() async throws -> String {
         if let selectedSessionId { return selectedSessionId }
-        let session = try await APIClient.shared.createSession(CreateSessionRequest())
+        let session = try await APIClient.shared.createSession(
+            CreateSessionRequest(projectId: selectedProjectId)
+        )
         sessions.insert(session, at: 0)
         await selectSession(session)
         return session.id
@@ -114,6 +122,112 @@ final class AppWorkspaceViewModel: ObservableObject {
                 if let next = sessions.first {
                     await selectSession(next)
                 }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Project actions
+
+    var projectFilterLabel: String {
+        if let selectedProjectId,
+           let project = projects.first(where: { $0.id == selectedProjectId }) {
+            return project.name
+        }
+        return showUnassignedOnly ? "Unassigned" : "All sessions"
+    }
+
+    func selectAllProjects() async {
+        selectedProjectId = nil
+        showUnassignedOnly = false
+        await reloadSessionsForCurrentProject()
+    }
+
+    func selectUnassigned() async {
+        selectedProjectId = nil
+        showUnassignedOnly = true
+        await reloadSessionsForCurrentProject()
+    }
+
+    func selectProject(_ project: ProjectDoc) async {
+        selectedProjectId = project.id
+        showUnassignedOnly = false
+        await reloadSessionsForCurrentProject()
+    }
+
+    func createProject(name: String, instructions: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            let project = try await APIClient.shared.createProject(
+                CreateProjectRequest(name: trimmed, instructions: instructions)
+            )
+            projects.insert(project, at: 0)
+            selectedProjectId = project.id
+            showUnassignedOnly = false
+            await reloadSessionsForCurrentProject()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func updateProject(_ project: ProjectDoc, name: String, instructions: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            let updated = try await APIClient.shared.patchProject(
+                project.id,
+                PatchProjectRequest(name: trimmed, instructions: instructions)
+            )
+            if let index = projects.firstIndex(where: { $0.id == updated.id }) {
+                projects[index] = updated
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func archiveProject(_ project: ProjectDoc) async {
+        do {
+            try await APIClient.shared.archiveProject(project.id)
+            projects.removeAll { $0.id == project.id }
+            if selectedProjectId == project.id {
+                selectedProjectId = nil
+                showUnassignedOnly = false
+            }
+            await reloadSessionsForCurrentProject()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func moveSession(_ session: SessionDoc, to projectId: String?) async {
+        do {
+            let updated = try await APIClient.shared.patchSession(
+                session.id,
+                projectId: .some(projectId)
+            )
+            apply(updated)
+            await reloadSessionsForCurrentProject()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func reloadSessionsForCurrentProject() async {
+        do {
+            sessions = try await APIClient.shared.listSessions(
+                limit: 50,
+                projectId: selectedProjectId,
+                unassigned: showUnassignedOnly
+            )
+            if let selectedSessionId,
+               !sessions.contains(where: { $0.id == selectedSessionId }) {
+                if isRunning { await engine?.stop() }
+                self.selectedSessionId = nil
+                detail = nil
+                engine = nil
             }
         } catch {
             errorMessage = error.localizedDescription

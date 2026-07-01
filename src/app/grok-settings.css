@@ -398,8 +398,7 @@
 
 .grok-speaker-enroll-idle {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  flex-direction: column;
 }
 
 .grok-speaker-list {

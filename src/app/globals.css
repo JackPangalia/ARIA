@@ -35,31 +35,31 @@
 }
 
 .dark {
-  --background: #000000;
+  --background: #090909;
   --foreground: #f4f4f5;
-  --app-bg: #000000;
+  --app-bg: #090909;
   --app-fg: #f4f4f5;
   --app-fg-secondary: #d4d4d8;
   --app-fg-muted: #a1a1aa;
   --app-fg-subtle: #71717a;
   --app-surface: #18181b;
-  --app-surface-strong: #09090b;
+  --app-surface-strong: #090909;
   --app-surface-hover: #27272a;
   --app-surface-selected: #18181b;
   --app-border: #27272a;
-  --app-border-subtle: #141414;
+  --app-border-subtle: #101010;
   --app-border-strong: #3f3f46;
-  --app-menu: #09090b;
+  --app-menu: #090909;
   --app-menu-ring: #27272a;
   --app-overlay: rgba(0, 0, 0, 0.7);
   --app-danger-bg: rgba(69, 10, 10, 0.9);
   --app-danger-fg: #fecaca;
   --app-accent: #f4f4f5;
-  --app-accent-fg: #09090b;
+  --app-accent-fg: #090909;
   --app-input-bg: rgba(24, 24, 27, 0.8);
   --app-slider-track: #3f3f46;
   --app-slider-fill: #f4f4f5;
-  --app-slider-thumb-bg: #09090b;
+  --app-slider-thumb-bg: #090909;
   --app-slider-thumb-border: #f4f4f5;
   --app-shadow: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -70,6 +70,10 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+}
+
+html {
+  background: var(--background);
 }
 
 body {
@@ -393,5 +397,127 @@ body {
 .meeting-slider::-moz-range-track {
   height: 2px;
   background: transparent;
+}
+
+/* ---- App transitions & skeletons ---- */
+
+@keyframes kivo-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.kivo-fade-in {
+  animation: kivo-fade-in 200ms ease-out both;
+}
+
+@keyframes kivo-shimmer {
+  0% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0.45;
+  }
+}
+
+.kivo-skeleton {
+  background-color: var(--app-surface);
+  border-radius: 0.75rem;
+  animation: kivo-shimmer 1.4s ease-in-out infinite;
+}
+
+/* ---- Premium motion ---- */
+
+/* Snappy "ease-out-quint" curve: leaps in, settles softly. Kept fast (≤300ms)
+   so the UI feels responsive, not floaty. */
+
+@keyframes kivo-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.kivo-slide-in-left {
+  animation: kivo-slide-in-left 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes kivo-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.kivo-overlay-in {
+  animation: kivo-overlay-in 220ms ease-out both;
+}
+
+@keyframes kivo-panel-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.kivo-panel-in-left {
+  animation: kivo-panel-in-left 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform;
+}
+
+@keyframes kivo-rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Staggered children: each step waits ~55ms longer for a quick cascade. */
+.kivo-stagger > * {
+  animation: kivo-rise 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.kivo-stagger > *:nth-child(1) {
+  animation-delay: 30ms;
+}
+.kivo-stagger > *:nth-child(2) {
+  animation-delay: 85ms;
+}
+.kivo-stagger > *:nth-child(3) {
+  animation-delay: 140ms;
+}
+.kivo-stagger > *:nth-child(4) {
+  animation-delay: 195ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kivo-fade-in,
+  .kivo-slide-in-left,
+  .kivo-overlay-in,
+  .kivo-panel-in-left,
+  .kivo-stagger > * {
+    animation: none;
+  }
 }
 

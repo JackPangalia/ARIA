@@ -34,6 +34,8 @@ export type ContextBundleLog = {
   openQuestions: number;
   facts: number;
   pins: number;
+  project: boolean;
+  projectInstructionChars: number;
   searchHits: number;
   searchTerms: string[];
   recentTurns: number;
@@ -93,13 +95,13 @@ export function logContextBundleReady(bundle: ContextBundleLog): void {
       : "none";
 
   console.log(
-    `${PREFIX} context │ ${sid} │ build ${formatMs(bundle.buildMs)} │ ~${bundle.tokens} tok │ ${bundle.recentTurns} recent (seq ${seqRange(bundle.seqFirst, bundle.seqLast)}) │ search ${search} │ summary ${summary}`
+    `${PREFIX} context │ ${sid} │ build ${formatMs(bundle.buildMs)} │ ~${bundle.tokens} tok │ ${bundle.recentTurns} recent (seq ${seqRange(bundle.seqFirst, bundle.seqLast)}) │ search ${search} │ summary ${summary} │ project ${bundle.project ? "yes" : "no"}`
   );
   console.log(`${PREFIX}   Q: ${truncate(bundle.question, 120)}`);
 
   if (isVerboseContextLogging()) {
     console.log(
-      `${PREFIX}   meta: decisions=${bundle.decisions} open=${bundle.openQuestions} facts=${bundle.facts} pins=${bundle.pins} trim=${bundle.budgetTrim} prompt=${bundle.promptChars}c`
+      `${PREFIX}   meta: decisions=${bundle.decisions} open=${bundle.openQuestions} facts=${bundle.facts} pins=${bundle.pins} projectInstructions=${bundle.projectInstructionChars}c trim=${bundle.budgetTrim} prompt=${bundle.promptChars}c`
     );
   }
 }

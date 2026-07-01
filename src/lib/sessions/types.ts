@@ -23,6 +23,7 @@ export type BotStatus = z.infer<typeof BotStatusSchema>;
 export interface SessionDoc {
   id: string;
   title: string;
+  projectId: string | null;
   /** True when the title was set by auto-naming (can be upgraded after Q&A). */
   autoTitled: boolean;
   status: SessionStatus;
@@ -87,12 +88,15 @@ export interface SessionPinDoc {
 export const CreateSessionSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   speakerCount: z.number().int().min(1).max(10).default(2),
+  projectId: z.string().trim().min(1).max(256).nullable().optional(),
 });
 
 export const ListSessionsSchema = z.object({
   status: SessionStatusSchema.optional(),
   q: z.string().trim().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
+  projectId: z.string().trim().min(1).max(256).optional(),
+  unassigned: z.coerce.boolean().default(false),
 });
 
 export const PatchSessionSchema = z.object({
@@ -100,6 +104,7 @@ export const PatchSessionSchema = z.object({
   status: SessionStatusSchema.optional(),
   speakerCount: z.number().int().min(1).max(10).optional(),
   pinned: z.boolean().optional(),
+  projectId: z.string().trim().min(1).max(256).nullable().optional(),
 });
 
 export const CreateTurnSchema = z.object({

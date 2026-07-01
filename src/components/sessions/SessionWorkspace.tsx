@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controls } from "@/components/aria/Controls";
 import { MeetingBotControls } from "@/components/aria/MeetingBotControls";
 import { OrbVisualizer } from "@/components/aria/OrbVisualizer";
-import { UsageMeter } from "@/components/aria/UsageMeter";
 import {
   SessionSidebar,
   SidebarExpandButton,
@@ -26,8 +25,16 @@ import {
   SessionInsightsPanel,
   TranscriptExpandButton,
 } from "@/components/sessions/SessionInsightsPanel";
+import { ProjectHubView } from "@/components/sessions/ProjectHubView";
 import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
 import { MEETING_BOT_ENABLED } from "@/lib/features";
+import {
+  archiveProject,
+  createProject,
+  listProjects,
+  patchProject,
+} from "@/lib/projects/client";
+import type { ProjectDoc } from "@/lib/projects/types";
 
 function SidebarToggleIcon({ className }: { className?: string }) {
   return (
@@ -48,17 +55,178 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+type ProjectEditorState =
+  | { mode: "create"; project?: undefined }
+  | { mode: "edit"; project: ProjectDoc };
+
+function ProjectEditorModal(props: {
+  state: ProjectEditorState | null;
+  busy: boolean;
+  onSave: (input: { name: string; instructions: string }) => void;
+  onArchive: (projectId: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(
+    props.state?.mode === "edit" ? props.state.project.name : ""
+  );
+  const [instructions, setInstructions] = useState(
+    props.state?.mode === "edit" ? props.state.project.instructions : ""
+  );
+
+  if (!props.state) return null;
+
+  const title = props.state.mode === "edit" ? "Edit project" : "New project";
+  const canSave = name.trim().length > 0 && !props.busy;
+  const editingProject = props.state.mode === "edit" ? props.state.project : null;
+
+  return (
+    <div className="fixed inset-0 z-[280] flex items-center justify-center bg-overlay px-4">
+      <div className="w-full max-w-lg rounded-2xl border border-app bg-app p-5 shadow-menu">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-medium text-app">{title}</h2>
+            <p className="mt-1 text-sm text-app-muted">
+              Project instructions are included whenever Kivo answers inside this project.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="rounded-lg px-2 py-1 text-sm text-app-muted hover:bg-surface-hover hover:text-app"
+          >
+            Close
+          </button>
+        </div>
+
+        <label className="mt-5 block text-sm text-app-secondary">
+          Name
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={120}
+            className="mt-2 w-full rounded-xl border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
+            placeholder="Project name"
+          />
+        </label>
+
+        <label className="mt-4 block text-sm text-app-secondary">
+          Instructions/context
+          <textarea
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
+            maxLength={12000}
+            rows={8}
+            className="mt-2 w-full resize-none rounded-xl border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
+            placeholder="How should Kivo answer in this project? Add product context, preferences, or constraints."
+          />
+        </label>
+
+        <div className="mt-5 flex items-center justify-between gap-3">
+          {editingProject ? (
+            <button
+              type="button"
+              onClick={() => props.onArchive(editingProject.id)}
+              disabled={props.busy}
+              className="rounded-xl px-3 py-2 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
+            >
+              Archive project
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={props.onClose}
+              disabled={props.busy}
+              className="rounded-xl px-4 py-2 text-sm text-app-muted transition-colors hover:bg-surface-hover hover:text-app disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onSave({ name, instructions })}
+              disabled={!canSave}
+              className="rounded-xl bg-accent px-4 py-2 text-sm text-accent-fg transition-opacity disabled:opacity-50"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MoveSessionDialog(props: {
+  open: boolean;
+  projects: ProjectDoc[];
+  value: string;
+  busy: boolean;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!props.open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[280] flex items-center justify-center bg-overlay px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-app bg-app p-5 shadow-menu">
+        <h2 className="text-base font-medium text-app">Move session</h2>
+        <p className="mt-1 text-sm text-app-muted">
+          Choose the project this session should belong to.
+        </p>
+        <select
+          value={props.value}
+          onChange={(event) => props.onChange(event.target.value)}
+          className="mt-4 w-full rounded-xl border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
+        >
+          <option value="unassigned">Unassigned</option>
+          {props.projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={props.onCancel}
+            disabled={props.busy}
+            className="rounded-xl px-4 py-2 text-sm text-app-muted transition-colors hover:bg-surface-hover hover:text-app disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={props.onConfirm}
+            disabled={props.busy}
+            className="rounded-xl bg-accent px-4 py-2 text-sm text-accent-fg transition-opacity disabled:opacity-50"
+          >
+            Move
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SessionWorkspace() {
   const {
+    projects,
     sessions,
     selectedSessionId,
+    selectedProjectId,
+    projectFilter,
     detail,
     searchQuery,
     loading,
     error,
     sidebarOpen,
+    setProjects,
     setSessions,
     setSelectedSessionId,
+    setProjectSelection,
     setDetail,
     setSearchQuery,
     setLoading,
@@ -71,8 +239,15 @@ export function SessionWorkspace() {
   const [panelsCollapsed, setPanelsCollapsedState] = useState(
     () => readSidebarCollapsed()
   );
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("settings") === "1";
+  });
   const [trashConfirmId, setTrashConfirmId] = useState<string | null>(null);
+  const [projectEditor, setProjectEditor] = useState<ProjectEditorState | null>(null);
+  const [projectArchiveId, setProjectArchiveId] = useState<string | null>(null);
+  const [moveSessionId, setMoveSessionId] = useState<string | null>(null);
+  const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("unassigned");
   // false = in-person (mic) mode, true = meeting (bot) mode. One per session so
   // the two capture paths never run at once. Kept in sync with whatever is live.
   const [meetingMode, setMeetingMode] = useState(false);
@@ -90,7 +265,6 @@ export function SessionWorkspace() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("settings") === "1") {
-      setSettingsOpen(true);
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
@@ -117,6 +291,22 @@ export function SessionWorkspace() {
     []
   );
 
+  const refreshProjects = useCallback(async () => {
+    const next = await listProjects();
+    setProjects(next);
+    const state = useSessionStore.getState();
+    if (
+      state.projectFilter === "project" &&
+      state.selectedProjectId &&
+      !next.some((project) => project.id === state.selectedProjectId)
+    ) {
+      setProjectSelection("all", null);
+    }
+    return next;
+  }, [setProjectSelection, setProjects]);
+
+  // The sidebar always shows the full, global session history. Project scoping
+  // happens client-side in the project hub, so we never refetch on project click.
   const refreshSessions = useCallback(
     async (query?: string) => {
       const next = await listSessions({ q: query, limit: 50 });
@@ -154,7 +344,7 @@ export function SessionWorkspace() {
     void (async () => {
       setError(null);
       try {
-        await refreshSessions();
+        await Promise.all([refreshProjects(), refreshSessions()]);
         const existingId = useSessionStore.getState().selectedSessionId;
         if (existingId) {
           await refreshDetail(existingId);
@@ -167,7 +357,7 @@ export function SessionWorkspace() {
         setLoading(false);
       }
     })();
-  }, [refreshDetail, refreshSessions, setError, setLoading, openSummaryIfDesktop, setPanelsCollapsed]);
+  }, [refreshDetail, refreshProjects, refreshSessions, setError, setLoading, openSummaryIfDesktop, setPanelsCollapsed]);
 
   const goToStartScreen = useCallback(() => {
     setSelectedSessionId(null);
@@ -180,7 +370,12 @@ export function SessionWorkspace() {
   const ensureSession = useCallback(async () => {
     setError(null);
     try {
-      const created = await createSession({ speakerCount: 2 });
+      const state = useSessionStore.getState();
+      const created = await createSession({
+        speakerCount: 2,
+        projectId:
+          state.projectFilter === "project" ? state.selectedProjectId : undefined,
+      });
       await refreshSessions(searchQuery);
       setSelectedSessionId(created.id);
       await refreshDetail(created.id);
@@ -196,7 +391,6 @@ export function SessionWorkspace() {
     refreshDetail,
     refreshSessions,
     searchQuery,
-    setDetail,
     setError,
     setPanelsCollapsed,
     setSelectedSessionId,
@@ -257,7 +451,112 @@ export function SessionWorkspace() {
   }, []);
 
   const handleNewSession = () => {
+    setProjectSelection("all", null);
     goToStartScreen();
+  };
+
+  const handleNewSessionFromHub = useCallback(async () => {
+    setActionBusy(true);
+    setError(null);
+    try {
+      await ensureSession();
+    } catch {
+      // ensureSession already sets error state
+    } finally {
+      setActionBusy(false);
+    }
+  }, [ensureSession, setError]);
+
+  const handleSaveProjectInstructions = async (instructions: string) => {
+    if (!selectedProjectId) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      await patchProject(selectedProjectId, { instructions });
+      await refreshProjects();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save project context.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Selecting a project just opens its hub from the already-loaded global list —
+  // no network round-trip, so switching projects is instant.
+  const selectProject = useCallback(
+    (projectId: string) => {
+      setProjectSelection("project", projectId);
+      goToStartScreen();
+      setSidebarOpen(false);
+    },
+    [goToStartScreen, setProjectSelection, setSidebarOpen]
+  );
+
+  const handleSaveProject = async (input: { name: string; instructions: string }) => {
+    setActionBusy(true);
+    setError(null);
+    try {
+      if (projectEditor?.mode === "edit") {
+        await patchProject(projectEditor.project.id, input);
+      } else {
+        const created = await createProject(input);
+        setProjectSelection("project", created.id);
+        goToStartScreen();
+      }
+      setProjectEditor(null);
+      await refreshProjects();
+      await refreshSessions(searchQuery);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save project.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleArchiveProject = async (projectId: string) => {
+    setActionBusy(true);
+    setError(null);
+    try {
+      await archiveProject(projectId);
+      setProjectArchiveId(null);
+      setProjectEditor(null);
+      if (selectedProjectId === projectId) {
+        setProjectSelection("all", null);
+        goToStartScreen();
+      }
+      await refreshProjects();
+      await refreshSessions(searchQuery);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to archive project.");
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openMoveSessionDialog = (sessionId: string) => {
+    const session = sessions.find((item) => item.id === sessionId);
+    setMoveSessionId(sessionId);
+    setMoveTargetProjectId(session?.projectId ?? "unassigned");
+  };
+
+  const handleMoveSession = async () => {
+    if (!moveSessionId) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      const projectId =
+        moveTargetProjectId === "unassigned" ? null : moveTargetProjectId;
+      const updated = await patchSession(moveSessionId, { projectId });
+      if (detail?.session.id === moveSessionId) {
+        setDetail({ ...detail, session: updated });
+      }
+      setMoveSessionId(null);
+      await refreshSessions(searchQuery);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to move session.");
+    } finally {
+      setActionBusy(false);
+    }
   };
 
   const handleSelectSession = async (sessionId: string) => {
@@ -394,31 +693,73 @@ export function SessionWorkspace() {
     ? "grid-cols-1"
     : "lg:grid-cols-[16rem_minmax(0,1fr)]";
 
+  const hasSession = Boolean(selectedSessionId && detail);
+  const activeSession = useMemo(
+    () =>
+      selectedSessionId
+        ? sessions.find((session) => session.id === selectedSessionId) ?? null
+        : null,
+    [selectedSessionId, sessions]
+  );
+  const orbSessionTitle = detail?.session.title ?? activeSession?.title;
+  const orbResume = Boolean(
+    (detail?.session.turnCount ?? activeSession?.turnCount ?? 0) > 0
+  );
+  const activeProject =
+    projectFilter === "project" && selectedProjectId
+      ? projects.find((project) => project.id === selectedProjectId) ?? null
+      : null;
+  const showProjectHub = Boolean(activeProject && !hasSession);
+
+  const projectHubSessions = useMemo(
+    () =>
+      activeProject
+        ? sessions.filter((session) => session.projectId === activeProject.id)
+        : [],
+    [sessions, activeProject]
+  );
+
   if (loading) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-app text-app-muted">
-        Loading sessions...
+      <div className={`grid h-dvh w-full grid-cols-1 overflow-hidden bg-app ${gridClass}`}>
+        <div className="hidden min-h-0 flex-col gap-2 p-3 lg:flex">
+          <div className="kivo-skeleton h-9 w-full" />
+          <div className="kivo-skeleton h-11 w-full" />
+          <div className="mt-4 space-y-2">
+            <div className="kivo-skeleton h-7 w-24" />
+            <div className="kivo-skeleton h-8 w-full" />
+            <div className="kivo-skeleton h-8 w-full" />
+            <div className="kivo-skeleton h-8 w-3/4" />
+          </div>
+        </div>
+        <div className="flex items-center justify-center">
+          <div className="kivo-skeleton h-48 w-48 rounded-full" />
+        </div>
       </div>
     );
   }
-
-  const hasSession = Boolean(selectedSessionId && detail);
 
   return (
     <div
       className={`grid h-dvh w-full grid-cols-1 overflow-hidden bg-app text-app ${gridClass}`}
     >
       {!panelsCollapsed ? (
-        <div className="hidden min-h-0 lg:block">
+        <div className="kivo-slide-in-left hidden min-h-0 bg-transparent lg:block">
           <SessionSidebar
+            projects={projects}
             sessions={filteredSessions}
             selectedSessionId={selectedSessionId}
+            selectedProjectId={selectedProjectId}
             onOpenSearch={openSearch}
+            onSelectProject={(id) => selectProject(id)}
+            onCreateProject={() => setProjectEditor({ mode: "create" })}
+            onEditProject={(project) => setProjectEditor({ mode: "edit", project })}
             onSelect={handleSelectSession}
             onCreate={handleNewSession}
             onCollapse={() => setPanelsCollapsed(true)}
             onRename={(id, title) => void handleRename(id, title)}
             onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
+            onMoveToProject={openMoveSessionDialog}
             onExportMarkdown={(id) => void handleExport(id, "markdown")}
             onExportJson={(id) => void handleExport(id, "json")}
             onTrash={(id) => setTrashConfirmId(id)}
@@ -432,24 +773,31 @@ export function SessionWorkspace() {
           <button
             type="button"
             aria-label="Close sessions"
-            className="absolute inset-0 bg-overlay"
+            className="kivo-overlay-in absolute inset-0 bg-overlay"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="absolute inset-0 w-full bg-app">
+          <div className="kivo-panel-in-left absolute inset-0 w-full bg-app">
             <SessionSidebar
+              projects={projects}
               sessions={filteredSessions}
               selectedSessionId={selectedSessionId}
+              selectedProjectId={selectedProjectId}
               onOpenSearch={() => {
                 setSidebarOpen(false);
                 openSearch();
               }}
+              onSelectProject={(id) => selectProject(id)}
+              onCreateProject={() => setProjectEditor({ mode: "create" })}
+              onEditProject={(project) => setProjectEditor({ mode: "edit", project })}
               onSelect={handleSelectSession}
               onCreate={handleNewSession}
               onClose={() => setSidebarOpen(false)}
               onRename={(id, title) => void handleRename(id, title)}
               onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
+              onMoveToProject={openMoveSessionDialog}
               onExportMarkdown={(id) => void handleExport(id, "markdown")}
               onExportJson={(id) => void handleExport(id, "json")}
+              onTrash={(id) => setTrashConfirmId(id)}
               onOpenSettings={() => {
                 setSidebarOpen(false);
                 setSettingsOpen(true);
@@ -487,6 +835,50 @@ export function SessionWorkspace() {
         }}
       />
 
+      <ConfirmDialog
+        open={projectArchiveId !== null}
+        title="Archive project?"
+        description={
+          (() => {
+            const target = projects.find((project) => project.id === projectArchiveId);
+            const name = target?.name ?? "this project";
+            return `“${name}” will be hidden from Projects. Its sessions will stay available and become unassigned.`;
+          })()
+        }
+        confirmLabel="Archive project"
+        danger
+        busy={actionBusy}
+        onCancel={() => setProjectArchiveId(null)}
+        onConfirm={() => {
+          const id = projectArchiveId;
+          if (!id) return;
+          void handleArchiveProject(id);
+        }}
+      />
+
+      <ProjectEditorModal
+        key={
+          projectEditor?.mode === "edit"
+            ? `edit-${projectEditor.project.id}`
+            : projectEditor?.mode ?? "closed"
+        }
+        state={projectEditor}
+        busy={actionBusy}
+        onSave={(input) => void handleSaveProject(input)}
+        onArchive={(projectId) => setProjectArchiveId(projectId)}
+        onClose={() => setProjectEditor(null)}
+      />
+
+      <MoveSessionDialog
+        open={moveSessionId !== null}
+        projects={projects}
+        value={moveTargetProjectId}
+        busy={actionBusy}
+        onChange={setMoveTargetProjectId}
+        onCancel={() => setMoveSessionId(null)}
+        onConfirm={() => void handleMoveSession()}
+      />
+
       <SessionSearchModal
         open={searchOpen}
         query={searchQuery}
@@ -503,7 +895,7 @@ export function SessionWorkspace() {
         onClose={() => setSearchOpen(false)}
       />
 
-      <section className="relative h-full min-h-0 min-w-0 bg-app">
+      <section className="relative h-full min-h-0 min-w-0 bg-transparent">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-start px-3 pb-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
           <div className="pointer-events-auto flex items-center gap-1 justify-self-start">
             {panelsCollapsed ? (
@@ -551,7 +943,22 @@ export function SessionWorkspace() {
           </div>
         ) : null}
 
-        {!settingsOpen ? (
+        {showProjectHub && activeProject ? (
+          <div className="kivo-fade-in pointer-events-none fixed inset-0 z-[5] flex min-h-0 flex-col pt-[max(3.25rem,env(safe-area-inset-top))]">
+            <ProjectHubView
+              project={activeProject}
+              sessions={projectHubSessions}
+              busy={actionBusy}
+              onNewSession={() => void handleNewSessionFromHub()}
+              onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
+              onEditProject={() => setProjectEditor({ mode: "edit", project: activeProject })}
+              onArchiveProject={() => setProjectArchiveId(activeProject.id)}
+              onSaveInstructions={(instructions) => void handleSaveProjectInstructions(instructions)}
+            />
+          </div>
+        ) : null}
+
+        {!settingsOpen && !showProjectHub ? (
           <div className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center">
             <div className="pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
               <div className="flex flex-col items-center gap-7 sm:gap-10">
@@ -561,8 +968,13 @@ export function SessionWorkspace() {
                   </p>
 
                   <OrbVisualizer
-                    sessionTitle={detail?.session.title}
-                    resume={Boolean(detail && detail.session.turnCount > 0)}
+                    sessionTitle={orbSessionTitle}
+                    resume={orbResume}
+                    onRenameTitle={
+                      selectedSessionId
+                        ? (title) => void handleRename(selectedSessionId, title)
+                        : undefined
+                    }
                   />
                 </div>
 
@@ -608,7 +1020,7 @@ export function SessionWorkspace() {
                       <Controls
                         sessionId={selectedSessionId}
                         disabled={detail?.session.status === "archived"}
-                        resume={Boolean(detail && detail.session.turnCount > 0)}
+                        resume={orbResume}
                         ensureSession={ensureSession}
                         onActivity={handleSessionActivity}
                       />
@@ -618,12 +1030,11 @@ export function SessionWorkspace() {
                   <Controls
                     sessionId={selectedSessionId}
                     disabled={detail?.session.status === "archived"}
-                    resume={Boolean(detail && detail.session.turnCount > 0)}
+                    resume={orbResume}
                     ensureSession={ensureSession}
                     onActivity={handleSessionActivity}
                   />
                 )}
-                <UsageMeter />
               </div>
             </div>
           </div>

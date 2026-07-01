@@ -18,22 +18,43 @@ final class CueEngine: NSObject {
         let durationMs: Double
         let gain: Double
         let startOffsetMs: Double
+        /// Fade-in (ms) — longer = softer, airier onset.
+        var attackMs: Double = 8
+        /// Fade-out (ms) — longer = gentler, more bell-like tail.
+        var releaseMs: Double = 50
+        /// Cents of detune — a small amount adds a warm shimmer.
+        var detuneCents: Double = 0
+        var triangle: Bool = false
     }
 
-    // Frequencies / gains / timing mirror the web cue engine exactly.
+    // Frequencies / gains / timing / envelopes mirror the web cue engine exactly.
     private lazy var wakeData = makeWav([
-        Note(freq: 659.25, durationMs: 80, gain: 0.18, startOffsetMs: 0),   // E5
-        Note(freq: 880.0, durationMs: 110, gain: 0.18, startOffsetMs: 70),  // A5
+        // Soft ascending major triad (E–G#–B) swelling in, plus a faint octave halo.
+        Note(freq: 659.25, durationMs: 520, gain: 0.1, startOffsetMs: 0, attackMs: 45, releaseMs: 380, detuneCents: 4),
+        Note(freq: 830.61, durationMs: 520, gain: 0.09, startOffsetMs: 90, attackMs: 55, releaseMs: 400, detuneCents: -4),
+        Note(freq: 987.77, durationMs: 560, gain: 0.085, startOffsetMs: 180, attackMs: 70, releaseMs: 460, detuneCents: 5),
+        Note(freq: 1318.51, durationMs: 480, gain: 0.028, startOffsetMs: 200, attackMs: 90, releaseMs: 420),
     ])
     private lazy var followUpData = makeWav([
-        Note(freq: 659.25, durationMs: 110, gain: 0.08, startOffsetMs: 0),  // soft E5
+        // Single warm bell — soft fundamental + quiet octave partial.
+        Note(freq: 659.25, durationMs: 480, gain: 0.075, startOffsetMs: 0, attackMs: 35, releaseMs: 400),
+        Note(freq: 1318.51, durationMs: 360, gain: 0.018, startOffsetMs: 0, attackMs: 50, releaseMs: 300),
     ])
     private lazy var errorData = makeWav([
-        Note(freq: 440.0, durationMs: 130, gain: 0.15, startOffsetMs: 0),   // A4
-        Note(freq: 293.66, durationMs: 150, gain: 0.15, startOffsetMs: 120), // D4
+        // Soft descending minor third (A4 -> F4).
+        Note(freq: 440.0, durationMs: 320, gain: 0.1, startOffsetMs: 0, attackMs: 25, releaseMs: 260, triangle: true),
+        Note(freq: 349.23, durationMs: 380, gain: 0.1, startOffsetMs: 160, attackMs: 30, releaseMs: 320, triangle: true),
     ])
     private lazy var pulseData = makeWav([
-        Note(freq: 220.0, durationMs: 180, gain: 0.45, startOffsetMs: 0),   // low A3
+        // Faint, slow low-fifth breath (A2 + E3).
+        Note(freq: 110.0, durationMs: 900, gain: 0.05, startOffsetMs: 0, attackMs: 180, releaseMs: 600),
+        Note(freq: 164.81, durationMs: 820, gain: 0.03, startOffsetMs: 0, attackMs: 200, releaseMs: 560),
+    ])
+    private lazy var closeData = makeWav([
+        // Gentle descending chime (B–E) with a soft octave sparkle.
+        Note(freq: 987.77, durationMs: 460, gain: 0.085, startOffsetMs: 0, attackMs: 40, releaseMs: 360, detuneCents: 3),
+        Note(freq: 659.25, durationMs: 620, gain: 0.09, startOffsetMs: 150, attackMs: 50, releaseMs: 520, detuneCents: -3),
+        Note(freq: 1318.51, durationMs: 420, gain: 0.022, startOffsetMs: 160, attackMs: 70, releaseMs: 360),
     ])
 
     // MARK: - Cues (each paired with a matching haptic)
@@ -56,12 +77,18 @@ final class CueEngine: NSObject {
         play(errorData)
     }
 
+    /// Gentle descending chime when the conversation is closed ("thank you, Kivo").
+    func playClose() {
+        Haptics.followUp()
+        play(closeData)
+    }
+
     /// Low quiet pulse repeated while Kivo is thinking.
     func startThinkingLoop() {
         guard enabled else { return }
         stopThinkingLoop()
         playPulse()
-        let timer = Timer(timeInterval: 1.2, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2.6, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.playPulse() }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -111,14 +138,15 @@ final class CueEngine: NSObject {
             let start = Int((note.startOffsetMs / 1000.0) * sampleRate)
             let dur = note.durationMs / 1000.0
             let count = Int(dur * sampleRate)
-            let attack = 0.008
-            let release = min(0.05, dur * 0.4)
+            let attack = min(note.attackMs / 1000.0, dur * 0.5)
+            let release = min(note.releaseMs / 1000.0, dur)
+            let freq = note.freq * pow(2.0, note.detuneCents / 1200.0)
 
             for i in 0..<count {
                 let idx = start + i
                 guard idx < totalSamples else { break }
                 let t = Double(i) / sampleRate
-                // Short attack + exponential-ish release to avoid clicks.
+                // Soft attack + quadratic release for a calm, click-free bloom.
                 let env: Double
                 if t < attack {
                     env = t / attack
@@ -128,7 +156,9 @@ final class CueEngine: NSObject {
                 } else {
                     env = 1
                 }
-                samples[idx] += Float(sin(2 * Double.pi * note.freq * t) * note.gain * env)
+                let phase = 2 * Double.pi * freq * t
+                let wave = note.triangle ? (2.0 / Double.pi) * asin(sin(phase)) : sin(phase)
+                samples[idx] += Float(wave * note.gain * env)
             }
         }
 

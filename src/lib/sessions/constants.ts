@@ -10,6 +10,12 @@ export const COMPACTION_THRESHOLD_TOKENS = 8000;
 /** Max tokens for assembled model context (excluding system prompt). */
 export const CONTEXT_BUDGET_TOKENS = 12000;
 
+/** Max project source tokens injected into the stable context prefix. */
+export const PROJECT_SOURCES_TOKEN_BUDGET = 30000;
+
+/** Hard cap for one extracted project source. Keeps each Firestore doc under 1MB. */
+export const PROJECT_SOURCE_MAX_CHARS = 600000;
+
 /** Max search hits from older turns to inject. */
 export const MAX_SEARCH_HITS = 5;
 

@@ -9,9 +9,17 @@ type Note = {
   durationMs: number;
   gain?: number;
   startOffsetMs?: number;
+  /** Fade-in time (ms). Longer = softer, airier onset. */
+  attackMs?: number;
+  /** Fade-out time (ms). Longer = gentler, more bell-like tail. */
+  releaseMs?: number;
+  /** Cents of detune — a small amount adds a warm shimmer. */
+  detuneCents?: number;
+  type?: OscillatorType;
 };
 
-const PULSE_INTERVAL_MS = 1200;
+// Thinking pulse is a slow, faint breath rather than an insistent beep.
+const PULSE_INTERVAL_MS = 2600;
 
 export class CueEngine {
   private ctx: AudioContext | null = null;
@@ -118,23 +126,40 @@ export class CueEngine {
   }
 
   playWake() {
-    // Bright two-note ascending: E5 -> A5.
+    // Soft ascending major triad (E–G#–B) that swells in — an airy, welcoming
+    // shimmer rather than a bright beep. Long releases let the notes bloom.
     this.playSequence([
-      { freq: 659.25, durationMs: 80, gain: 0.18 },
-      { freq: 880.0, durationMs: 110, gain: 0.18, startOffsetMs: 70 },
+      { freq: 659.25, durationMs: 520, gain: 0.1, attackMs: 45, releaseMs: 380, detuneCents: 4 },
+      { freq: 830.61, durationMs: 520, gain: 0.09, startOffsetMs: 90, attackMs: 55, releaseMs: 400, detuneCents: -4 },
+      { freq: 987.77, durationMs: 560, gain: 0.085, startOffsetMs: 180, attackMs: 70, releaseMs: 460, detuneCents: 5 },
+      // Faint octave halo above for sparkle.
+      { freq: 1318.51, durationMs: 480, gain: 0.028, startOffsetMs: 200, attackMs: 90, releaseMs: 420 },
     ]);
   }
 
   playFollowUp() {
-    // Single soft tone, half the wake energy.
-    this.playSequence([{ freq: 659.25, durationMs: 110, gain: 0.08 }]);
+    // Single warm bell — a soft fundamental with a quiet octave partial.
+    this.playSequence([
+      { freq: 659.25, durationMs: 480, gain: 0.075, attackMs: 35, releaseMs: 400 },
+      { freq: 1318.51, durationMs: 360, gain: 0.018, attackMs: 50, releaseMs: 300 },
+    ]);
+  }
+
+  playClose() {
+    // Gentle descending chime (B–E) — a calm, resolved sign-off.
+    this.playSequence([
+      { freq: 987.77, durationMs: 460, gain: 0.085, attackMs: 40, releaseMs: 360, detuneCents: 3 },
+      { freq: 659.25, durationMs: 620, gain: 0.09, startOffsetMs: 150, attackMs: 50, releaseMs: 520, detuneCents: -3 },
+      { freq: 1318.51, durationMs: 420, gain: 0.022, startOffsetMs: 160, attackMs: 70, releaseMs: 360 },
+    ]);
   }
 
   playError() {
-    // Descending two-note: A4 -> D4.
+    // Soft descending minor third (A4 -> F4) — a gentle "didn't catch that"
+    // rather than a harsh buzz.
     this.playSequence([
-      { freq: 440.0, durationMs: 130, gain: 0.15 },
-      { freq: 293.66, durationMs: 150, gain: 0.15, startOffsetMs: 120 },
+      { freq: 440.0, durationMs: 320, gain: 0.1, attackMs: 25, releaseMs: 260, type: "triangle" },
+      { freq: 349.23, durationMs: 380, gain: 0.1, startOffsetMs: 160, attackMs: 30, releaseMs: 320, type: "triangle" },
     ]);
   }
 
@@ -154,8 +179,12 @@ export class CueEngine {
   }
 
   private playPulse() {
-    // Low quiet sine — easy to ignore but enough to confirm "still working".
-    this.playSequence([{ freq: 220.0, durationMs: 180, gain: 0.45 }]);
+    // A faint, slow low-fifth breath (A2 + E3) — present enough to confirm
+    // "still working" but easy to talk over.
+    this.playSequence([
+      { freq: 110.0, durationMs: 900, gain: 0.05, attackMs: 180, releaseMs: 600 },
+      { freq: 164.81, durationMs: 820, gain: 0.03, attackMs: 200, releaseMs: 560 },
+    ]);
   }
 
   private playSequence(notes: Note[]) {
@@ -167,16 +196,20 @@ export class CueEngine {
       const startAt = now + (note.startOffsetMs ?? 0) / 1000;
       const dur = note.durationMs / 1000;
       const peak = note.gain ?? 0.1;
+      const attack = Math.min((note.attackMs ?? 8) / 1000, dur * 0.5);
+      const release = Math.min((note.releaseMs ?? 50) / 1000, dur);
 
       const osc = ctx.createOscillator();
-      osc.type = "sine";
+      osc.type = note.type ?? "sine";
       osc.frequency.value = note.freq;
+      if (note.detuneCents) osc.detune.value = note.detuneCents;
 
       const gain = ctx.createGain();
-      // Short attack + release envelope to avoid clicks.
+      // Soft attack, sustain, long exponential release for a calm bloom.
+      const holdUntil = Math.max(startAt + attack, startAt + dur - release);
       gain.gain.setValueAtTime(0, startAt);
-      gain.gain.linearRampToValueAtTime(peak, startAt + 0.008);
-      gain.gain.setValueAtTime(peak, startAt + Math.max(0.01, dur - 0.05));
+      gain.gain.linearRampToValueAtTime(peak, startAt + attack);
+      gain.gain.setValueAtTime(peak, holdUntil);
       gain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
 
       osc.connect(gain).connect(this.master);

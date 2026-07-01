@@ -3,6 +3,12 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
+/** Matches `--app-bg` in globals.css so the canvas rect blends with the shell. */
+const APP_BG = {
+  dark: 0x090909,
+  light: 0xfafafa,
+} as const;
+
 /**
  * The Kivo orb, rendered as a Three.js particle sphere — the same look as the
  * marketing hero (`LandingOrb`), but driven by the in-app state machine instead
@@ -42,7 +48,7 @@ export function OrbParticles({
     ).matches;
     const motion = reduceMotion ? 0.2 : 1;
 
-    const N = 9000;
+    const N = 13000;
     const RADIUS = 2.0;
 
     const host = canvas;
@@ -59,14 +65,14 @@ export function OrbParticles({
     const renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      alpha: true,
+      alpha: false,
     });
     renderer.setSize(W, H, false);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 0); // transparent — no black backing box
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
+    renderer.setClearColor(isLight ? APP_BG.light : APP_BG.dark, 1);
 
     function makeSprite() {
-      const s = 64;
+      const s = 128;
       const c = document.createElement("canvas");
       c.width = s;
       c.height = s;
@@ -79,7 +85,11 @@ export function OrbParticles({
       g.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, s, s);
-      return new THREE.CanvasTexture(c);
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = true;
+      return tex;
     }
     const sprite = makeSprite();
 
@@ -114,7 +124,7 @@ export function OrbParticles({
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.06,
+      size: 0.052,
       map: sprite,
       vertexColors: true,
       transparent: true,
@@ -242,5 +252,11 @@ export function OrbParticles({
     };
   }, [isLight]);
 
-  return <canvas ref={canvasRef} className={className} aria-hidden="true" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      className={className ? `bg-app ${className}` : "bg-app"}
+      aria-hidden="true"
+    />
+  );
 }

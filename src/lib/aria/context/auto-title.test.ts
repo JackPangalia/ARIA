@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFullConversationExcerpt,
   buildListeningExcerpt,
   canAutoTitleSession,
   fallbackTitleFromText,
   getFirstQaPair,
   getSubstantiveSpeakerTurns,
+  hasEnoughFinalizeContext,
   hasEnoughListeningContext,
   isGenericSessionTitle,
   isSubstantiveUtterance,
@@ -69,6 +71,49 @@ describe("canAutoTitleSession", () => {
     expect(
       canAutoTitleSession({ title: "Board prep", autoTitled: false }, "qa")
     ).toBe(false);
+  });
+
+  it("lets the finalize pass override a prior auto-title", () => {
+    expect(
+      canAutoTitleSession(
+        { title: "Morning check-in topics", autoTitled: true },
+        "finalize"
+      )
+    ).toBe(true);
+  });
+
+  it("does not overwrite a user-chosen title on finalize", () => {
+    expect(
+      canAutoTitleSession({ title: "Board prep", autoTitled: false }, "finalize")
+    ).toBe(false);
+  });
+});
+
+describe("finalize context", () => {
+  it("includes Q&A and substantive speaker turns, dropping greetings", () => {
+    const turns = [
+      turn({ id: "1", role: "speaker", text: "Hi", sequence: 1 }),
+      turn({
+        id: "2",
+        role: "user_question",
+        text: "What did we decide about the launch date?",
+        sequence: 2,
+      }),
+      turn({ id: "3", role: "assistant", text: "You agreed on March 15.", sequence: 3 }),
+    ];
+    const excerpt = buildFullConversationExcerpt(turns);
+    expect(excerpt).toContain("launch date");
+    expect(excerpt).toContain("Kivo: You agreed on March 15.");
+    expect(excerpt).not.toContain("Hi");
+  });
+
+  it("requires a Q&A pair or enough listening speech", () => {
+    expect(hasEnoughFinalizeContext([])).toBe(false);
+    const qa = [
+      turn({ id: "1", role: "user_question", text: "Summarize the call", sequence: 1 }),
+      turn({ id: "2", role: "assistant", text: "Here is the summary.", sequence: 2 }),
+    ];
+    expect(hasEnoughFinalizeContext(qa)).toBe(true);
   });
 });
 

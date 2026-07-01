@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var auth: AuthService
     @EnvironmentObject private var consent: ConsentStore
+    @EnvironmentObject private var theme: ThemeStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var showDeleteConfirm = false
@@ -23,11 +24,30 @@ struct SettingsView: View {
                 profileSection
                 usageSection
 
+                Section("App") {
+                    NavigationLink {
+                        AppearanceSettingsView()
+                    } label: {
+                        Label("Appearance", systemImage: "paintbrush")
+                    }
+                    NavigationLink {
+                        BillingSettingsView()
+                    } label: {
+                        Label("Billing", systemImage: "creditcard")
+                    }
+                }
+                .listRowBackground(AriaTheme.surface)
+
                 Section("Kivo") {
                     NavigationLink {
                         SpeakerProfilesSettingsView()
                     } label: {
                         Label("Speaker profiles", systemImage: "person.2.wave.2")
+                    }
+                    NavigationLink {
+                        ConnectorsSettingsView()
+                    } label: {
+                        Label("Connectors", systemImage: "puzzlepiece.extension")
                     }
                     NavigationLink {
                         TrashSettingsView()
@@ -97,7 +117,7 @@ struct SettingsView: View {
                 Text(errorMessage ?? "")
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(theme.colorScheme)
         .task { await loadUsage() }
         .refreshable { await loadUsage() }
     }
@@ -229,17 +249,31 @@ struct SpeakerProfilesSettingsView: View {
     @State private var profiles: [SpeakerProfileDoc] = []
     @State private var loading = true
     @State private var errorMessage: String?
+    @State private var showEnroll = false
+    @State private var renameTarget: SpeakerProfileDoc?
+    @State private var renameText = ""
 
     var body: some View {
         List {
             Section {
-                Text("People Kivo has learned to recognize by voice. Enroll new speakers from the web app in a quiet room.")
+                Text("People Kivo has learned to recognize by voice. Enroll one person at a time in a quiet room.")
                     .font(.system(size: 13))
                     .foregroundStyle(AriaTheme.foregroundMuted)
                     .listRowBackground(AriaTheme.surface)
             }
 
             Section {
+                Button {
+                    Haptics.tap()
+                    showEnroll = true
+                } label: {
+                    Label("Enroll a voice", systemImage: "mic.badge.plus")
+                        .foregroundStyle(AriaTheme.foreground)
+                }
+                .listRowBackground(AriaTheme.surface)
+            }
+
+            Section("Enrolled") {
                 if loading {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowBackground(AriaTheme.surface)
@@ -256,13 +290,27 @@ struct SpeakerProfilesSettingsView: View {
                                 Text(profile.name)
                                     .font(.system(size: 15))
                                     .foregroundStyle(AriaTheme.foreground)
-                                Text("\(profile.sampleCount) voice sample\(profile.sampleCount == 1 ? "" : "s")")
+                                Text("Voice enrolled")
                                     .font(.system(size: 12))
                                     .foregroundStyle(AriaTheme.foregroundMuted)
                             }
                             Spacer()
                         }
                         .listRowBackground(AriaTheme.surface)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                Task { await delete(profile) }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            Button {
+                                renameTarget = profile
+                                renameText = profile.name
+                            } label: {
+                                Label("Rename", systemImage: "pencil")
+                            }
+                            .tint(AriaTheme.foregroundSecondary)
+                        }
                     }
                 }
             }
@@ -273,6 +321,17 @@ struct SpeakerProfilesSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .refreshable { await load() }
+        .sheet(isPresented: $showEnroll) {
+            SpeakerEnrollmentView(onEnrolled: { Task { await load() } })
+        }
+        .alert("Rename speaker", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        )) {
+            TextField("Name", text: $renameText)
+            Button("Cancel", role: .cancel) { renameTarget = nil }
+            Button("Save") { Task { await rename() } }
+        }
         .alert("Error", isPresented: .constant(errorMessage != nil)) {
             Button("OK") { errorMessage = nil }
         } message: {
@@ -285,6 +344,30 @@ struct SpeakerProfilesSettingsView: View {
         defer { loading = false }
         do {
             profiles = try await APIClient.shared.listSpeakerProfiles()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func delete(_ profile: SpeakerProfileDoc) async {
+        do {
+            try await APIClient.shared.deleteSpeakerProfile(profile.id)
+            profiles.removeAll { $0.id == profile.id }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func rename() async {
+        guard let target = renameTarget else { return }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        renameTarget = nil
+        guard !trimmed.isEmpty, trimmed != target.name else { return }
+        do {
+            _ = try await APIClient.shared.patchSpeakerProfile(
+                target.id, PatchSpeakerProfileRequest(name: trimmed)
+            )
+            await load()
         } catch {
             errorMessage = error.localizedDescription
         }

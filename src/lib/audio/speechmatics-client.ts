@@ -1,6 +1,11 @@
 "use client";
 
 import { devLog } from "@/lib/client/dev-log";
+import {
+  maxSpeakersForProfiles,
+  preferCurrentSpeakerForProfiles,
+  speakerSensitivityForProfiles,
+} from "@/lib/speakers/diarization-config";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import type { TranscriptUtterance } from "@/lib/types";
 
@@ -80,6 +85,11 @@ export interface SpeechmaticsClientCallbacks {
   onClose: () => void;
 }
 
+export type SpeechmaticsClientOptions = {
+  /** Recommended enrollment mode: auto-return speaker identifiers at end of stream. */
+  enrollment?: boolean;
+};
+
 type SpeakerGroup = {
   providerSpeakerLabel: string;
   text: string;
@@ -150,10 +160,12 @@ export class SpeechmaticsLiveClient {
 
   constructor(
     private callbacks: SpeechmaticsClientCallbacks,
-    private profiles: SpeakerProfileDoc[] = []
+    private profiles: SpeakerProfileDoc[] = [],
+    private options: SpeechmaticsClientOptions = {}
   ) {
     for (const profile of profiles) {
-      this.speakerLabelToName.set(profile.name, profile.name);
+      const label = safeSpeakerLabel(profile.name);
+      this.speakerLabelToName.set(label, profile.name);
     }
   }
 
@@ -199,20 +211,47 @@ export class SpeechmaticsLiveClient {
   }
 
   private buildStartRecognitionMessage() {
+    const profileCount = this.profiles.length;
     const enrolledIdentifierCount = this.profiles.reduce(
       (total, profile) => total + profile.speakerIdentifiers.length,
       0
     );
+    const preferCurrentSpeaker = preferCurrentSpeakerForProfiles(profileCount);
+    const speakerSensitivity = speakerSensitivityForProfiles(profileCount);
+    const maxSpeakers = this.options.enrollment
+      ? 2
+      : maxSpeakersForProfiles(profileCount);
+    const speakerDiarizationConfig: Record<string, unknown> = {
+      max_speakers: maxSpeakers,
+      prefer_current_speaker: preferCurrentSpeaker,
+    };
+
+    if (this.options.enrollment) {
+      speakerDiarizationConfig.get_speakers = true;
+    } else if (profileCount > 0) {
+      speakerDiarizationConfig.speakers = this.profiles.map((profile) => ({
+        label: safeSpeakerLabel(profile.name),
+        speaker_identifiers: profile.speakerIdentifiers,
+      }));
+      if (speakerSensitivity != null) {
+        speakerDiarizationConfig.speaker_sensitivity = speakerSensitivity;
+      }
+    }
+
     if (!this.loggedStartConfig) {
       this.loggedStartConfig = true;
-      devLog("speaker", "Starting Speechmatics speaker identification.", {
-        profiles: this.profiles.map((profile) => ({
-          name: safeSpeakerLabel(profile.name),
-          identifiers: profile.speakerIdentifiers.length,
-        })),
-        enrolledIdentifierCount,
-        preferCurrentSpeaker: this.profiles.length === 0,
-      });
+      const profileSummary =
+        this.profiles
+          .map(
+            (profile) =>
+              `${safeSpeakerLabel(profile.name)}:${profile.speakerIdentifiers.length}`
+          )
+          .join(", ") || "none";
+      devLog(
+        "speaker",
+        `Speechmatics config: enrollment=${this.options.enrollment ?? false} profiles=${profileCount} identifiers=${enrolledIdentifierCount} maxSpeakers=${maxSpeakers} preferCurrent=${preferCurrentSpeaker} sensitivity=${speakerSensitivity ?? "default"}`
+      );
+      devLog("speaker", `Speechmatics profile counts: ${profileSummary}`);
     }
 
     return {
@@ -251,16 +290,7 @@ export class SpeechmaticsLiveClient {
             ],
           },
         ],
-        speaker_diarization_config: {
-          max_speakers: 10,
-          // When known profiles are present, let Speechmatics recover from an
-          // early generic S1/S2 assignment instead of sticking to it all session.
-          prefer_current_speaker: this.profiles.length === 0,
-          speakers: this.profiles.map((profile) => ({
-            label: safeSpeakerLabel(profile.name),
-            speaker_identifiers: profile.speakerIdentifiers,
-          })),
-        },
+        speaker_diarization_config: speakerDiarizationConfig,
         conversation_config: {
           end_of_utterance_silence_trigger: 1.2,
         },

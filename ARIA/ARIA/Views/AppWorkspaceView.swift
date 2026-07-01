@@ -5,7 +5,9 @@ import UIKit
 struct AppWorkspaceView: View {
     @StateObject private var viewModel = AppWorkspaceViewModel()
     @ObservedObject private var auth = AuthService.shared
+    @EnvironmentObject private var theme: ThemeStore
     @State private var showSettings = false
+    @State private var projectEditor: ProjectEditorDraft?
 
     var body: some View {
         ZStack {
@@ -28,9 +30,17 @@ struct AppWorkspaceView: View {
                     }
 
                 SessionSidebarView(
+                    projects: viewModel.projects,
                     sessions: viewModel.sessions,
                     selectedSessionId: viewModel.selectedSessionId,
+                    selectedProjectId: viewModel.selectedProjectId,
+                    showUnassignedOnly: viewModel.showUnassignedOnly,
                     user: SidebarUserInfo(firebaseUser: auth.user),
+                    onSelectAllProjects: { Task { await viewModel.selectAllProjects() } },
+                    onSelectUnassigned: { Task { await viewModel.selectUnassigned() } },
+                    onSelectProject: { project in Task { await viewModel.selectProject(project) } },
+                    onCreateProject: { projectEditor = .create },
+                    onEditProject: { project in projectEditor = .edit(project) },
                     onSelect: { session in Task { await viewModel.selectSession(session) } },
                     onCreate: { Task { await viewModel.createSession() } },
                     onClose: { closeSidebar() },
@@ -40,6 +50,7 @@ struct AppWorkspaceView: View {
                     },
                     onRename: { session, title in Task { await viewModel.renameSession(session, to: title) } },
                     onTogglePin: { session in Task { await viewModel.togglePin(session) } },
+                    onMoveToProject: { session, projectId in Task { await viewModel.moveSession(session, to: projectId) } },
                     onArchive: { session in Task { await viewModel.archiveSession(session) } },
                     onTrash: { session in Task { await viewModel.trashSession(session) } }
                 )
@@ -72,7 +83,7 @@ struct AppWorkspaceView: View {
                 )
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(theme.colorScheme)
         .animation(.spring(response: 0.38, dampingFraction: 0.9), value: viewModel.sidebarOpen)
         .animation(.easeInOut(duration: 0.28), value: viewModel.transcriptOpen)
         .task {
@@ -82,6 +93,20 @@ struct AppWorkspaceView: View {
         .onDisappear { Task { await viewModel.stopEngineOnDisappear() } }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(item: $projectEditor) { draft in
+            ProjectEditorSheet(draft: draft) { name, instructions in
+                switch draft.mode {
+                case .create:
+                    Task { await viewModel.createProject(name: name, instructions: instructions) }
+                case .edit(let project):
+                    Task { await viewModel.updateProject(project, name: name, instructions: instructions) }
+                }
+                projectEditor = nil
+            } onArchive: { project in
+                Task { await viewModel.archiveProject(project) }
+                projectEditor = nil
+            }
         }
         .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
             Button("OK") { viewModel.errorMessage = nil }
@@ -260,5 +285,98 @@ private struct IdleWorkspaceColumn: View {
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct ProjectEditorDraft: Identifiable {
+    enum Mode {
+        case create
+        case edit(ProjectDoc)
+    }
+
+    let id = UUID()
+    let mode: Mode
+
+    static var create: ProjectEditorDraft {
+        ProjectEditorDraft(mode: .create)
+    }
+
+    static func edit(_ project: ProjectDoc) -> ProjectEditorDraft {
+        ProjectEditorDraft(mode: .edit(project))
+    }
+}
+
+private struct ProjectEditorSheet: View {
+    let draft: ProjectEditorDraft
+    let onSave: (String, String) -> Void
+    let onArchive: (ProjectDoc) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var instructions: String
+
+    init(
+        draft: ProjectEditorDraft,
+        onSave: @escaping (String, String) -> Void,
+        onArchive: @escaping (ProjectDoc) -> Void
+    ) {
+        self.draft = draft
+        self.onSave = onSave
+        self.onArchive = onArchive
+        switch draft.mode {
+        case .create:
+            _name = State(initialValue: "")
+            _instructions = State(initialValue: "")
+        case .edit(let project):
+            _name = State(initialValue: project.name)
+            _instructions = State(initialValue: project.instructions)
+        }
+    }
+
+    private var title: String {
+        switch draft.mode {
+        case .create: return "New project"
+        case .edit: return "Edit project"
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Project") {
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.words)
+                    TextEditor(text: $instructions)
+                        .frame(minHeight: 140)
+                }
+                Section {
+                    Text("Instructions are included whenever Kivo answers inside sessions assigned to this project.")
+                        .font(.footnote)
+                        .foregroundStyle(AriaTheme.foregroundMuted)
+                }
+                if case .edit(let project) = draft.mode {
+                    Section {
+                        Button("Archive project", role: .destructive) {
+                            onArchive(project)
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(AriaTheme.background)
+            .navigationTitle(title)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(name, instructions)
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }

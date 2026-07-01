@@ -70,10 +70,10 @@ export async function upsertSpeakerProfile(
   const snap = await ref.get();
   const existing = snap.exists ? mapSpeakerProfile(snap.id, snap.data() ?? {}) : null;
   const now = FieldValue.serverTimestamp();
-  // Settings enrollment only — replace the stored print; never merge with prior IDs.
-  const identifiers = Array.from(
-    new Set(input.speakerIdentifiers.map(String))
-  ).filter(Boolean);
+  // Re-enrollment replaces the stored voice print with the latest sample.
+  const identifiers = Array.from(new Set(input.speakerIdentifiers.map(String))).filter(
+    Boolean
+  );
   if (identifiers.length === 0) {
     throw new Error("At least one speaker identifier is required.");
   }

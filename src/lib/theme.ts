@@ -44,11 +44,33 @@ export function storeTheme(theme: ThemePreference) {
   }
 }
 
+export function isLandingPath(pathname: string): boolean {
+  return pathname === "/" || pathname === "";
+}
+
+export function isLandingActive(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.documentElement.classList.contains("landing-active");
+}
+
+/** Pin the marketing landing page to dark mode regardless of app theme preference. */
+export function applyLandingTheme() {
+  const root = document.documentElement;
+  root.classList.add("landing-active", "dark");
+  root.style.colorScheme = "dark";
+}
+
+export function clearLandingTheme() {
+  document.documentElement.classList.remove("landing-active");
+}
+
 export function applyTheme(preference: ThemePreference) {
+  if (typeof document !== "undefined" && isLandingActive()) return;
+
   const resolved = resolveTheme(preference);
   const root = document.documentElement;
   root.classList.toggle("dark", resolved === "dark");
   root.style.colorScheme = resolved;
 }
 
-export const themeInitScript = `(function(){try{var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="light"?false:t==="dark"?true:window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}})();`;
+export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""){document.documentElement.classList.add("landing-active","dark");document.documentElement.style.colorScheme="dark";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="light"?false:t==="dark"?true:window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}})();`;

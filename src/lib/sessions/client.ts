@@ -62,11 +62,15 @@ export async function listSessions(input?: {
   status?: SessionDoc["status"];
   q?: string;
   limit?: number;
+  projectId?: string;
+  unassigned?: boolean;
 }): Promise<SessionDoc[]> {
   const params = new URLSearchParams();
   if (input?.status) params.set("status", input.status);
   if (input?.q) params.set("q", input.q);
   if (input?.limit) params.set("limit", String(input.limit));
+  if (input?.projectId) params.set("projectId", input.projectId);
+  if (input?.unassigned) params.set("unassigned", "true");
   const query = params.toString();
   return apiFetch<{ sessions: SessionDoc[] }>(
     `/api/sessions${query ? `?${query}` : ""}`
@@ -118,6 +122,24 @@ export async function summarizeSession(sessionId: string): Promise<{
     `/api/sessions/${sessionId}/summarize`,
     { method: "POST" }
   );
+}
+
+/**
+ * Regenerate the session title from the whole conversation when it ends.
+ * Best-effort: uses `keepalive` so the request still completes if it fires as
+ * the engine stops during tab close / unmount. Failures are swallowed.
+ */
+export async function finalizeSessionTitle(sessionId: string): Promise<void> {
+  try {
+    const headers = await getAuthHeader();
+    await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/finalize-title`, {
+      method: "POST",
+      headers,
+      keepalive: true,
+    });
+  } catch {
+    // Title finalization is non-critical; never block shutdown on it.
+  }
 }
 
 export async function createSessionPin(

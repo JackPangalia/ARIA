@@ -32,6 +32,23 @@ enum WakeWordDetection: Sendable {
         return (false, "")
     }
 
+    // Close phrases that end conversation mode. The name "Kivo" is required so
+    // an offhand "thank you" mid-conversation never closes the loop. Built from
+    // the same kivoWakeToken spellings so ASR mishears still match.
+    nonisolated private static let closePatterns: [NSRegularExpression] = {
+        let patterns = [
+            "\\bthanks?(?:\\s+you)?\\s*,?\\s*\(kivoWakeToken)\\b",
+            "\\bthank\\s+you\\s*,?\\s*\(kivoWakeToken)\\b",
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+    }()
+
+    /// True when the utterance is a "thank you, Kivo" style close phrase.
+    nonisolated static func detectCloseWord(from text: String) -> Bool {
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return closePatterns.contains { $0.firstMatch(in: text, options: [], range: range) != nil }
+    }
+
     nonisolated static func isSubstantiveQuestion(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { return false }

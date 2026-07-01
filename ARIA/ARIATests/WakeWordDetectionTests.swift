@@ -27,6 +27,17 @@ struct WakeWordDetectionTests {
         #expect(WakeWordDetection.isSubstantiveQuestion("Why?"))
     }
 
+    @Test func detectsCloseWord() {
+        #expect(WakeWordDetection.detectCloseWord(from: "thank you kivo"))
+        #expect(WakeWordDetection.detectCloseWord(from: "Thanks, Kivo"))
+        #expect(WakeWordDetection.detectCloseWord(from: "okay thank you keevo"))
+    }
+
+    @Test func closeWordRequiresName() {
+        #expect(!WakeWordDetection.detectCloseWord(from: "thank you so much"))
+        #expect(!WakeWordDetection.detectCloseWord(from: "thanks everyone"))
+    }
+
     @Test func joinTextPreservesWords() {
         let joined = WakeWordDetection.joinText("What is", "the budget")
         #expect(joined == "What is the budget")

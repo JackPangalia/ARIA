@@ -14,6 +14,7 @@ import {
   SEARCH_PREVIEW_LENGTH,
 } from "@/lib/sessions/constants";
 import { getAdminDb } from "@/lib/firebase/admin";
+import { assertActiveProjectOwner } from "@/lib/projects/repository";
 import type {
   SessionDetailResponse,
   SessionDoc,
@@ -67,6 +68,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
   return {
     id,
     title: String(data.title ?? "Untitled session"),
+    projectId: data.projectId ? String(data.projectId) : null,
     autoTitled: Boolean(data.autoTitled),
     status: (data.status ?? "active") as SessionStatus,
     speakerCount: Number(data.speakerCount ?? 2),
@@ -162,15 +164,21 @@ function appendPreview(current: string, addition: string): string {
 
 export async function createSession(
   uid: string,
-  input: { title?: string; speakerCount: number }
+  input: { title?: string; speakerCount: number; projectId?: string | null }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
   const ref = sessionsCol(db, uid).doc();
   const now = FieldValue.serverTimestamp();
   const title = input.title?.trim() || defaultTitle();
+  const projectId = input.projectId?.trim() || null;
+
+  if (projectId) {
+    await assertActiveProjectOwner(uid, projectId);
+  }
 
   await ref.set({
     title,
+    projectId,
     autoTitled: false,
     status: "active",
     speakerCount: input.speakerCount,
@@ -191,7 +199,14 @@ export async function createSession(
 
 export async function listSessions(
   uid: string,
-  input: { status?: SessionStatus; q?: string; limit: number; since?: string | null }
+  input: {
+    status?: SessionStatus;
+    q?: string;
+    limit: number;
+    since?: string | null;
+    projectId?: string;
+    unassigned?: boolean;
+  }
 ): Promise<SessionDoc[]> {
   const db = getAdminDb();
   let query: Query = sessionsCol(db, uid).orderBy("updatedAt", "desc");
@@ -200,9 +215,22 @@ export async function listSessions(
     query = query.where("status", "==", input.status);
   }
 
-  query = query.limit(input.limit);
+  // Project filters are applied in memory (same as unassigned) so listing works
+  // without a projectId+updatedAt composite index while indexes are building.
+  const needsProjectFilter = Boolean(input.projectId) || Boolean(input.unassigned);
+  const fetchLimit = needsProjectFilter
+    ? Math.min(Math.max(input.limit * 5, 100), 300)
+    : input.limit;
+
+  query = query.limit(fetchLimit);
   const snap = await query.get();
   let sessions = snap.docs.map((doc) => mapSession(doc.id, doc.data()));
+
+  if (input.projectId) {
+    sessions = sessions.filter((session) => session.projectId === input.projectId);
+  } else if (input.unassigned) {
+    sessions = sessions.filter((session) => !session.projectId);
+  }
 
   if (!input.status) {
     sessions = sessions.filter((s) => s.status !== "trashed");
@@ -228,7 +256,7 @@ export async function listSessions(
     return b.updatedAt.localeCompare(a.updatedAt);
   });
 
-  return sessions;
+  return sessions.slice(0, input.limit);
 }
 
 export async function getSession(
@@ -258,6 +286,7 @@ export async function patchSession(
     speakerCount?: number;
     pinned?: boolean;
     autoTitled?: boolean;
+    projectId?: string | null;
   }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
@@ -280,6 +309,13 @@ export async function patchSession(
   if (patch.autoTitled !== undefined) updates.autoTitled = patch.autoTitled;
   if (patch.pinned !== undefined) updates.pinned = patch.pinned;
   if (patch.speakerCount !== undefined) updates.speakerCount = patch.speakerCount;
+  if (patch.projectId !== undefined) {
+    const projectId = patch.projectId?.trim() || null;
+    if (projectId) {
+      await assertActiveProjectOwner(uid, projectId);
+    }
+    updates.projectId = projectId;
+  }
   if (patch.status !== undefined) {
     updates.status = patch.status;
     if (patch.status === "ended" || patch.status === "archived") {

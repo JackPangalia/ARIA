@@ -1,6 +1,7 @@
 import {
   assertSessionOwner,
   formatTurnForContext,
+  getSummary,
   listTurns,
   patchSession,
 } from "@/lib/sessions/repository";
@@ -8,7 +9,7 @@ import { geminiGenerateText } from "@/lib/aria/llm/gemini-client";
 import { getServerEnv, getSummaryModelId } from "@/lib/env";
 import type { SessionDoc, TurnDoc } from "@/lib/sessions/types";
 
-export type AutoTitleSource = "listening" | "qa";
+export type AutoTitleSource = "listening" | "qa" | "finalize";
 
 export type AutoTitleInput = {
   source: AutoTitleSource;
@@ -77,6 +78,24 @@ Question: "What did we decide about the launch date?" / Answer about March 15 ->
 Question: "Summarize the budget concerns" / Answer listing overruns -> Budget overrun concerns
 Question: "Who owns the API migration?" / Answer naming Alex -> API migration ownership`;
 
+const FINALIZE_TITLE_SYSTEM = `You title a finished voice-assistant session by reading its whole transcript (or a running summary of it).
+
+Goal: Produce a very short, descriptive title (2–5 words) naming what the conversation was actually about overall — its main topic or outcome.
+
+The conversation often opens with greetings or thanks; ignore that. Weigh the substance of the whole exchange, not just the first lines.
+
+Rules:
+- Output ONLY the title text. No prefixes, labels, quotes, emojis, hashtags, or trailing punctuation.
+- Use the same language as the transcript.
+- Write a noun phrase naming the topic. Do not write instructions.
+- Prefer concrete subjects (product names, projects, decisions) over vague labels.
+- Never include meta-words: Session, Meeting, Discussion, Conversation, Audio, Transcript, Summary, Title, Chat, Greeting, Kivo.
+
+Examples:
+Transcript ending on a chosen launch date -> Launch date decision
+Transcript covering budget overruns -> Budget overrun review
+Transcript planning a NYC trip -> NYC trip planning`;
+
 export function isGenericSessionTitle(title: string): boolean {
   const trimmed = title.trim();
   if (trimmed === "Untitled session") return true;
@@ -90,6 +109,10 @@ export function canAutoTitleSession(
 ): boolean {
   if (isGenericSessionTitle(session.title)) return true;
   if (source === "qa" && session.autoTitled) return true;
+  // The end-of-conversation pass always gets the final say over any title we
+  // generated provisionally while the conversation was still evolving. It must
+  // not, however, clobber a name the user typed themselves.
+  if (source === "finalize" && session.autoTitled) return true;
   return false;
 }
 
@@ -141,6 +164,27 @@ export function buildListeningExcerpt(
     .slice(0, maxTurns)
     .map((turn) => formatTurnForContext(turn))
     .join("\n");
+}
+
+/** Whole-conversation excerpt: substantive speaker lines plus every Q&A turn. */
+export function buildFullConversationExcerpt(
+  turns: TurnDoc[],
+  maxTurns = 60
+): string {
+  const relevant = turns.filter((turn) => {
+    if (turn.role === "user_question" || turn.role === "assistant") return true;
+    return turn.role === "speaker" && isSubstantiveUtterance(turn.text);
+  });
+  // Topics usually settle by the end, so keep the *tail* when over budget.
+  const windowed =
+    relevant.length > maxTurns ? relevant.slice(-maxTurns) : relevant;
+  return windowed.map((turn) => formatTurnForContext(turn)).join("\n");
+}
+
+/** Enough happened to warrant a final title (real discussion or a Q&A). */
+export function hasEnoughFinalizeContext(turns: TurnDoc[]): boolean {
+  if (getFirstQaPair(turns)) return true;
+  return hasEnoughListeningContext(turns);
 }
 
 export function getFirstQaPair(
@@ -220,6 +264,31 @@ export async function autoTitleSession(
   try {
     const session = await assertSessionOwner(uid, sessionId);
     if (!canAutoTitleSession(session, input.source)) return null;
+
+    if (input.source === "finalize") {
+      const turns = await listTurns(uid, sessionId, 500);
+      if (!hasEnoughFinalizeContext(turns)) return null;
+
+      // Prefer the rolling summary (already distilled) when present; otherwise
+      // summarize from the full transcript tail.
+      const summary = await getSummary(uid, sessionId).catch(() => null);
+      const rolling = summary?.rollingSummary?.trim();
+      const excerpt = buildFullConversationExcerpt(turns);
+      const userInput = rolling
+        ? `Conversation summary:\n${rolling}\n\nRecent transcript:\n${excerpt}`
+        : `Conversation transcript:\n${excerpt}`;
+      if (!userInput.trim()) return null;
+
+      const title = await generateTitleFromPrompt({
+        system: FINALIZE_TITLE_SYSTEM,
+        user: userInput,
+        fallback: rolling || excerpt,
+      });
+      if (!title) return null;
+
+      await patchSession(uid, sessionId, { title, autoTitled: true });
+      return title;
+    }
 
     if (input.source === "listening") {
       const turns = await listTurns(uid, sessionId, 40);

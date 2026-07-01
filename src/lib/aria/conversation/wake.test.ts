@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectCloseWord,
   extractQuestionAfterWake,
   extractQuestionAfterWakeMeeting,
 } from "./wake";
@@ -37,6 +38,27 @@ describe("extractQuestionAfterWake", () => {
       detected: false,
       question: "",
     });
+  });
+});
+
+describe("detectCloseWord", () => {
+  it("matches 'thank you, Kivo' style close phrases", () => {
+    for (const phrase of [
+      "thank you kivo",
+      "thank you, Kivo",
+      "thanks kivo",
+      "thanks, kivo",
+      "okay thank you kivo",
+      "thank you keevo", // ASR mishear
+    ]) {
+      expect(detectCloseWord(phrase)).toBe(true);
+    }
+  });
+
+  it("does not close on a bare thank you without the name", () => {
+    expect(detectCloseWord("thank you so much for that")).toBe(false);
+    expect(detectCloseWord("thanks everyone")).toBe(false);
+    expect(detectCloseWord("that was helpful")).toBe(false);
   });
 });
 

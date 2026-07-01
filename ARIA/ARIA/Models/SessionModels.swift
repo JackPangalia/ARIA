@@ -11,6 +11,7 @@ enum TurnRole: String, Codable, Sendable {
 struct SessionDoc: Identifiable, Codable, Sendable, Hashable {
     let id: String
     var title: String
+    var projectId: String?
     var autoTitled: Bool
     var status: SessionStatus
     var speakerCount: Int
@@ -25,6 +26,20 @@ struct SessionDoc: Identifiable, Codable, Sendable, Hashable {
     var turnCount: Int
     var mode: String?
     var botId: String?
+}
+
+enum ProjectStatus: String, Codable, Sendable {
+    case active, archived
+}
+
+struct ProjectDoc: Identifiable, Codable, Sendable, Hashable {
+    let id: String
+    var name: String
+    var instructions: String
+    var status: ProjectStatus
+    var createdAt: String
+    var updatedAt: String
+    var archivedAt: String?
 }
 
 struct TurnDoc: Identifiable, Codable, Sendable, Hashable {
@@ -88,9 +103,33 @@ struct SpeakerProfileDoc: Codable, Sendable, Identifiable {
     let updatedAt: String
 }
 
+struct SaveSpeakerProfileRequest: Encodable, Sendable {
+    let name: String
+    let speakerIdentifiers: [String]
+    var sampleCount: Int = 1
+}
+
+struct PatchSpeakerProfileRequest: Encodable, Sendable {
+    var name: String?
+    var speakerIdentifiers: [String]?
+    var sampleCount: Int?
+}
+
 struct CreateSessionRequest: Encodable, Sendable {
     var title: String?
     var speakerCount: Int = 2
+    var projectId: String?
+}
+
+struct CreateProjectRequest: Encodable, Sendable {
+    let name: String
+    let instructions: String
+}
+
+struct PatchProjectRequest: Encodable, Sendable {
+    var name: String?
+    var instructions: String?
+    var status: ProjectStatus?
 }
 
 struct CreateTurnRequest: Encodable, Sendable {
@@ -123,6 +162,10 @@ struct HeartbeatResponse: Decodable, Sendable {
 
 struct SessionsListResponse: Decodable, Sendable {
     let sessions: [SessionDoc]
+}
+
+struct ProjectsListResponse: Decodable, Sendable {
+    let projects: [ProjectDoc]
 }
 
 struct SpeakerProfilesResponse: Decodable, Sendable {

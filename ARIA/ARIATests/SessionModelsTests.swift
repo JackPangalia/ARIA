@@ -8,6 +8,7 @@ struct SessionModelsTests {
         {
           "id": "sess_1",
           "title": "Product sync",
+          "projectId": "proj_1",
           "autoTitled": false,
           "status": "active",
           "speakerCount": 2,
@@ -28,7 +29,27 @@ struct SessionModelsTests {
         let session = try JSONDecoder().decode(SessionDoc.self, from: json)
         #expect(session.id == "sess_1")
         #expect(session.title == "Product sync")
+        #expect(session.projectId == "proj_1")
         #expect(session.status == .active)
+    }
+
+    @Test func decodesProjectDoc() throws {
+        let json = """
+        {
+          "id": "proj_1",
+          "name": "Launch",
+          "instructions": "Answer with launch context.",
+          "status": "active",
+          "createdAt": "2026-06-01T12:00:00.000Z",
+          "updatedAt": "2026-06-01T12:05:00.000Z",
+          "archivedAt": null
+        }
+        """.data(using: .utf8)!
+
+        let project = try JSONDecoder().decode(ProjectDoc.self, from: json)
+        #expect(project.id == "proj_1")
+        #expect(project.name == "Launch")
+        #expect(project.status == .active)
     }
 
     @Test func decodesUsageSummary() throws {

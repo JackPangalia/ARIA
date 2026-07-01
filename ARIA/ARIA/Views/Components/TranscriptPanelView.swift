@@ -73,15 +73,20 @@ struct TranscriptPanelView: View {
     }
 
     private func turnRow(_ turn: TurnDoc) -> some View {
-        // Uniform typography for every speaker, including Kivo — only the label
-        // text differs by role.
-        VStack(alignment: .leading, spacing: 5) {
+        // A small per-speaker color dot makes the transcript scannable; Kivo's
+        // answers use the accent dot and brighter body text. Mirrors web
+        // SessionInsightsPanel.
+        let isKivo = turn.role == .assistant
+        return VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
+                Circle()
+                    .fill(dotColor(for: turn))
+                    .frame(width: 6, height: 6)
                 Text(turnLabel(turn))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .textCase(.uppercase)
-                    .foregroundStyle(AriaTheme.foregroundMuted)
+                    .foregroundStyle(isKivo ? AriaTheme.foregroundSecondary : AriaTheme.foregroundMuted)
                     .lineLimit(1)
                 if let time = Self.timeString(turn.createdAt) {
                     Text(time)
@@ -92,11 +97,26 @@ struct TranscriptPanelView: View {
             Text(turn.text)
                 .font(.system(size: 15))
                 .lineSpacing(3)
-                .foregroundStyle(AriaTheme.foregroundSecondary)
+                .foregroundStyle(isKivo ? AriaTheme.foreground : AriaTheme.foregroundSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
+    }
+
+    private func dotColor(for turn: TurnDoc) -> Color {
+        if turn.role == .assistant { return AriaTheme.accent }
+        return Self.speakerColor(turnLabel(turn))
+    }
+
+    /// Deterministic hue per speaker name — matches web `speakerHue`.
+    private static func speakerColor(_ name: String) -> Color {
+        var h: Int32 = 0
+        for scalar in name.unicodeScalars {
+            h = h &* 31 &+ Int32(bitPattern: scalar.value)
+        }
+        let hue = Double(abs(Int(h)) % 360) / 360.0
+        return Color(hue: hue, saturation: 0.6, brightness: 0.7)
     }
 
     private func turnLabel(_ turn: TurnDoc) -> String {

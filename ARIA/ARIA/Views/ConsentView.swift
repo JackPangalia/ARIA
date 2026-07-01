@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConsentView: View {
     @EnvironmentObject private var consent: ConsentStore
+    @EnvironmentObject private var theme: ThemeStore
 
     var body: some View {
         ScrollView {
@@ -44,7 +45,7 @@ struct ConsentView: View {
             .padding(AriaTheme.horizontalPadding)
         }
         .background(AriaTheme.background.ignoresSafeArea())
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(theme.colorScheme)
     }
 }
 

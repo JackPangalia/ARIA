@@ -2,6 +2,11 @@
 
 const TARGET_SAMPLE_RATE = 16_000;
 
+export type MicPcmStreamerOptions = {
+  /** Disable browser voice DSP when Speechmatics speaker ID needs stable prints. */
+  voiceIdentification?: boolean;
+};
+
 function downsample(
   input: Float32Array,
   inputSampleRate: number
@@ -44,14 +49,15 @@ export class MicPcmStreamer {
   private processor: ScriptProcessorNode | null = null;
   private silentGain: GainNode | null = null;
 
+  constructor(private options: MicPcmStreamerOptions = {}) {}
+
   async start(onPcm: (pcm: Int16Array) => void) {
-    // Kivo speaks through the same device, so prioritize avoiding playback echo
-    // over preserving completely raw speaker characteristics.
+    const voiceIdentification = this.options.voiceIdentification ?? false;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: !voiceIdentification,
+        noiseSuppression: !voiceIdentification,
+        autoGainControl: !voiceIdentification,
         channelCount: 1,
       },
     });

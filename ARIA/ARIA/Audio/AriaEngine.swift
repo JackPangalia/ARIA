@@ -25,6 +25,7 @@ final class AriaEngine: ObservableObject {
     private var turnFlushTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var askTask: Task<Void, Never>?
+    private var titleFinalized = false
 
     init(sessionId: String) {
         self.sessionId = sessionId
@@ -111,22 +112,40 @@ final class AriaEngine: ObservableObject {
         micLevel = 0
         status = .idle
         await flushPersistedSpeakerTurn()
+        await finalizeTitle()
+    }
+
+    private func finalizeTitle() async {
+        // Once per session: regenerate the sidebar title from the whole
+        // conversation now that it has ended. Best-effort.
+        guard !titleFinalized else { return }
+        titleFinalized = true
+        try? await APIClient.shared.finalizeTitle(sessionId)
     }
 
     private func shouldSendMicToSTT() -> Bool {
+        // Mute the mic while Kivo is speaking so STT never transcribes Kivo's own
+        // voice off the speakers (which otherwise feeds back as a new "question").
         !isAssistantSpeaking && Date() >= suppressSTTUntil
     }
 
     private func handleUtterance(_ utterance: TranscriptUtterance) {
         guard shouldSendMicToSTT() else { return }
 
+        let wake = WakeWordDetection.extractQuestionAfterWake(from: utterance.text)
+        let utteranceStable = utterance.speechFinal || utterance.isFinal
+
+        // "Thank you, Kivo" ends the conversation. The mic is muted while Kivo
+        // speaks, so this fires from listening / thinking / follow-up.
+        if utteranceStable && WakeWordDetection.detectCloseWord(from: utterance.text) {
+            handleClose()
+            return
+        }
+
         upsertUtterance(utterance)
         if utterance.isFinal && utterance.speechFinal {
             bufferSpeakerTurn(utterance)
         }
-
-        let wake = WakeWordDetection.extractQuestionAfterWake(from: utterance.text)
-        let utteranceStable = utterance.speechFinal || utterance.isFinal
 
         if !captureMachine.isCapturingQuestion && utteranceStable {
             if wake.detected {
@@ -148,6 +167,23 @@ final class AriaEngine: ObservableObject {
             segmentedPlayer?.stop()
             askTask?.cancel()
         }
+    }
+
+    private func handleClose() {
+        // "Thank you, Kivo" — tear down any in-flight answer/capture and return
+        // to passive listening. The inverse of a wake barge-in.
+        cues.stopThinkingLoop()
+        askTask?.cancel()
+        askTask = nil
+        segmentedPlayer?.stop()
+        segmentedPlayer = nil
+        isAssistantSpeaking = false
+        suppressSTTUntil = Date().addingTimeInterval(Double(AppConfig.playbackSTTCooldownMs) / 1000)
+        captureMachine.stopFollowUpWindow()
+        captureMachine.reset()
+        captureMachine.resume()
+        cues.playClose()
+        status = .listening
     }
 
     private func upsertUtterance(_ utterance: TranscriptUtterance) {
