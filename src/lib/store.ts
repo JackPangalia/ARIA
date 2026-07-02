@@ -7,10 +7,13 @@ interface AriaState {
   status: AriaStatus;
   utterances: TranscriptUtterance[];
   errorMessage: string | null;
+  /** Transient status note (e.g. "Reconnecting…") shown without entering error state. */
+  notice: string | null;
   micLevel: number;
 
   setStatus: (s: AriaStatus) => void;
   setError: (msg: string | null) => void;
+  setNotice: (msg: string | null) => void;
   setMicLevel: (n: number) => void;
   upsertUtterance: (u: TranscriptUtterance) => void;
   patchUtterance: (id: string, patch: Partial<TranscriptUtterance>) => void;
@@ -21,11 +24,13 @@ export const useAriaStore = create<AriaState>((set) => ({
   status: "idle",
   utterances: [],
   errorMessage: null,
+  notice: null,
   micLevel: 0,
 
   setStatus: (s) => set({ status: s }),
   setError: (msg) =>
     set({ errorMessage: msg, status: msg ? "error" : "idle" }),
+  setNotice: (msg) => set({ notice: msg }),
 
   setMicLevel: (n) => set({ micLevel: n }),
 

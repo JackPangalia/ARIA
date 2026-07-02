@@ -84,6 +84,8 @@ export interface SpeechmaticsClientCallbacks {
   onError: (err: Error) => void;
   onOpen: () => void;
   onClose: () => void;
+  /** Fired when a dropped connection is being retried (attempt is 1-based). */
+  onReconnecting?: (attempt: number) => void;
 }
 
 export type SpeechmaticsClientOptions = {
@@ -105,6 +107,11 @@ const BASIC_PROVIDER_SPEAKER_LABEL = "conversation";
 const BASIC_SPEAKER_NAME = "Conversation";
 
 const SAMPLE_RATE = 16000;
+// Reconnect policy: a session should only end when the user ends it, so every
+// close the client didn't initiate is retried with exponential backoff.
+const MAX_RECONNECT_ATTEMPTS = 8;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
 // Small guard windows around actual TTS playback: words captured just before
 // playback starts (mic buffering lag) or shortly after it ends (speaker/room
 // echo tail) are still attributed to Kivo's own voice, not the user's.
@@ -206,6 +213,8 @@ export class SpeechmaticsLiveClient {
   private speakerLabelToName = new Map<string, string>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByClient = false;
+  private endOfStreamSent = false;
+  private reconnectAttempts = 0;
   private loggedStartConfig = false;
   private transcriptionMode: TranscriptionMode;
   // Cumulative seconds of mic PCM sent so far — the same timeline Speechmatics
@@ -230,7 +239,10 @@ export class SpeechmaticsLiveClient {
 
   async connect(): Promise<void> {
     this.closedByClient = false;
+    this.endOfStreamSent = false;
     const { getSpeechmaticsToken } = await import("@/lib/speakers/client");
+    // Every (re)connect mints a fresh token, so the 600s token TTL is only ever
+    // checked at connection time — an established stream outlives its token.
     const { token, region } = await getSpeechmaticsToken();
     const ws = new WebSocket(
       `wss://${region}.rt.speechmatics.com/v2?jwt=${encodeURIComponent(token)}`
@@ -260,13 +272,70 @@ export class SpeechmaticsLiveClient {
       this.recognitionStarted = false;
       this.ws = null;
       this.callbacks.onClose();
-      if (this.closedByClient) return;
-      if ([4005, 4013, 1011].includes(event.code)) {
-        this.reconnectTimer = setTimeout(() => {
-          void this.connect().catch((err) => this.callbacks.onError(err));
-        }, 5000);
-      }
+      // Deliberate teardown (user stop, enrollment EndOfStream) ends here;
+      // anything else — 1006 network blips included — gets retried.
+      if (this.closedByClient || this.endOfStreamSent) return;
+      devLog("speechmatics", `WS closed (code ${event.code}); reconnecting.`);
+      this.scheduleReconnect();
     });
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.callbacks.onError(
+        new Error("Connection lost — check your network and restart listening.")
+      );
+      return;
+    }
+    this.reconnectAttempts += 1;
+    const attempt = this.reconnectAttempts;
+    this.callbacks.onReconnecting?.(attempt);
+    const delay =
+      Math.min(
+        RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1),
+        RECONNECT_MAX_DELAY_MS
+      ) +
+      Math.random() * 500;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.connect().catch((err) => this.handleConnectFailure(err));
+    }, delay);
+  }
+
+  private handleConnectFailure(err: unknown) {
+    if (this.closedByClient) return;
+    // A 402 on token re-mint means the listening quota is gone — retrying
+    // cannot succeed this billing period, so surface it instead of backing off.
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      (err as { code?: string }).code === "listening_quota_exhausted"
+    ) {
+      this.callbacks.onError(
+        err instanceof Error ? err : new Error("Listening limit reached.")
+      );
+      return;
+    }
+    this.scheduleReconnect();
+  }
+
+  /**
+   * Immediate reconnect (backoff reset) — used when the tab returns to the
+   * foreground and the socket died while the page was hidden.
+   */
+  reconnectNow() {
+    if (this.closedByClient || this.endOfStreamSent || this.ws) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    void this.connect().catch((err) => this.handleConnectFailure(err));
+  }
+
+  get isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN && this.recognitionStarted;
   }
 
   buildStartRecognitionMessage() {
@@ -366,6 +435,7 @@ export class SpeechmaticsLiveClient {
   private handleMessage(msg: SpeechmaticsMessage) {
     if (msg.message === "RecognitionStarted") {
       this.recognitionStarted = true;
+      this.reconnectAttempts = 0;
       this.callbacks.onOpen();
       this.flushAudioQueue();
       return;
@@ -591,6 +661,7 @@ export class SpeechmaticsLiveClient {
       return;
     }
     this.recognitionStarted = false;
+    this.endOfStreamSent = true;
     ws.send(JSON.stringify({ message: "EndOfStream", last_seq_no: this.seqNo }));
   }
 

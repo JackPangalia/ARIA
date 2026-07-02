@@ -78,6 +78,7 @@ export function OrbVisualizer(props: {
   const status = useAriaStore((s) => s.status);
   const micLevel = useAriaStore((s) => s.micLevel);
   const error = useAriaStore((s) => s.errorMessage);
+  const notice = useAriaStore((s) => s.notice);
 
   const mode = modeFor(status);
   const isLight = resolvedTheme === "light";
@@ -140,6 +141,11 @@ export function OrbVisualizer(props: {
         {error && (
           <p className="max-w-xs text-center text-xs text-red-600 dark:text-red-400">
             {error}
+          </p>
+        )}
+        {!error && notice && (
+          <p className="max-w-xs text-center text-xs text-app-muted" aria-live="polite">
+            {notice}
           </p>
         )}
       </div>

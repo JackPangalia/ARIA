@@ -142,6 +142,9 @@ export class AriaEngine {
         }
       });
       this.startHeartbeat();
+      // A backgrounded tab can lose the STT socket without a reconnectable
+      // close firing while throttled; retry immediately on return.
+      document.addEventListener("visibilitychange", this.onVisibilityChange);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
       this.cues.playError();
@@ -168,13 +171,18 @@ export class AriaEngine {
 
     this.stt = new SpeechmaticsLiveClient({
       onOpen: () => {
-        /* noop */
+        useAriaStore.getState().setNotice(null);
       },
       onClose: () => {
         /* noop */
       },
+      onReconnecting: (attempt) => {
+        devLog("speechmatics", `Reconnecting (attempt ${attempt}).`);
+        useAriaStore.getState().setNotice("Reconnecting…");
+      },
       onError: (err) => {
         devLog("speechmatics", err.message);
+        useAriaStore.getState().setNotice(null);
         useAriaStore.getState().setError(err.message);
       },
       onUtterance: (u) => this.handleUtterance(u),
@@ -187,12 +195,14 @@ export class AriaEngine {
 
   async stop() {
     this.stopHeartbeat();
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
     await this.mic?.stop();
     this.mic = null;
     if (this.stt) {
       this.stt.close();
       this.stt = null;
     }
+    useAriaStore.getState().setNotice(null);
     this.resetQuestionCapture();
     this.stopFollowUpWindow();
     this.clearFollowUpStartTimer();
@@ -206,6 +216,12 @@ export class AriaEngine {
     useAriaStore.getState().setMicLevel(0);
     useAriaStore.getState().setStatus("idle");
   }
+
+  private onVisibilityChange = () => {
+    if (document.visibilityState === "visible") {
+      this.stt?.reconnectNow();
+    }
+  };
 
   private finalizeTitle() {
     // Once per session: regenerate the sidebar title from the whole

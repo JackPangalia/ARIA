@@ -26,8 +26,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Request failed (${res.status})`);
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+      code?: string;
+    } | null;
+    // Carry the server's machine-readable code (e.g. listening_quota_exhausted)
+    // so callers like the STT reconnect loop can tell fatal from transient.
+    throw Object.assign(new Error(body?.error ?? `Request failed (${res.status})`), {
+      code: body?.code,
+    });
   }
 
   return (await res.json()) as T;
