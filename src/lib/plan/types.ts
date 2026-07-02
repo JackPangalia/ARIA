@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Tier } from "@/lib/plan/tiers";
+import type { TranscriptionMode } from "@/lib/sessions/types";
 
 /**
  * The user's plan record. Stored server-write-only at `users/{uid}/private/plan`
@@ -21,6 +22,8 @@ export interface UserPlanDoc {
   cancelAtPeriodEnd?: boolean;
   /** ISO timestamp when the current Stripe billing period ends. */
   currentPeriodEnd?: string | null;
+  /** Preferred mode for new sessions. Free tier resolves to basic regardless. */
+  defaultTranscriptionMode?: TranscriptionMode | null;
 }
 
 /**

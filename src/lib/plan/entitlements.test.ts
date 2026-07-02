@@ -8,6 +8,7 @@ import {
   remainingListeningSeconds,
   usageSummary,
 } from "@/lib/plan/entitlements";
+import { effectiveDefaultTranscriptionMode } from "@/lib/plan/repository";
 import { planLimits, PLANS } from "@/lib/plan/tiers";
 import { emptyUsage, type UsageDoc } from "@/lib/plan/types";
 
@@ -41,14 +42,25 @@ describe("ask soft backstop", () => {
 });
 
 describe("speaker profile limits", () => {
-  it("free caps at 5", () => {
+  it("free does not allow new speaker profiles", () => {
     const limits = planLimits("free");
-    expect(canCreateSpeakerProfile(limits, 4)).toBe(true);
-    expect(canCreateSpeakerProfile(limits, 5)).toBe(false);
+    expect(canCreateSpeakerProfile(limits, 0)).toBe(false);
   });
 
   it("plus and above are unlimited", () => {
     expect(canCreateSpeakerProfile(planLimits("plus"), 999)).toBe(true);
+  });
+});
+
+describe("default transcription mode", () => {
+  it("locks free users to basic mode", () => {
+    expect(effectiveDefaultTranscriptionMode("free", "speaker")).toBe("basic");
+  });
+
+  it("lets paid users choose basic or speaker mode", () => {
+    expect(effectiveDefaultTranscriptionMode("plus", "basic")).toBe("basic");
+    expect(effectiveDefaultTranscriptionMode("plus", "speaker")).toBe("speaker");
+    expect(effectiveDefaultTranscriptionMode("plus", null)).toBe("speaker");
   });
 });
 

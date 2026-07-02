@@ -66,7 +66,7 @@ export const PLANS: Record<Tier, PlanConfig> = {
     limits: {
       listeningMinutesPerMonth: 3 * HOUR,
       askTokensPerMonth: 750_000,
-      maxSpeakerProfiles: 5,
+      maxSpeakerProfiles: 0,
       maxConnectors: 1,
       historyRetentionDays: 30,
       priorityProcessing: false,
@@ -80,8 +80,8 @@ export const PLANS: Record<Tier, PlanConfig> = {
       ctaLabel: "Start free",
       featureBullets: [
         "3 hours of listening / month",
-        "Real-time transcription + voice recognition",
-        "5 speaker profiles",
+        "Basic real-time transcription",
+        "Live Kivo Q&A",
         "1 app connector",
         "30-day session history",
         "Export transcripts",

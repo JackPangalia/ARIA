@@ -213,6 +213,21 @@ describe("formatTurnForContext", () => {
       })
     ).toBe("Maya (question): What did we decide?");
   });
+
+  it("uses the generic Conversation label for basic-mode turns", () => {
+    expect(
+      formatTurnForContext(
+        turn({
+          id: "basic",
+          role: "speaker",
+          text: "We should review the roadmap.",
+          sequence: 1,
+          speaker: null,
+          speakerName: "Conversation",
+        })
+      )
+    ).toBe("Conversation: We should review the roadmap.");
+  });
 });
 
 describe("exportSessionMarkdown", () => {
@@ -235,6 +250,7 @@ describe("exportSessionMarkdown", () => {
         turnCount: 1,
         pinned: false,
         mode: "in_person",
+        transcriptionMode: "speaker",
         botId: null,
         meetingPlatform: null,
         botStatus: null,

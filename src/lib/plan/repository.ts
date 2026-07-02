@@ -20,6 +20,7 @@ import {
   currentPeriodKey,
 } from "@/lib/plan/period";
 import { emptyUsage, type UsageDoc, type UserPlanDoc } from "@/lib/plan/types";
+import type { TranscriptionMode } from "@/lib/sessions/types";
 
 // Plan + usage live under server-write-only paths (see firestore.rules).
 function planRef(db: Firestore, uid: string) {
@@ -40,6 +41,11 @@ function toIso(value: unknown): string {
 }
 
 function mapPlan(data: DocumentData): UserPlanDoc {
+  const defaultTranscriptionMode =
+    data.defaultTranscriptionMode === "basic" ||
+    data.defaultTranscriptionMode === "speaker"
+      ? data.defaultTranscriptionMode
+      : null;
   return {
     tier: isTier(data.tier) ? data.tier : DEFAULT_TIER,
     billingAnchorDay: clampAnchorDay(Number(data.billingAnchorDay ?? 1)),
@@ -53,6 +59,7 @@ function mapPlan(data: DocumentData): UserPlanDoc {
     stripeStatus: data.stripeStatus ? String(data.stripeStatus) : null,
     cancelAtPeriodEnd: Boolean(data.cancelAtPeriodEnd),
     currentPeriodEnd: data.currentPeriodEnd ? toIso(data.currentPeriodEnd) : null,
+    defaultTranscriptionMode,
   };
 }
 
@@ -95,6 +102,34 @@ export async function getOrCreatePlan(uid: string): Promise<UserPlanDoc> {
 
 export async function getUserTier(uid: string): Promise<Tier> {
   return (await getOrCreatePlan(uid)).tier;
+}
+
+export function effectiveDefaultTranscriptionMode(
+  tier: Tier,
+  preferred: TranscriptionMode | null | undefined
+): TranscriptionMode {
+  if (tier === "free") return "basic";
+  return preferred ?? "speaker";
+}
+
+export async function setDefaultTranscriptionMode(
+  uid: string,
+  mode: TranscriptionMode
+): Promise<UserPlanDoc> {
+  const plan = await getOrCreatePlan(uid);
+  if (plan.tier === "free" && mode === "speaker") {
+    throw new Error("Upgrade to use Speaker recognition mode.");
+  }
+
+  const db = getAdminDb();
+  await planRef(db, uid).set(
+    {
+      defaultTranscriptionMode: mode,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return getOrCreatePlan(uid);
 }
 
 /** Admin/dev only (set-tier script). Never called from client routes. */
@@ -167,6 +202,7 @@ async function readUsage(
 }
 
 export interface Entitlements {
+  plan: UserPlanDoc;
   tier: Tier;
   limits: PlanLimits;
   usage: UsageDoc;
@@ -179,7 +215,7 @@ export async function loadEntitlements(uid: string): Promise<Entitlements> {
   const plan = await getOrCreatePlan(uid);
   const periodKey = currentPeriodKey(plan.billingAnchorDay, new Date());
   const usage = await readUsage(db, uid, periodKey);
-  return { tier: plan.tier, limits: planLimits(plan.tier), usage, periodKey };
+  return { plan, tier: plan.tier, limits: planLimits(plan.tier), usage, periodKey };
 }
 
 export interface HeartbeatResult {

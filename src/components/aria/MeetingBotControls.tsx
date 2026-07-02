@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { sendMeetingBot, stopMeetingBot } from "@/lib/sessions/client";
-import type { BotStatus } from "@/lib/sessions/types";
+import type { BotStatus, SessionDoc } from "@/lib/sessions/types";
 
 const STATUS_LABEL: Record<BotStatus, string> = {
   joining: "Kivo is joining the call…",
@@ -23,7 +23,7 @@ export function MeetingBotControls(props: {
   botId: string | null;
   botStatus: BotStatus | null;
   disabled?: boolean;
-  ensureSession?: () => Promise<string>;
+  ensureSession?: () => Promise<SessionDoc>;
   onChanged?: () => void;
 }) {
   const { sessionId, botId, botStatus, disabled, ensureSession, onChanged } = props;
@@ -44,7 +44,7 @@ export function MeetingBotControls(props: {
       let activeSessionId = sessionId;
       if (!activeSessionId) {
         if (!ensureSession) return;
-        activeSessionId = await ensureSession();
+        activeSessionId = (await ensureSession()).id;
       }
       await sendMeetingBot(activeSessionId, meetingUrl);
       setUrl("");

@@ -9,11 +9,16 @@ import { ConnectorsManager } from "@/components/firebase/ConnectorsManager";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { deleteAccount } from "@/lib/account/client";
 import {
+  getTranscriptionModePreference,
+  updateTranscriptionModePreference,
+  type TranscriptionModePreference,
+} from "@/lib/plan/client";
+import {
   deleteSession,
   listSessions,
   patchSession,
 } from "@/lib/sessions/client";
-import type { SessionDoc } from "@/lib/sessions/types";
+import type { SessionDoc, TranscriptionMode } from "@/lib/sessions/types";
 import { BillingPanel } from "@/components/billing/BillingPanel";
 import {
   GrokSettingsButton,
@@ -380,6 +385,112 @@ function TrashPanel(props: {
   );
 }
 
+function TranscriptionModeSettings() {
+  const [preference, setPreference] =
+    useState<TranscriptionModePreference | null>(null);
+  const [busyMode, setBusyMode] = useState<TranscriptionMode | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getTranscriptionModePreference()
+      .then((data) => {
+        if (!cancelled) setPreference(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not load transcription mode."
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectMode = async (mode: TranscriptionMode) => {
+    if (!preference || preference.effectiveTranscriptionMode === mode) return;
+    setBusyMode(mode);
+    setError(null);
+    try {
+      const next = await updateTranscriptionModePreference(mode);
+      setPreference(next);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not update transcription mode."
+      );
+    } finally {
+      setBusyMode(null);
+    }
+  };
+
+  const activeMode = preference?.effectiveTranscriptionMode ?? "basic";
+  const speakerLocked = preference?.speakerModeLocked ?? true;
+
+  return (
+    <section className="mb-6">
+      <p className="grok-settings-section-title">Transcription mode</p>
+      <p className="grok-settings-section-desc">
+        Choose the default for new sessions. Existing and active sessions keep
+        the mode they started with.
+      </p>
+
+      {error ? (
+        <p className="grok-settings-delete-error mt-2 text-xs">{error}</p>
+      ) : null}
+
+      <div className="mt-2">
+        <GrokSettingsRow
+          title={<span className="font-medium">Basic transcription</span>}
+          description="Lower-cost live transcript and Kivo Q&A. No speaker labels."
+          action={
+            <GrokSettingsButton
+              disabled={!preference || activeMode === "basic" || busyMode !== null}
+              onClick={() => void selectMode("basic")}
+            >
+              {busyMode === "basic"
+                ? "Saving…"
+                : activeMode === "basic"
+                  ? "Current"
+                  : "Use Basic"}
+            </GrokSettingsButton>
+          }
+        />
+        <GrokSettingsRow
+          title={<span className="font-medium">Speaker recognition</span>}
+          description={
+            speakerLocked
+              ? "Paid plans can identify enrolled speakers and label the transcript."
+              : "Use enrolled speaker profiles and Speechmatics diarization."
+          }
+          action={
+            <GrokSettingsButton
+              disabled={
+                !preference ||
+                speakerLocked ||
+                activeMode === "speaker" ||
+                busyMode !== null
+              }
+              onClick={() => void selectMode("speaker")}
+            >
+              {speakerLocked
+                ? "Upgrade"
+                : busyMode === "speaker"
+                  ? "Saving…"
+                  : activeMode === "speaker"
+                    ? "Current"
+                    : "Use Speaker"}
+            </GrokSettingsButton>
+          }
+        />
+      </div>
+    </section>
+  );
+}
+
 function SettingsTabContent(props: {
   tab: SettingsTab;
   deleteOpen: boolean;
@@ -455,6 +566,7 @@ function SettingsTabContent(props: {
   if (props.tab === "speakers") {
     return (
       <section>
+        <TranscriptionModeSettings />
         <p className="grok-settings-section-title">Speaker profiles</p>
         <p className="grok-settings-section-desc">
           Teach Kivo who is speaking. Enroll one person at a time in a quiet room.

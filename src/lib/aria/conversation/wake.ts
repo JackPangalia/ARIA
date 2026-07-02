@@ -33,6 +33,61 @@ export function detectCloseWord(text: string): boolean {
   return CLOSE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+const STOP_WORD =
+  "(?:stop|shut\\s+up|that(?:'s|\\s+is)\\s+enough|thank\\s+you|thanks)";
+// "just"/"please"/"okay" commonly prefix a stop command ("just shut up",
+// "okay stop"); people also repeat themselves when frustrated ("shut up shut
+// up") — both are folded into STOP_CORE so a single whole-utterance check
+// catches them without extra call sites.
+const STOP_FILLER = "(?:okay|ok|just|please)";
+const STOP_CONNECTOR = "[\\s,.:;!?-]+";
+const STOP_CORE = `(?:${STOP_FILLER}${STOP_CONNECTOR})*${STOP_WORD}(?:${STOP_CONNECTOR}(?:${STOP_FILLER}${STOP_CONNECTOR})*${STOP_WORD})*`;
+
+export const STOP_PATTERNS = [
+  new RegExp(`^\\s*${STOP_CORE}[\\s,.:;!?-]*$`, "i"),
+  new RegExp(
+    `^\\s*(?:(?:hey|hi|okay|ok)[\\s,.:;!?-]*)?${KIVO_WAKE_TOKEN}[\\s,.:;!?-]*${STOP_CORE}[\\s,.:;!?-]*$`,
+    "i"
+  ),
+  new RegExp(
+    `^\\s*${STOP_CORE}[\\s,.:;!?-]*${KIVO_WAKE_TOKEN}[\\s,.:;!?-]*$`,
+    "i"
+  ),
+];
+
+const STRICT_STOP_PATTERNS = STOP_PATTERNS.slice(1);
+
+export function detectStopWord(
+  text: string,
+  options: { requireWakeWord?: boolean } = {}
+): boolean {
+  const patterns = options.requireWakeWord ? STRICT_STOP_PATTERNS : STOP_PATTERNS;
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function lastNonEmptyClause(text: string): string {
+  const parts = text
+    .split(/[.!?]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1]! : text.trim();
+}
+
+/**
+ * Checks only the final clause of a longer utterance for a stop command. Used
+ * for utterances where Kivo's own echo has merged with real speech into one
+ * Speechmatics final (e.g. "...goal of the app. Stop.") — the stop word is
+ * real regardless of what came before it in the same utterance. Utterances
+ * with no sentence boundary (a single clause) are left to the whole-utterance
+ * check instead, so this never turns an unrelated long sentence into a match.
+ */
+export function detectTrailingStop(text: string): boolean {
+  const trimmed = text.trim();
+  const clause = lastNonEmptyClause(trimmed);
+  if (!clause || clause === trimmed) return false;
+  return detectStopWord(clause);
+}
+
 const KIVO_ALIAS_SET = new Set(
   [
     "kivo",
@@ -57,14 +112,14 @@ const KIVO_ALIAS_SET = new Set(
 // Settle windows for accumulating a spoken question after the wake word. These
 // are the *fallback* used while the speaker is still mid-utterance, or when the
 // provider never reports end-of-turn.
-export const QUESTION_SETTLE_MS = 2800;
-export const SPEECH_FINAL_SETTLE_MS = 2800;
+export const QUESTION_SETTLE_MS = 1500;
+export const SPEECH_FINAL_SETTLE_MS = 1500;
 // Once Speechmatics reports end-of-turn (an EndOfUtterance message, fired after
 // `end_of_utterance_silence_trigger` of silence) we already know the speaker
 // stopped. Collapse the long settle to this short grace — enough to allow an
 // immediate continuation, but far quicker than waiting the full settle from the
 // last transcript. Best case fast, worst case (no EndOfUtterance) unchanged.
-export const END_OF_UTTERANCE_GRACE_MS = 500;
+export const END_OF_UTTERANCE_GRACE_MS = 250;
 // How long Kivo keeps listening for a follow-up (no wake word) after answering.
 export const FOLLOW_UP_WINDOW_MS = 8000;
 

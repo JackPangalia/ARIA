@@ -498,30 +498,19 @@ export function SessionSidebar(props: {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
-  const { sessionsByProject, unassignedSessions } = useMemo(() => {
-    const byProject = new Map<string, SessionDoc[]>();
+  const { projectSessionCounts, unassignedSessions } = useMemo(() => {
+    const counts = new Map<string, number>();
     const unassigned: SessionDoc[] = [];
 
     for (const session of props.sessions) {
       if (session.projectId) {
-        const list = byProject.get(session.projectId) ?? [];
-        list.push(session);
-        byProject.set(session.projectId, list);
+        counts.set(session.projectId, (counts.get(session.projectId) ?? 0) + 1);
       } else {
         unassigned.push(session);
       }
     }
 
-    for (const [projectId, list] of byProject) {
-      byProject.set(
-        projectId,
-        [...list].sort(
-          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-        )
-      );
-    }
-
-    return { sessionsByProject: byProject, unassignedSessions: unassigned };
+    return { projectSessionCounts: counts, unassignedSessions: unassigned };
   }, [props.sessions]);
 
   const { pinnedSessions, timeGroups } = useMemo(() => {
@@ -560,32 +549,32 @@ export function SessionSidebar(props: {
   const renderProjectRow = (project: ProjectDoc) => {
     const hubSelected =
       props.selectedProjectId === project.id && !props.selectedSessionId;
-    const projectSessions = sessionsByProject.get(project.id) ?? [];
+    const sessionCount = projectSessionCounts.get(project.id) ?? 0;
 
     return (
-      <li key={project.id} className="group flex items-center gap-0.5">
-        <button
-          type="button"
-          onClick={() => props.onSelectProject(project.id)}
-          className={`${projectRowClass(hubSelected)} min-w-0 flex-1`}
-          title={project.name}
-        >
-          <FolderIcon className="shrink-0 text-app-muted" />
-          <span className="truncate">{project.name}</span>
-          {projectSessions.length > 0 ? (
-            <span className="ml-auto shrink-0 text-xs text-app-subtle">
-              {projectSessions.length}
-            </span>
-          ) : null}
-        </button>
-        <button
-          type="button"
-          onClick={() => props.onEditProject(project)}
-          aria-label={`Edit ${project.name}`}
-          className="mr-1 rounded-md p-1.5 text-app-muted opacity-100 transition-colors hover:bg-surface-hover hover:text-app-secondary lg:opacity-0 lg:group-hover:opacity-100"
-        >
-          <PencilIcon />
-        </button>
+      <li key={project.id}>
+        <div className="group flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => props.onSelectProject(project.id)}
+            className={`${projectRowClass(hubSelected)} min-w-0 flex-1`}
+            title={project.name}
+          >
+            <FolderIcon className="shrink-0 text-app-muted" />
+            <span className="truncate">{project.name}</span>
+            {sessionCount > 0 ? (
+              <span className="ml-auto shrink-0 text-xs text-app-subtle">{sessionCount}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => props.onEditProject(project)}
+            aria-label={`Edit ${project.name}`}
+            className="mr-1 rounded-md p-1.5 text-app-muted opacity-100 transition-colors hover:bg-surface-hover hover:text-app-secondary lg:opacity-0 lg:group-hover:opacity-100"
+          >
+            <PencilIcon />
+          </button>
+        </div>
       </li>
     );
   };

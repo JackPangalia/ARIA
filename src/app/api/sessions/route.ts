@@ -5,7 +5,10 @@ import {
 } from "@/lib/sessions/types";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import { createSession, listSessions } from "@/lib/sessions/repository";
-import { loadEntitlements } from "@/lib/plan/repository";
+import {
+  effectiveDefaultTranscriptionMode,
+  loadEntitlements,
+} from "@/lib/plan/repository";
 import { historyCutoffIso } from "@/lib/plan/entitlements";
 
 export const runtime = "nodejs";
@@ -40,7 +43,16 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid session payload.", 400);
     }
 
-    const session = await createSession(uid, parsed.data);
+    const { plan } = await loadEntitlements(uid);
+    const transcriptionMode = effectiveDefaultTranscriptionMode(
+      plan.tier,
+      plan.defaultTranscriptionMode
+    );
+    const session = await createSession(uid, {
+      ...parsed.data,
+      speakerCount: transcriptionMode === "basic" ? 1 : parsed.data.speakerCount,
+      transcriptionMode,
+    });
     return jsonOk(session, 201);
   });
 }

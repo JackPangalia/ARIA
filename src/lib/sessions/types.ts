@@ -9,6 +9,9 @@ export type TurnRole = z.infer<typeof TurnRoleSchema>;
 export const SessionModeSchema = z.enum(["in_person", "bot"]);
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 
+export const TranscriptionModeSchema = z.enum(["basic", "speaker"]);
+export type TranscriptionMode = z.infer<typeof TranscriptionModeSchema>;
+
 export const MeetingPlatformSchema = z.enum(["zoom", "meet", "teams", "webex"]);
 export type MeetingPlatform = z.infer<typeof MeetingPlatformSchema>;
 
@@ -39,6 +42,8 @@ export interface SessionDoc {
   turnCount: number;
   /** "in_person" (default, mic) or "bot" (Recall meeting bot). */
   mode: SessionMode;
+  /** "basic" skips speaker ID; "speaker" keeps diarization and profiles. */
+  transcriptionMode: TranscriptionMode;
   /** Recall bot id when a meeting bot is/was attached, else null. */
   botId: string | null;
   meetingPlatform: MeetingPlatform | null;
@@ -130,6 +135,9 @@ export const AskBodySchema = z.object({
   question: z.string().trim().min(1).max(4000),
   speaker: z.number().int().min(0).max(9).nullable().optional(),
   speakerName: z.string().trim().min(1).max(100).nullable().optional(),
+  // Raw live-transcript utterance ids that fed this question, so the persisted
+  // user_question turn can dedup them out of the live tail in the UI.
+  sourceUtteranceIds: z.array(z.string()).max(50).optional(),
 });
 
 export interface ContextBundle {

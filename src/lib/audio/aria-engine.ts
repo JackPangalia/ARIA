@@ -7,6 +7,7 @@ import {
   TranscriptTurnAssembler,
   type AssembledTranscriptTurn,
 } from "./turn-assembler";
+import { VisualMicLevelNormalizer } from "./visual-level";
 import { devLog } from "@/lib/client/dev-log";
 import {
   askSessionQuestion,
@@ -20,6 +21,8 @@ import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
 import { sanitizeQuestionText } from "@/lib/aria/context/question-text";
 import {
   detectCloseWord,
+  detectStopWord,
+  detectTrailingStop,
   extractQuestionAfterWake,
   isSubstantiveQuestion,
   END_OF_UTTERANCE_GRACE_MS,
@@ -29,9 +32,11 @@ import {
 } from "@/lib/aria/conversation/wake";
 import { joinText } from "@/lib/text/join-text";
 import { useAriaStore } from "@/lib/store";
-import type { TranscriptUtterance } from "@/lib/types";
+import type { TranscriptionMode } from "@/lib/sessions/types";
+import type { AriaStatus, TranscriptUtterance } from "@/lib/types";
 
-const PLAYBACK_STT_COOLDOWN_MS = 800;
+const PLAYBACK_STT_COOLDOWN_MS = 300;
+const ASSISTANT_COMMAND_MAX_WORDS = 5;
 const TURN_IDLE_FLUSH_MS = 1800;
 const CONTEXT_PREFETCH_DEBOUNCE_MS = 400;
 
@@ -43,6 +48,10 @@ function pcmLevel(pcm: Int16Array): number {
     sum += v * v;
   }
   return Math.sqrt(sum / pcm.length);
+}
+
+function wordCount(text: string): number {
+  return text.match(/[a-zA-Z0-9']+/g)?.length ?? 0;
 }
 
 // iOS (iPhone/iPad) and iPadOS-on-Mac all run WebKit, which blocks
@@ -59,6 +68,7 @@ function isIOSWebKit(): boolean {
 
 export type AriaEngineOptions = {
   sessionId: string;
+  transcriptionMode: TranscriptionMode;
   onSessionActivity?: () => void;
   /** Called when the listening budget runs out mid-session (engine auto-stops). */
   onUsageExhausted?: () => void;
@@ -66,6 +76,7 @@ export type AriaEngineOptions = {
 
 export class AriaEngine {
   private sessionId: string;
+  private transcriptionMode: TranscriptionMode;
   private onSessionActivity?: () => void;
   private persistedUtteranceIds = new Set<string>();
   private stt: SpeechmaticsLiveClient | null = null;
@@ -97,15 +108,19 @@ export class AriaEngine {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private onUsageExhausted?: () => void;
   private titleFinalized = false;
+  private visualMicLevel = new VisualMicLevelNormalizer();
 
   constructor(options: AriaEngineOptions) {
     this.sessionId = options.sessionId;
+    this.transcriptionMode = options.transcriptionMode;
     this.onSessionActivity = options.onSessionActivity;
     this.onUsageExhausted = options.onUsageExhausted;
   }
 
   async start() {
     const store = useAriaStore.getState();
+    store.clearTranscript();
+    this.visualMicLevel.reset();
     store.setError(null);
     store.setStatus("listening");
 
@@ -115,10 +130,12 @@ export class AriaEngine {
       await this.cues.ensureReady();
       const profileCount = await this.connectStt();
       this.mic = new MicPcmStreamer({
-        voiceIdentification: profileCount > 0,
+        voiceIdentification:
+          this.transcriptionMode === "speaker" && profileCount > 0,
       });
       await this.mic.start((frame) => {
-        useAriaStore.getState().setMicLevel(pcmLevel(frame));
+        const visualLevel = this.visualMicLevel.update(pcmLevel(frame));
+        useAriaStore.getState().setMicLevel(visualLevel);
         if (this.shouldSendMicToStt()) {
           this.stt?.sendPcm(frame);
         }
@@ -133,15 +150,20 @@ export class AriaEngine {
   }
 
   private async connectStt(): Promise<number> {
-    const profiles = await listSpeakerProfiles().catch((err) => {
-      devLog(
-        "speaker",
-        `Could not load saved speaker profiles: ${
-          err instanceof Error ? err.message : "unknown error"
-        }`
-      );
-      throw new Error("Could not load saved speaker profiles. Try restarting Kivo.");
-    });
+    const profiles =
+      this.transcriptionMode === "speaker"
+        ? await listSpeakerProfiles().catch((err) => {
+            devLog(
+              "speaker",
+              `Could not load saved speaker profiles: ${
+                err instanceof Error ? err.message : "unknown error"
+              }`
+            );
+            throw new Error(
+              "Could not load saved speaker profiles. Try restarting Kivo."
+            );
+          })
+        : [];
 
     this.stt = new SpeechmaticsLiveClient({
       onOpen: () => {
@@ -156,7 +178,7 @@ export class AriaEngine {
       },
       onUtterance: (u) => this.handleUtterance(u),
       onUtteranceEnd: () => this.handleUtteranceEnd(),
-    }, profiles);
+    }, profiles, { transcriptionMode: this.transcriptionMode });
 
     await this.stt.connect();
     return profiles.length;
@@ -179,6 +201,7 @@ export class AriaEngine {
     this.stopPlayback();
     this.cues.stopThinkingLoop();
     void this.cues.dispose();
+    this.visualMicLevel.reset();
     useAriaStore.getState().setMicLevel(0);
     useAriaStore.getState().setStatus("idle");
   }
@@ -222,9 +245,10 @@ export class AriaEngine {
   }
 
   private shouldSendMicToStt(): boolean {
-    // Mute the mic while Kivo is speaking so STT never transcribes Kivo's own
-    // voice off the speakers (which otherwise feeds back as a new "question").
-    return !this.isAssistantSpeaking && Date.now() >= this.suppressSttUntilMs;
+    // Keep STT live during playback so short spoken commands can interrupt Kivo.
+    // Echo/self-hearing is filtered in handleAssistantCommandUtterance before
+    // it can hit the transcript or question-capture paths.
+    return Date.now() >= this.suppressSttUntilMs;
   }
 
   private shouldIgnoreIncomingUtterance(): boolean {
@@ -238,12 +262,33 @@ export class AriaEngine {
 
     const wake = extractQuestionAfterWake(u.text);
     const utteranceStable = u.speechFinal || u.isFinal;
+    const store = useAriaStore.getState();
 
-    // "Thank you, Kivo" ends the conversation. The mic is muted while Kivo
-    // speaks, so this fires from listening / thinking / follow-up — not during
-    // an answer.
+    // An utterance flagged by the STT client overlaps a known assistant-speech
+    // interval on the audio timeline — it's Kivo's own voice, regardless of
+    // current UI status (the flag still catches late-arriving finals for echo
+    // audio captured during playback, after status has already moved on).
+    // The status check remains as a safety net for utterances with no timing
+    // overlap info (e.g. mid-thinking, before any audio has played).
+    if (u.overlapsAssistantSpeech || this.shouldUseAssistantCommandPath(store.status)) {
+      this.handleAssistantCommandUtterance(u, wake.detected, utteranceStable);
+      return;
+    }
+
+    // "Thank you, Kivo" ends the conversation outside active playback. During
+    // playback/thinking, or on audio flagged as Kivo's own echo, the stricter
+    // command-only path above handles it.
     if (utteranceStable && detectCloseWord(u.text)) {
       this.handleClose();
+      return;
+    }
+
+    if (
+      utteranceStable &&
+      this.followUpListening &&
+      this.isStopCommand(u.text)
+    ) {
+      this.handleStopCommand();
       return;
     }
 
@@ -256,11 +301,21 @@ export class AriaEngine {
         { speaker: u.speaker, speakerName: u.speakerName ?? null }
       );
     }
-    if (u.isFinal && u.speechFinal) {
+
+    // Utterances that are (or become) part of question capture are never
+    // persisted as a speaker turn — the server already persists the resolved
+    // question as its own turn, and persisting the raw utterance too would
+    // duplicate it in the transcript.
+    const willEnterCapture =
+      wake.detected ||
+      (utteranceStable && this.followUpListening && u.text.trim().length > 0);
+    const isQuestionCaptureUtterance = this.capturingQuestion || willEnterCapture;
+
+    if (u.isFinal && u.speechFinal && !isQuestionCaptureUtterance) {
       void this.bufferSpeakerTurn(u);
     }
 
-    if (!this.capturingQuestion && utteranceStable) {
+    if (!this.capturingQuestion) {
       if (wake.detected) {
         this.handleWake(
           u.id,
@@ -268,7 +323,11 @@ export class AriaEngine {
           u.speakerName ?? null,
           u.providerSpeakerLabel ?? null
         );
-      } else if (this.followUpListening && u.text.trim().length > 0) {
+      } else if (
+        utteranceStable &&
+        this.followUpListening &&
+        u.text.trim().length > 0
+      ) {
         this.handleFollowUp(
           u.id,
           u.speaker,
@@ -281,9 +340,9 @@ export class AriaEngine {
     if (!this.capturingQuestion) return;
 
     if (this.wakeUtteranceId === u.id) {
-      if (wake.detected) {
+      if (utteranceStable && wake.detected) {
         this.inlineQuestion = wake.question;
-      } else if (this.captureWholeAnchorUtterance) {
+      } else if (utteranceStable && this.captureWholeAnchorUtterance) {
         this.inlineQuestion = u.text.trim();
       }
       if (this.inlineQuestion) {
@@ -294,13 +353,62 @@ export class AriaEngine {
       return;
     }
 
-    this.upsertQuestionUtterance({
-      ...u,
-      text: wake.detected ? wake.question : u.text,
-    });
-    if (this.getCapturedQuestion().question.length > 0) {
-      this.scheduleQuestionResolution(
-        u.speechFinal ? SPEECH_FINAL_SETTLE_MS : QUESTION_SETTLE_MS
+    if (utteranceStable) {
+      this.upsertQuestionUtterance({
+        ...u,
+        text: wake.detected ? wake.question : u.text,
+      });
+      if (this.getCapturedQuestion().question.length > 0) {
+        this.scheduleQuestionResolution(
+          u.speechFinal ? SPEECH_FINAL_SETTLE_MS : QUESTION_SETTLE_MS
+        );
+      }
+    }
+  }
+
+  private shouldUseAssistantCommandPath(status: AriaStatus): boolean {
+    return status === "speaking" || status === "thinking";
+  }
+
+  private isStopCommand(text: string): boolean {
+    // Short whole-utterance stop phrases ("stop", "shut up"). Echo is now
+    // identified by audio timing (overlapsAssistantSpeech), not by requiring
+    // the wake word, so bare stop words work the same in every transcription
+    // mode.
+    if (wordCount(text) <= ASSISTANT_COMMAND_MAX_WORDS && detectStopWord(text)) {
+      return true;
+    }
+    // The trailing clause covers utterances where Kivo's echo merged with
+    // real speech into one long final (e.g. "...goal of the app. Stop.") —
+    // the word-count cap only applies to the whole-utterance check above.
+    return detectTrailingStop(text);
+  }
+
+  private isWakeOnlyCommand(text: string, wakeDetected: boolean): boolean {
+    if (!wakeDetected || wordCount(text) > ASSISTANT_COMMAND_MAX_WORDS) {
+      return false;
+    }
+    return extractQuestionAfterWake(text).question.length === 0;
+  }
+
+  private handleAssistantCommandUtterance(
+    u: TranscriptUtterance,
+    wakeDetected: boolean,
+    utteranceStable: boolean
+  ) {
+    if (!utteranceStable) return;
+
+    if (this.isStopCommand(u.text)) {
+      this.handleStopCommand();
+      return;
+    }
+
+    if (this.isWakeOnlyCommand(u.text, wakeDetected)) {
+      this.handleWake(
+        u.id,
+        u.speaker,
+        u.speakerName ?? null,
+        u.providerSpeakerLabel ?? null
       );
     }
   }
@@ -373,6 +481,17 @@ export class AriaEngine {
     devLog("wake", "Close phrase detected — conversation ended.");
   }
 
+  private handleStopCommand() {
+    this.stopPlayback();
+    this.abortActiveFetch();
+    this.cues.stopThinkingLoop();
+    this.stopFollowUpWindow();
+    this.resetQuestionCapture();
+    this.cues.playClose();
+    useAriaStore.getState().setStatus("listening");
+    devLog("wake", "Stop command detected — Kivo silenced.");
+  }
+
   private handleFollowUp(
     utteranceId: string,
     speaker: number,
@@ -414,6 +533,7 @@ export class AriaEngine {
     speaker: number | null;
     speakerName: string | null;
     providerSpeakerLabel: string | null;
+    sourceUtteranceIds: string[];
   } {
     const parts = [
       this.inlineQuestion.trim(),
@@ -425,6 +545,18 @@ export class AriaEngine {
       merged = joinText(merged, part);
     }
 
+    // The raw live utterances that fed this question are pushed into the store
+    // during capture (see handleUtterance) but never persisted as speaker turns.
+    // Carrying their ids onto the persisted user_question turn lets
+    // buildLiveTranscriptLines dedup the raw copies out of the live tail.
+    const sourceUtteranceIds = [
+      ...new Set(
+        [this.wakeUtteranceId, ...this.questionUtterances.map((u) => u.id)].filter(
+          (id): id is string => id != null
+        )
+      ),
+    ];
+
     return {
       question: sanitizeQuestionText(merged),
       speaker: this.wakeSpeaker ?? this.questionUtterances[0]?.speaker ?? null,
@@ -434,6 +566,7 @@ export class AriaEngine {
         this.wakeProviderSpeakerLabel ??
         this.questionUtterances[0]?.providerSpeakerLabel ??
         null,
+      sourceUtteranceIds,
     };
   }
 
@@ -497,6 +630,12 @@ export class AriaEngine {
   }
 
   private async resolveCapturedQuestion(question: string) {
+    // Wake word + stop phrase in one utterance ("Kivo. Just shut up.") should
+    // silence Kivo, not be sent to the LLM as a question.
+    if (this.isStopCommand(question)) {
+      this.handleStopCommand();
+      return;
+    }
     if (!isSubstantiveQuestion(question)) {
       this.resetQuestionCapture();
       useAriaStore.getState().setStatus("listening");
@@ -506,20 +645,22 @@ export class AriaEngine {
     await this.askAndReset(
       captured.question,
       captured.speaker,
-      captured.speakerName
+      captured.speakerName,
+      captured.sourceUtteranceIds
     );
   }
 
   private async askAndReset(
     question: string,
     speaker: number | null,
-    speakerName: string | null
+    speakerName: string | null,
+    sourceUtteranceIds: string[]
   ) {
     await this.flushPersistedSpeakerTurn();
     this.resetQuestionCapture();
     const cleanQuestion = sanitizeQuestionText(question);
     if (!cleanQuestion) return;
-    await this.askAria(cleanQuestion, speaker, speakerName);
+    await this.askAria(cleanQuestion, speaker, speakerName, sourceUtteranceIds);
   }
 
   private resetQuestionCapture() {
@@ -537,7 +678,8 @@ export class AriaEngine {
   private async askAria(
     question: string,
     speaker: number | null,
-    speakerName: string | null
+    speakerName: string | null,
+    sourceUtteranceIds: string[] = []
   ) {
     const store = useAriaStore.getState();
     store.setStatus("thinking");
@@ -556,7 +698,8 @@ export class AriaEngine {
         question,
         speaker,
         speakerName,
-        controller.signal
+        controller.signal,
+        sourceUtteranceIds
       );
 
       devLog("pipeline", "response_headers", {
@@ -736,6 +879,7 @@ export class AriaEngine {
         this.clearFollowUpStartTimer();
         this.stopFollowUpWindow();
         this.isAssistantSpeaking = true;
+        this.stt?.markAssistantSpeechStart();
         this.cues.stopThinkingLoop();
         useAriaStore.getState().setStatus("speaking");
         if (options.clientT0 != null) {
@@ -749,6 +893,7 @@ export class AriaEngine {
         if (generation !== this.playbackGeneration) return;
         this.currentClipStop = null;
         this.isAssistantSpeaking = false;
+        this.stt?.markAssistantSpeechEnd();
         this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
         useAriaStore.getState().setStatus("listening");
         if (options.enableFollowUp) {
@@ -762,6 +907,7 @@ export class AriaEngine {
         if (generation !== this.playbackGeneration) return;
         this.currentClipStop = null;
         this.isAssistantSpeaking = false;
+        this.stt?.markAssistantSpeechEnd();
         this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
         this.cues.stopThinkingLoop();
         this.cues.playError();
@@ -793,6 +939,7 @@ export class AriaEngine {
       this.clearFollowUpStartTimer();
       this.stopFollowUpWindow();
       this.isAssistantSpeaking = true;
+      this.stt?.markAssistantSpeechStart();
       this.cues.stopThinkingLoop();
       useAriaStore.getState().setStatus("speaking");
       if (options.clientT0 != null) {
@@ -807,6 +954,7 @@ export class AriaEngine {
       this.currentAudio = null;
       this.currentAudioUrl = null;
       this.isAssistantSpeaking = false;
+      this.stt?.markAssistantSpeechEnd();
       this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       useAriaStore.getState().setStatus("listening");
       if (options.enableFollowUp) {
@@ -822,6 +970,7 @@ export class AriaEngine {
       this.currentAudio = null;
       this.currentAudioUrl = null;
       this.isAssistantSpeaking = false;
+      this.stt?.markAssistantSpeechEnd();
       this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       this.cues.stopThinkingLoop();
       this.cues.playError();
@@ -875,6 +1024,9 @@ export class AriaEngine {
 
   private stopPlayback() {
     this.isAssistantSpeaking = false;
+    // Close any dangling open assistant-speech interval (barge-in / stop
+    // command cutting playback short) so the echo tail is still bounded.
+    this.stt?.markAssistantSpeechEnd();
     this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
     this.clearFollowUpStartTimer();
     // Invalidate any in-flight clip callbacks and stop the active buffer source.
@@ -936,7 +1088,7 @@ export class AriaEngine {
       await appendSessionTurn(this.sessionId, {
         role: "speaker",
         text,
-        speaker: u.speaker >= 0 ? u.speaker : null,
+        speaker: this.transcriptionMode === "basic" ? null : u.speaker,
         speakerName: u.speakerName ?? null,
         sourceUtteranceIds: turn.sourceUtteranceIds,
       });

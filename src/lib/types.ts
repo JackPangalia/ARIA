@@ -18,6 +18,15 @@ export interface TranscriptUtterance {
   end: number;
   isFinal: boolean;
   speechFinal?: boolean;
+  /**
+   * True when this utterance's words were captured while Kivo's own TTS audio
+   * was playing (± a small guard window), determined by comparing word
+   * timestamps against known assistant-speech intervals on the audio-stream
+   * timeline. Such utterances are Kivo's own voice echoing through the mic and
+   * must never be treated as real speech (transcript, question capture) —
+   * only scanned for stop/wake commands.
+   */
+  overlapsAssistantSpeech?: boolean;
 }
 
 export type AriaStatus =

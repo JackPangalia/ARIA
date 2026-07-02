@@ -276,13 +276,20 @@ export async function askSessionQuestion(
   question: string,
   speaker?: number | null,
   speakerName?: string | null,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  sourceUtteranceIds?: string[]
 ): Promise<Response> {
   const headers = await getAuthHeader();
   return fetch("/api/ask", {
     method: "POST",
     headers,
-    body: JSON.stringify({ sessionId, question, speaker, speakerName }),
+    body: JSON.stringify({
+      sessionId,
+      question,
+      speaker,
+      speakerName,
+      sourceUtteranceIds,
+    }),
     signal,
   });
 }

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  detectStopWord,
+  detectTrailingStop,
   detectCloseWord,
+  END_OF_UTTERANCE_GRACE_MS,
   extractQuestionAfterWake,
   extractQuestionAfterWakeMeeting,
+  QUESTION_SETTLE_MS,
+  SPEECH_FINAL_SETTLE_MS,
 } from "./wake";
 
 describe("extractQuestionAfterWake", () => {
@@ -59,6 +64,86 @@ describe("detectCloseWord", () => {
     expect(detectCloseWord("thank you so much for that")).toBe(false);
     expect(detectCloseWord("thanks everyone")).toBe(false);
     expect(detectCloseWord("that was helpful")).toBe(false);
+  });
+});
+
+describe("detectStopWord", () => {
+  it("matches short whole-utterance stop commands", () => {
+    for (const phrase of [
+      "stop",
+      "okay stop",
+      "shut up",
+      "that's enough",
+      "thank you",
+      "kivo stop",
+      "thank you, Kivo",
+    ]) {
+      expect(detectStopWord(phrase)).toBe(true);
+    }
+  });
+
+  it("requires Kivo in strict mode", () => {
+    expect(detectStopWord("stop", { requireWakeWord: true })).toBe(false);
+    expect(detectStopWord("Kivo stop", { requireWakeWord: true })).toBe(true);
+    expect(detectStopWord("thank you, Kivo", { requireWakeWord: true })).toBe(
+      true
+    );
+  });
+
+  it("does not match longer speech that merely contains a stop word", () => {
+    expect(detectStopWord("we should stop and think about it")).toBe(false);
+    expect(detectStopWord("thank you for walking through all of that")).toBe(
+      false
+    );
+  });
+
+  it("matches filler-prefixed and repeated stop commands", () => {
+    for (const phrase of [
+      "just shut up",
+      "please stop",
+      "just stop",
+      "shut up shut up",
+      "shut up! shut up!",
+      "stop stop",
+      "Kivo. Just shut up.",
+    ]) {
+      expect(detectStopWord(phrase)).toBe(true);
+    }
+  });
+});
+
+describe("detectTrailingStop", () => {
+  it("matches a stop command in the final clause of a longer utterance", () => {
+    expect(
+      detectTrailingStop("that is the goal of the app. Stop.")
+    ).toBe(true);
+    expect(
+      detectTrailingStop("stocking goal of the app . Stop .")
+    ).toBe(true);
+    expect(detectTrailingStop("okay great work everyone. Thank you.")).toBe(
+      true
+    );
+  });
+
+  it("does not match single-clause utterances (no sentence boundary)", () => {
+    expect(detectTrailingStop("we should stop and think about it")).toBe(
+      false
+    );
+    expect(detectTrailingStop("stop")).toBe(false);
+  });
+
+  it("does not match a final clause that isn't a stop phrase", () => {
+    expect(
+      detectTrailingStop("let's build the app. It's about birds.")
+    ).toBe(false);
+  });
+});
+
+describe("voice-mode timing constants", () => {
+  it("uses fast turn-taking defaults", () => {
+    expect(QUESTION_SETTLE_MS).toBe(1500);
+    expect(SPEECH_FINAL_SETTLE_MS).toBe(1500);
+    expect(END_OF_UTTERANCE_GRACE_MS).toBe(250);
   });
 });
 

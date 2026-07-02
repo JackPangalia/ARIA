@@ -17,9 +17,10 @@ import {
   patchSession,
   subscribeSessionTurns,
 } from "@/lib/sessions/client";
+import { buildLiveTranscriptLines } from "@/lib/sessions/live-transcript";
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
-import { readSidebarCollapsed, storeSidebarCollapsed } from "@/lib/sidebar-layout";
+import { readSidebarCollapsed, SIDEBAR_WIDTH, storeSidebarCollapsed } from "@/lib/sidebar-layout";
 import { SettingsModal } from "@/components/firebase/SettingsModal";
 import {
   SessionInsightsPanel,
@@ -239,6 +240,8 @@ export function SessionWorkspace() {
   const [panelsCollapsed, setPanelsCollapsedState] = useState(
     () => readSidebarCollapsed()
   );
+  const [sidebarExiting, setSidebarExiting] = useState(false);
+  const sidebarExitingRef = useRef(false);
   const [settingsOpen, setSettingsOpen] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("settings") === "1";
@@ -274,7 +277,38 @@ export function SessionWorkspace() {
     storeSidebarCollapsed(collapsed);
   }, []);
 
+  const expandPanels = useCallback(() => {
+    sidebarExitingRef.current = false;
+    setSidebarExiting(false);
+    setPanelsCollapsed(false);
+  }, [setPanelsCollapsed]);
+
+  const collapsePanels = useCallback(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      sidebarExitingRef.current = false;
+      setSidebarExiting(false);
+      setPanelsCollapsed(true);
+      return;
+    }
+    sidebarExitingRef.current = true;
+    setSidebarExiting(true);
+  }, [setPanelsCollapsed]);
+
+  const handleSidebarAnimationEnd = useCallback(
+    (event: React.AnimationEvent<HTMLDivElement>) => {
+      if (!event.animationName.includes("kivo-slide-out-left")) return;
+      if (!sidebarExitingRef.current) return;
+      sidebarExitingRef.current = false;
+      setSidebarExiting(false);
+      setPanelsCollapsed(true);
+    },
+    [setPanelsCollapsed]
+  );
+
+  const showDesktopSidebar = !panelsCollapsed || sidebarExiting;
+
   const ariaStatus = useAriaStore((state) => state.status);
+  const liveUtterances = useAriaStore((state) => state.utterances);
   const bootstrappedRef = useRef(false);
   const searchDebounceRef = useRef<number | null>(null);
 
@@ -348,7 +382,7 @@ export function SessionWorkspace() {
         const existingId = useSessionStore.getState().selectedSessionId;
         if (existingId) {
           await refreshDetail(existingId);
-          setPanelsCollapsed(false);
+          expandPanels();
           openSummaryIfDesktop();
         }
       } catch (err) {
@@ -357,7 +391,7 @@ export function SessionWorkspace() {
         setLoading(false);
       }
     })();
-  }, [refreshDetail, refreshProjects, refreshSessions, setError, setLoading, openSummaryIfDesktop, setPanelsCollapsed]);
+  }, [refreshDetail, refreshProjects, refreshSessions, setError, setLoading, openSummaryIfDesktop, expandPanels]);
 
   const goToStartScreen = useCallback(() => {
     setSelectedSessionId(null);
@@ -379,9 +413,9 @@ export function SessionWorkspace() {
       await refreshSessions(searchQuery);
       setSelectedSessionId(created.id);
       await refreshDetail(created.id);
-      setPanelsCollapsed(false);
+      expandPanels();
       openSummaryIfDesktop();
-      return created.id;
+      return created;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create session.");
       throw err;
@@ -392,7 +426,7 @@ export function SessionWorkspace() {
     refreshSessions,
     searchQuery,
     setError,
-    setPanelsCollapsed,
+    expandPanels,
     setSelectedSessionId,
   ]);
 
@@ -411,10 +445,10 @@ export function SessionWorkspace() {
     if (!selectedSessionId) return;
     if (!micLive && !botActive) return;
 
-    // Bot mode: live Firestore subscription for turns (worker persists server-side).
-    // Fall back to polling for session metadata and when the listener is unavailable.
+    // Stream committed turns for both bot and mic sessions; polling remains as a
+    // metadata/listener fallback, while mic partials render from local state.
     let unsubscribeTurns: (() => void) | undefined;
-    if (botActive) {
+    if (botActive || micLive) {
       unsubscribeTurns = subscribeSessionTurns(selectedSessionId, (turns) => {
         const current = useSessionStore.getState().detail;
         if (!current || current.session.id !== selectedSessionId) return;
@@ -432,6 +466,15 @@ export function SessionWorkspace() {
       window.clearInterval(timer);
     };
   }, [micLive, botActive, refreshDetail, selectedSessionId, setDetail]);
+
+  const transcriptLines = useMemo(
+    () =>
+      buildLiveTranscriptLines({
+        turns: detail?.turns ?? [],
+        utterances: micLive ? liveUtterances : [],
+      }),
+    [detail?.turns, liveUtterances, micLive]
+  );
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -566,7 +609,7 @@ export function SessionWorkspace() {
       setSelectedSessionId(sessionId);
       await refreshDetail(sessionId);
       setSidebarOpen(false);
-      setPanelsCollapsed(false);
+      expandPanels();
       openSummaryIfDesktop();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load session.");
@@ -689,22 +732,7 @@ export function SessionWorkspace() {
 
   const filteredSessions = useMemo(() => sessions, [sessions]);
 
-  const gridClass = panelsCollapsed
-    ? "grid-cols-1"
-    : "lg:grid-cols-[16rem_minmax(0,1fr)]";
-
   const hasSession = Boolean(selectedSessionId && detail);
-  const activeSession = useMemo(
-    () =>
-      selectedSessionId
-        ? sessions.find((session) => session.id === selectedSessionId) ?? null
-        : null,
-    [selectedSessionId, sessions]
-  );
-  const orbSessionTitle = detail?.session.title ?? activeSession?.title;
-  const orbResume = Boolean(
-    (detail?.session.turnCount ?? activeSession?.turnCount ?? 0) > 0
-  );
   const activeProject =
     projectFilter === "project" && selectedProjectId
       ? projects.find((project) => project.id === selectedProjectId) ?? null
@@ -721,17 +749,7 @@ export function SessionWorkspace() {
 
   if (loading) {
     return (
-      <div className={`grid h-dvh w-full grid-cols-1 overflow-hidden bg-app ${gridClass}`}>
-        <div className="hidden min-h-0 flex-col gap-2 p-3 lg:flex">
-          <div className="kivo-skeleton h-9 w-full" />
-          <div className="kivo-skeleton h-11 w-full" />
-          <div className="mt-4 space-y-2">
-            <div className="kivo-skeleton h-7 w-24" />
-            <div className="kivo-skeleton h-8 w-full" />
-            <div className="kivo-skeleton h-8 w-full" />
-            <div className="kivo-skeleton h-8 w-3/4" />
-          </div>
-        </div>
+      <div className="grid h-dvh w-full grid-cols-1 overflow-hidden bg-app">
         <div className="flex items-center justify-center">
           <div className="kivo-skeleton h-48 w-48 rounded-full" />
         </div>
@@ -740,32 +758,37 @@ export function SessionWorkspace() {
   }
 
   return (
-    <div
-      className={`grid h-dvh w-full grid-cols-1 overflow-hidden bg-app text-app ${gridClass}`}
-    >
-      {!panelsCollapsed ? (
-        <div className="kivo-slide-in-left hidden min-h-0 bg-transparent lg:block">
-          <SessionSidebar
-            projects={projects}
-            sessions={filteredSessions}
-            selectedSessionId={selectedSessionId}
-            selectedProjectId={selectedProjectId}
-            onOpenSearch={openSearch}
-            onSelectProject={(id) => selectProject(id)}
-            onCreateProject={() => setProjectEditor({ mode: "create" })}
-            onEditProject={(project) => setProjectEditor({ mode: "edit", project })}
-            onSelect={handleSelectSession}
-            onCreate={handleNewSession}
-            onCollapse={() => setPanelsCollapsed(true)}
-            onRename={(id, title) => void handleRename(id, title)}
-            onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
-            onMoveToProject={openMoveSessionDialog}
-            onExportMarkdown={(id) => void handleExport(id, "markdown")}
-            onExportJson={(id) => void handleExport(id, "json")}
-            onTrash={(id) => setTrashConfirmId(id)}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
-        </div>
+    <div className="grid h-dvh w-full grid-cols-1 overflow-hidden bg-app text-app">
+      {showDesktopSidebar ? (
+      <div
+        aria-hidden={panelsCollapsed && !sidebarExiting}
+        className={`fixed inset-y-0 left-0 z-30 hidden h-dvh min-h-0 bg-transparent lg:block${
+          sidebarExiting ? " kivo-slide-out-left" : " kivo-slide-in-left"
+        }`}
+        style={{ width: SIDEBAR_WIDTH }}
+        onAnimationEnd={handleSidebarAnimationEnd}
+      >
+        <SessionSidebar
+          projects={projects}
+          sessions={filteredSessions}
+          selectedSessionId={selectedSessionId}
+          selectedProjectId={selectedProjectId}
+          onOpenSearch={openSearch}
+          onSelectProject={(id) => selectProject(id)}
+          onCreateProject={() => setProjectEditor({ mode: "create" })}
+          onEditProject={(project) => setProjectEditor({ mode: "edit", project })}
+          onSelect={handleSelectSession}
+          onCreate={handleNewSession}
+          onCollapse={collapsePanels}
+          onRename={(id, title) => void handleRename(id, title)}
+          onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
+          onMoveToProject={openMoveSessionDialog}
+          onExportMarkdown={(id) => void handleExport(id, "markdown")}
+          onExportJson={(id) => void handleExport(id, "json")}
+          onTrash={(id) => setTrashConfirmId(id)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      </div>
       ) : null}
 
       {sidebarOpen ? (
@@ -899,7 +922,7 @@ export function SessionWorkspace() {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-start px-3 pb-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
           <div className="pointer-events-auto flex items-center gap-1 justify-self-start">
             {panelsCollapsed ? (
-              <SidebarExpandButton onClick={() => setPanelsCollapsed(false)} />
+              <SidebarExpandButton onClick={() => expandPanels()} />
             ) : null}
             <button
               type="button"
@@ -936,7 +959,7 @@ export function SessionWorkspace() {
           >
             <div className="flex h-full min-h-0 w-full flex-col lg:pointer-events-auto lg:ml-auto lg:w-auto">
               <SessionInsightsPanel
-                turns={detail!.turns}
+                lines={transcriptLines}
                 onCollapse={() => setSummaryOpen(false)}
               />
             </div>
@@ -968,8 +991,8 @@ export function SessionWorkspace() {
                   </p>
 
                   <OrbVisualizer
-                    sessionTitle={orbSessionTitle}
-                    resume={orbResume}
+                    sessionTitle={detail?.session.title}
+                    resume={Boolean(detail && detail.session.turnCount > 0)}
                     onRenameTitle={
                       selectedSessionId
                         ? (title) => void handleRename(selectedSessionId, title)
@@ -1019,8 +1042,9 @@ export function SessionWorkspace() {
                     ) : (
                       <Controls
                         sessionId={selectedSessionId}
+                        transcriptionMode={detail?.session.transcriptionMode ?? "speaker"}
                         disabled={detail?.session.status === "archived"}
-                        resume={orbResume}
+                        resume={Boolean(detail && detail.session.turnCount > 0)}
                         ensureSession={ensureSession}
                         onActivity={handleSessionActivity}
                       />
@@ -1029,8 +1053,9 @@ export function SessionWorkspace() {
                 ) : (
                   <Controls
                     sessionId={selectedSessionId}
+                    transcriptionMode={detail?.session.transcriptionMode ?? "speaker"}
                     disabled={detail?.session.status === "archived"}
-                    resume={orbResume}
+                    resume={Boolean(detail && detail.session.turnCount > 0)}
                     ensureSession={ensureSession}
                     onActivity={handleSessionActivity}
                   />

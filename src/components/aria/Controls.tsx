@@ -3,16 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import { AriaEngine } from "@/lib/audio/aria-engine";
 import { warmComposioTools } from "@/lib/composio/client-api";
+import type { SessionDoc, TranscriptionMode } from "@/lib/sessions/types";
 import { useAriaStore } from "@/lib/store";
 
 export function Controls(props: {
   sessionId: string | null;
+  transcriptionMode: TranscriptionMode;
   disabled?: boolean;
   resume?: boolean;
-  ensureSession?: () => Promise<string>;
+  ensureSession?: () => Promise<SessionDoc>;
   onActivity?: () => void;
 }) {
-  const { sessionId, disabled, resume, ensureSession, onActivity } = props;
+  const {
+    sessionId,
+    transcriptionMode,
+    disabled,
+    resume,
+    ensureSession,
+    onActivity,
+  } = props;
   const status = useAriaStore((s) => s.status);
   const engineRef = useRef<AriaEngine | null>(null);
   const prevSessionIdRef = useRef(sessionId);
@@ -40,12 +49,16 @@ export function Controls(props: {
     setBusy(true);
     try {
       let activeSessionId = sessionId;
+      let activeTranscriptionMode = transcriptionMode;
       if (!activeSessionId) {
         if (!ensureSession) return;
-        activeSessionId = await ensureSession();
+        const session = await ensureSession();
+        activeSessionId = session.id;
+        activeTranscriptionMode = session.transcriptionMode;
       }
       const engine = new AriaEngine({
         sessionId: activeSessionId,
+        transcriptionMode: activeTranscriptionMode,
         onSessionActivity: () => {
           onActivity?.();
           window.dispatchEvent(new Event("kivo:usage-refresh"));

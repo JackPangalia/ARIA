@@ -41,8 +41,12 @@ export async function POST(req: NextRequest) {
     if (isNew) {
       const { tier, limits } = await loadEntitlements(uid);
       if (!canCreateSpeakerProfile(limits, existing.length)) {
+        const message =
+          limits.maxSpeakerProfiles === 0
+            ? `Your ${PLANS[tier].display.name} plan uses Basic transcription. Upgrade to add speaker profiles.`
+            : `Your ${PLANS[tier].display.name} plan allows ${limits.maxSpeakerProfiles} speaker profiles. Upgrade for more.`;
         return jsonError(
-          `Your ${PLANS[tier].display.name} plan allows ${limits.maxSpeakerProfiles} speaker profiles. Upgrade for more.`,
+          message,
           403
         );
       }

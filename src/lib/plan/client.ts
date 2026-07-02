@@ -2,6 +2,8 @@
 
 import { auth } from "@/lib/firebase/client";
 import type { UsageSummary } from "@/lib/plan/types";
+import type { Tier } from "@/lib/plan/tiers";
+import type { TranscriptionMode } from "@/lib/sessions/types";
 
 async function getAuthHeader(): Promise<HeadersInit> {
   const user = auth.currentUser;
@@ -30,6 +32,26 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function getUsage(): Promise<UsageSummary> {
   return apiFetch<UsageSummary>("/api/usage");
+}
+
+export interface TranscriptionModePreference {
+  tier: Tier;
+  defaultTranscriptionMode: TranscriptionMode;
+  effectiveTranscriptionMode: TranscriptionMode;
+  speakerModeLocked: boolean;
+}
+
+export async function getTranscriptionModePreference(): Promise<TranscriptionModePreference> {
+  return apiFetch<TranscriptionModePreference>("/api/transcription-mode");
+}
+
+export async function updateTranscriptionModePreference(
+  defaultTranscriptionMode: TranscriptionMode
+): Promise<TranscriptionModePreference> {
+  return apiFetch<TranscriptionModePreference>("/api/transcription-mode", {
+    method: "PATCH",
+    body: JSON.stringify({ defaultTranscriptionMode }),
+  });
 }
 
 export interface HeartbeatResult {

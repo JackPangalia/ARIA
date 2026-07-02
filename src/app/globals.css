@@ -454,6 +454,21 @@ body {
   animation: kivo-slide-in-left 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+@keyframes kivo-slide-out-left {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+}
+
+.kivo-slide-out-left {
+  animation: kivo-slide-out-left 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 @keyframes kivo-overlay-in {
   from {
     opacity: 0;
@@ -514,6 +529,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .kivo-fade-in,
   .kivo-slide-in-left,
+  .kivo-slide-out-left,
   .kivo-overlay-in,
   .kivo-panel-in-left,
   .kivo-stagger > * {

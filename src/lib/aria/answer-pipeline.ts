@@ -74,6 +74,9 @@ export interface AnswerPipelineInput {
   question: string;
   speaker?: number | null;
   speakerName?: string | null;
+  /** Raw live-transcript utterance ids that fed this question; recorded on the
+   * persisted user_question turn so the UI can dedup the raw live copies. */
+  sourceUtteranceIds?: string[];
   env: ServerEnv;
   signal: AbortSignal;
   /** Reuse an existing pipeline handle (route); one is created if omitted (worker). */
@@ -137,6 +140,7 @@ export async function runAnswerPipeline(
     text: question,
     speaker,
     speakerName,
+    sourceUtteranceIds: input.sourceUtteranceIds ?? [],
   })
     .then(() => pipeline.stage("persist.question", { ok: true }))
     .catch((err) => {

@@ -22,6 +22,7 @@ import type {
   SessionPinDoc,
   SessionStatus,
   SessionSummaryDoc,
+  TranscriptionMode,
   TurnDoc,
   TurnRole,
 } from "@/lib/sessions/types";
@@ -65,6 +66,8 @@ function toIso(value: unknown): string {
 }
 
 function mapSession(id: string, data: DocumentData): SessionDoc {
+  const transcriptionMode: TranscriptionMode =
+    data.transcriptionMode === "basic" ? "basic" : "speaker";
   return {
     id,
     title: String(data.title ?? "Untitled session"),
@@ -82,6 +85,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
     turnCount: Number(data.turnCount ?? 0),
     pinned: Boolean(data.pinned),
     mode: data.mode === "bot" ? "bot" : "in_person",
+    transcriptionMode,
     botId: data.botId ? String(data.botId) : null,
     meetingPlatform: data.meetingPlatform
       ? (String(data.meetingPlatform) as SessionDoc["meetingPlatform"])
@@ -164,7 +168,12 @@ function appendPreview(current: string, addition: string): string {
 
 export async function createSession(
   uid: string,
-  input: { title?: string; speakerCount: number; projectId?: string | null }
+  input: {
+    title?: string;
+    speakerCount: number;
+    projectId?: string | null;
+    transcriptionMode: TranscriptionMode;
+  }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
   const ref = sessionsCol(db, uid).doc();
@@ -182,6 +191,7 @@ export async function createSession(
     autoTitled: false,
     status: "active",
     speakerCount: input.speakerCount,
+    transcriptionMode: input.transcriptionMode,
     createdAt: now,
     updatedAt: now,
     endedAt: null,

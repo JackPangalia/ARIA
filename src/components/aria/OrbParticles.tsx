@@ -3,12 +3,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-/** Matches `--app-bg` in globals.css so the canvas rect blends with the shell. */
-const APP_BG = {
-  dark: 0x090909,
-  light: 0xfafafa,
-} as const;
-
 /**
  * The Kivo orb, rendered as a Three.js particle sphere — the same look as the
  * marketing hero (`LandingOrb`), but driven by the in-app state machine instead
@@ -65,11 +59,10 @@ export function OrbParticles({
     const renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      alpha: false,
+      alpha: true,
     });
     renderer.setSize(W, H, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
-    renderer.setClearColor(isLight ? APP_BG.light : APP_BG.dark, 1);
 
     function makeSprite() {
       const s = 128;
@@ -255,7 +248,7 @@ export function OrbParticles({
   return (
     <canvas
       ref={canvasRef}
-      className={className ? `bg-app ${className}` : "bg-app"}
+      className={className}
       aria-hidden="true"
     />
   );

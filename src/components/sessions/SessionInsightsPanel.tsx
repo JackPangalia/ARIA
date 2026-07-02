@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
-import type { TurnDoc } from "@/lib/sessions/types";
+import { useEffect, useRef } from "react";
+import type { TranscriptLine } from "@/lib/sessions/live-transcript";
 
 const LABEL_GUTTER = "5.25rem";
 const LABEL_GAP = "0.75rem";
@@ -47,12 +47,12 @@ export function TranscriptExpandButton(props: { onClick: () => void }) {
   );
 }
 
-function turnLabel(turn: TurnDoc): string {
-  if (turn.role === "assistant") return "Kivo";
-  if (turn.role === "user_question") {
-    return turn.speakerName ?? "Other speaker";
+function turnLabel(line: TranscriptLine): string {
+  if (line.role === "assistant") return "Kivo";
+  if (line.role === "user_question") {
+    return line.speakerName ?? "Other speaker";
   }
-  return turn.speakerName ?? "Other speaker";
+  return line.speakerName ?? "Other speaker";
 }
 
 // Deterministic hue per speaker name so each person keeps a consistent dot
@@ -63,16 +63,18 @@ function speakerHue(name: string): number {
   return Math.abs(h) % 360;
 }
 
-function SpeakerDot({ turn }: { turn: TurnDoc }) {
-  const isKivo = turn.role === "assistant";
+function SpeakerDot({ line }: { line: TranscriptLine }) {
+  const isKivo = line.role === "assistant";
   return (
     <span
       aria-hidden
-      className={`h-1.5 w-1.5 shrink-0 rounded-full ${isKivo ? "bg-accent" : ""}`}
+      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+        isKivo ? "bg-accent" : line.isPartial ? "animate-pulse" : ""
+      }`}
       style={
         isKivo
           ? undefined
-          : { background: `hsl(${speakerHue(turnLabel(turn))} 60% 55%)` }
+          : { background: `hsl(${speakerHue(turnLabel(line))} 60% 55%)` }
       }
     />
   );
@@ -92,15 +94,15 @@ function CloseIcon({ className }: { className?: string }) {
 }
 
 export function SessionInsightsPanel(props: {
-  turns: TurnDoc[];
+  lines: TranscriptLine[];
   onCollapse?: () => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  const lastTurnId = props.turns[props.turns.length - 1]?.id;
+  const lastLineId = props.lines[props.lines.length - 1]?.id;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [lastTurnId, props.turns.length]);
+  }, [lastLineId, props.lines.length]);
 
   return (
     <div className="group relative flex h-full min-h-0 w-full flex-col lg:w-[var(--transcript-reserve)] [--transcript-reserve:calc(17rem+5.25rem+0.75rem)]">
@@ -134,18 +136,18 @@ export function SessionInsightsPanel(props: {
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
-        <TranscriptLines turns={props.turns} endRef={endRef} gutter />
+        <TranscriptLines lines={props.lines} gutter />
+        <div ref={endRef} className="h-px shrink-0" aria-hidden />
       </div>
     </div>
   );
 }
 
 function TranscriptLines(props: {
-  turns: TurnDoc[];
-  endRef: RefObject<HTMLDivElement | null>;
+  lines: TranscriptLine[];
   gutter?: boolean;
 }) {
-  if (props.turns.length === 0) {
+  if (props.lines.length === 0) {
     return (
       <p
         className={`py-6 text-sm font-normal leading-relaxed text-app-muted ${
@@ -159,9 +161,9 @@ function TranscriptLines(props: {
 
   return (
     <ul className="w-full space-y-4 px-1 pb-2 lg:space-y-3.5 lg:px-0">
-      {props.turns.map((turn) => (
+      {props.lines.map((line) => (
         <li
-          key={turn.id}
+          key={line.id}
           className={
             props.gutter
               ? "flex w-full flex-col items-start gap-1 lg:flex-row lg:items-baseline lg:gap-3"
@@ -170,27 +172,33 @@ function TranscriptLines(props: {
         >
           <span
             className={`flex max-w-full items-center gap-1.5 text-xs font-medium leading-[1.5] ${
-              turn.role === "assistant" ? "text-app-secondary" : "text-app-muted"
+              line.role === "assistant" ? "text-app-secondary" : "text-app-muted"
             } ${
               props.gutter
                 ? "justify-start lg:w-[5.25rem] lg:shrink-0 lg:justify-end"
                 : "w-[4rem] shrink-0 justify-end"
             }`}
-            title={turnLabel(turn)}
+            title={turnLabel(line)}
           >
-            <SpeakerDot turn={turn} />
-            <span className="truncate">{turnLabel(turn)}</span>
+            <SpeakerDot line={line} />
+            <span className="truncate">{turnLabel(line)}</span>
           </span>
           <p
             className={`w-full min-w-0 text-sm font-normal leading-[1.65] break-words ${
-              turn.role === "assistant" ? "text-app" : "text-app-secondary"
+              line.role === "assistant"
+                ? "text-app"
+                : line.isPartial
+                  ? "text-app-muted"
+                  : "text-app-secondary"
             } ${props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"}`}
           >
-            {turn.text}
+            {line.text}
+            {line.isPartial ? (
+              <span className="ml-1 inline-block h-3 w-px translate-y-0.5 animate-pulse bg-app-muted" />
+            ) : null}
           </p>
         </li>
       ))}
-      <div ref={props.endRef} className="h-px shrink-0" aria-hidden />
     </ul>
   );
 }

@@ -7,6 +7,7 @@ import {
   speakerSensitivityForProfiles,
 } from "@/lib/speakers/diarization-config";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
+import type { TranscriptionMode } from "@/lib/sessions/types";
 import type { TranscriptUtterance } from "@/lib/types";
 
 type SpeechmaticsTranscriptResult = {
@@ -88,6 +89,8 @@ export interface SpeechmaticsClientCallbacks {
 export type SpeechmaticsClientOptions = {
   /** Recommended enrollment mode: auto-return speaker identifiers at end of stream. */
   enrollment?: boolean;
+  /** Basic mode keeps transcription live but disables speaker diarization. */
+  transcriptionMode?: TranscriptionMode;
 };
 
 type SpeakerGroup = {
@@ -97,6 +100,17 @@ type SpeakerGroup = {
   end: number;
   confidence: number;
 };
+
+const BASIC_PROVIDER_SPEAKER_LABEL = "conversation";
+const BASIC_SPEAKER_NAME = "Conversation";
+
+const SAMPLE_RATE = 16000;
+// Small guard windows around actual TTS playback: words captured just before
+// playback starts (mic buffering lag) or shortly after it ends (speaker/room
+// echo tail) are still attributed to Kivo's own voice, not the user's.
+const ASSISTANT_SPEECH_PRE_ROLL_SECONDS = 0.15;
+const ASSISTANT_SPEECH_ECHO_TAIL_SECONDS = 0.6;
+const ASSISTANT_SPEECH_INTERVAL_MAX_AGE_SECONDS = 60;
 
 function safeSpeakerLabel(label: string): string {
   const clean = label.trim().replace(/\s+/g, " ").slice(0, 100);
@@ -147,6 +161,42 @@ export function groupSpeechmaticsResultsBySpeaker(
   return groups.filter((group) => group.text.length > 0);
 }
 
+export function groupSpeechmaticsResultsAsConversation(
+  results: SpeechmaticsTranscriptResult[]
+): SpeakerGroup[] {
+  let text = "";
+  let start = 0;
+  let end = 0;
+  let confidence = 0;
+  let sawToken = false;
+
+  for (const item of results) {
+    const alt = item.alternatives?.[0];
+    if (!alt?.content) continue;
+
+    if (!sawToken) {
+      start = item.start_time ?? 0;
+      confidence = alt.confidence ?? 0;
+      sawToken = true;
+    }
+
+    text = appendToken(text, alt.content, item.type).trim();
+    end = item.end_time ?? end;
+    confidence = Math.max(confidence, alt.confidence ?? 0);
+  }
+
+  if (!sawToken || text.length === 0) return [];
+  return [
+    {
+      providerSpeakerLabel: BASIC_PROVIDER_SPEAKER_LABEL,
+      text,
+      start,
+      end,
+      confidence,
+    },
+  ];
+}
+
 export class SpeechmaticsLiveClient {
   private ws: WebSocket | null = null;
   private seqNo = 0;
@@ -157,12 +207,21 @@ export class SpeechmaticsLiveClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closedByClient = false;
   private loggedStartConfig = false;
+  private transcriptionMode: TranscriptionMode;
+  // Cumulative seconds of mic PCM sent so far — the same timeline Speechmatics
+  // uses for word start_time/end_time, since audio is streamed continuously.
+  private audioSecondsSent = 0;
+  private assistantSpeechIntervals: Array<{ start: number; end: number | null }> =
+    [];
 
   constructor(
     private callbacks: SpeechmaticsClientCallbacks,
     private profiles: SpeakerProfileDoc[] = [],
     private options: SpeechmaticsClientOptions = {}
   ) {
+    this.transcriptionMode = options.enrollment
+      ? "speaker"
+      : (options.transcriptionMode ?? "speaker");
     for (const profile of profiles) {
       const label = safeSpeakerLabel(profile.name);
       this.speakerLabelToName.set(label, profile.name);
@@ -210,12 +269,13 @@ export class SpeechmaticsLiveClient {
     });
   }
 
-  private buildStartRecognitionMessage() {
+  buildStartRecognitionMessage() {
     const profileCount = this.profiles.length;
     const enrolledIdentifierCount = this.profiles.reduce(
       (total, profile) => total + profile.speakerIdentifiers.length,
       0
     );
+    const basicMode = this.transcriptionMode === "basic";
     const preferCurrentSpeaker = preferCurrentSpeakerForProfiles(profileCount);
     const speakerSensitivity = speakerSensitivityForProfiles(profileCount);
     const maxSpeakers = this.options.enrollment
@@ -249,9 +309,47 @@ export class SpeechmaticsLiveClient {
           .join(", ") || "none";
       devLog(
         "speaker",
-        `Speechmatics config: enrollment=${this.options.enrollment ?? false} profiles=${profileCount} identifiers=${enrolledIdentifierCount} maxSpeakers=${maxSpeakers} preferCurrent=${preferCurrentSpeaker} sensitivity=${speakerSensitivity ?? "default"}`
+        `Speechmatics config: mode=${this.transcriptionMode} enrollment=${this.options.enrollment ?? false} profiles=${profileCount} identifiers=${enrolledIdentifierCount} maxSpeakers=${maxSpeakers} preferCurrent=${preferCurrentSpeaker} sensitivity=${speakerSensitivity ?? "default"}`
       );
       devLog("speaker", `Speechmatics profile counts: ${profileSummary}`);
+    }
+
+    const transcriptionConfig: Record<string, unknown> = {
+      language: "en",
+      operating_point: basicMode ? "standard" : "enhanced",
+      diarization: basicMode ? "none" : "speaker",
+      enable_partials: true,
+      max_delay: 0.7,
+      max_delay_mode: "fixed",
+      additional_vocab: [
+        {
+          content: "Kivo",
+          sounds_like: [
+            "kivo",
+            "keevo",
+            "keyvo",
+            "quivo",
+            "qui vo",
+            "kee vo",
+          ],
+        },
+        {
+          content: "Hey Kivo",
+          sounds_like: [
+            "hey kivo",
+            "hey keevo",
+            "hey keyvo",
+            "hey quivo",
+          ],
+        },
+      ],
+      conversation_config: {
+        end_of_utterance_silence_trigger: 0.8,
+      },
+    };
+
+    if (!basicMode) {
+      transcriptionConfig.speaker_diarization_config = speakerDiarizationConfig;
     }
 
     return {
@@ -261,40 +359,7 @@ export class SpeechmaticsLiveClient {
         encoding: "pcm_s16le",
         sample_rate: 16000,
       },
-      transcription_config: {
-        language: "en",
-        operating_point: "enhanced",
-        diarization: "speaker",
-        enable_partials: true,
-        max_delay: 0.7,
-        max_delay_mode: "fixed",
-        additional_vocab: [
-          {
-            content: "Kivo",
-            sounds_like: [
-              "kivo",
-              "keevo",
-              "keyvo",
-              "quivo",
-              "qui vo",
-              "kee vo",
-            ],
-          },
-          {
-            content: "Hey Kivo",
-            sounds_like: [
-              "hey kivo",
-              "hey keevo",
-              "hey keyvo",
-              "hey quivo",
-            ],
-          },
-        ],
-        speaker_diarization_config: speakerDiarizationConfig,
-        conversation_config: {
-          end_of_utterance_silence_trigger: 1.2,
-        },
-      },
+      transcription_config: transcriptionConfig,
     };
   }
 
@@ -343,37 +408,87 @@ export class SpeechmaticsLiveClient {
   ) {
     const isFinal = msg.message === "AddTranscript";
     const speechFinal = isFinal;
-    const groups = groupSpeechmaticsResultsBySpeaker(msg.results);
-    const baseId = `${msg.metadata.start_time}-${isFinal ? "final" : "partial"}`;
+    const baseId = `${msg.metadata.start_time}`;
+
+    // Partition words by whether their audio-timeline timestamp falls inside a
+    // known assistant-speech interval. This identifies Kivo's own echo by
+    // *when the audio was actually spoken*, not by current UI status — so it
+    // still works even if the transcript for that audio arrives late (after
+    // playback has already ended and the status has moved on).
+    const clean: SpeechmaticsTranscriptResult[] = [];
+    const flagged: SpeechmaticsTranscriptResult[] = [];
+    for (const item of msg.results) {
+      const start = item.start_time ?? 0;
+      const end = item.end_time ?? start;
+      const midpoint = (start + end) / 2;
+      (this.overlapsAssistantSpeech(midpoint) ? flagged : clean).push(item);
+    }
+
+    this.emitTranscriptGroups(clean, {
+      isFinal,
+      speechFinal,
+      baseId,
+      overlapsAssistantSpeech: false,
+    });
+    this.emitTranscriptGroups(flagged, {
+      isFinal,
+      speechFinal,
+      baseId,
+      overlapsAssistantSpeech: true,
+    });
+  }
+
+  private emitTranscriptGroups(
+    results: SpeechmaticsTranscriptResult[],
+    opts: {
+      isFinal: boolean;
+      speechFinal: boolean;
+      baseId: string;
+      overlapsAssistantSpeech: boolean;
+    }
+  ) {
+    if (results.length === 0) return;
+
+    const groups =
+      this.transcriptionMode === "basic"
+        ? groupSpeechmaticsResultsAsConversation(results)
+        : groupSpeechmaticsResultsBySpeaker(results);
 
     groups.forEach((group, index) => {
-      const speaker = this.speakerIndexForLabel(group.providerSpeakerLabel);
+      const basicMode = this.transcriptionMode === "basic";
+      const speaker = basicMode
+        ? 0
+        : this.speakerIndexForLabel(group.providerSpeakerLabel);
       const speakerName =
-        this.speakerLabelToName.get(group.providerSpeakerLabel) ??
-        (/^s\d+$/i.test(group.providerSpeakerLabel)
-          ? null
-          : safeSpeakerLabel(group.providerSpeakerLabel));
+        basicMode
+          ? BASIC_SPEAKER_NAME
+          : this.speakerLabelToName.get(group.providerSpeakerLabel) ??
+            (/^s\d+$/i.test(group.providerSpeakerLabel)
+              ? null
+              : safeSpeakerLabel(group.providerSpeakerLabel));
 
-      if (isFinal) {
+      if (opts.isFinal) {
         devLog("speaker", "Speechmatics speaker label mapped.", {
           providerSpeakerLabel: group.providerSpeakerLabel,
           speaker,
           speakerName: speakerName ?? null,
           mappedAs: speakerName ?? "Other speaker",
           textPreview: group.text.slice(0, 120),
+          overlapsAssistantSpeech: opts.overlapsAssistantSpeech,
         });
       }
 
       this.callbacks.onUtterance({
-        id: `${baseId}-${index}`,
+        id: `${opts.baseId}${opts.overlapsAssistantSpeech ? "-echo" : ""}-${index}`,
         speaker,
         speakerName,
         providerSpeakerLabel: group.providerSpeakerLabel,
         text: group.text,
         start: group.start,
         end: group.end,
-        isFinal,
-        speechFinal,
+        isFinal: opts.isFinal,
+        speechFinal: opts.speechFinal,
+        overlapsAssistantSpeech: opts.overlapsAssistantSpeech,
       });
     });
   }
@@ -417,9 +532,52 @@ export class SpeechmaticsLiveClient {
   }
 
   sendPcm(pcm: Int16Array) {
+    this.audioSecondsSent += pcm.length / SAMPLE_RATE;
     const bytes = new Uint8Array(pcm.byteLength);
     bytes.set(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength));
     this.sendArrayBuffer(bytes.buffer);
+  }
+
+  /**
+   * Marks the start of assistant TTS playback on the shared mic audio-stream
+   * timeline. Any word whose timestamp falls inside the resulting interval is
+   * Kivo's own voice being picked up by the mic, not the user speaking.
+   */
+  markAssistantSpeechStart() {
+    if (this.assistantSpeechIntervals.some((interval) => interval.end === null)) {
+      return;
+    }
+    const start = Math.max(
+      0,
+      this.audioSecondsSent - ASSISTANT_SPEECH_PRE_ROLL_SECONDS
+    );
+    this.assistantSpeechIntervals.push({ start, end: null });
+  }
+
+  /** Marks the end of assistant TTS playback (plus a short echo tail). */
+  markAssistantSpeechEnd() {
+    const open = this.assistantSpeechIntervals.find(
+      (interval) => interval.end === null
+    );
+    if (!open) return;
+    open.end = this.audioSecondsSent + ASSISTANT_SPEECH_ECHO_TAIL_SECONDS;
+    this.pruneAssistantSpeechIntervals();
+  }
+
+  private pruneAssistantSpeechIntervals() {
+    const cutoff =
+      this.audioSecondsSent - ASSISTANT_SPEECH_INTERVAL_MAX_AGE_SECONDS;
+    this.assistantSpeechIntervals = this.assistantSpeechIntervals.filter(
+      (interval) => interval.end === null || interval.end >= cutoff
+    );
+  }
+
+  private overlapsAssistantSpeech(midpointSeconds: number): boolean {
+    return this.assistantSpeechIntervals.some(
+      (interval) =>
+        midpointSeconds >= interval.start &&
+        (interval.end === null || midpointSeconds <= interval.end)
+    );
   }
 
   requestSpeakers(options: { final?: boolean } = {}) {
