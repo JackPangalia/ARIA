@@ -17,15 +17,35 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+const SITE_TITLE = "Kivo — The AI that moves you forward";
+const SITE_DESCRIPTION =
+  "Kivo listens to your conversations, learns every voice, and answers the moment you say its name.";
+
 export const metadata: Metadata = {
-  title: "ARIA — AI Interactive Real-Time Assistant",
-  description: "A real-time AI participant for live conversations.",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Kivo",
   },
   formatDetection: { telephone: false },
+  openGraph: {
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    siteName: "Kivo",
+    type: "website",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "Kivo" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ["/og.png"],
+  },
 };
 
 export const viewport: Viewport = {

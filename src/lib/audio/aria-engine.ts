@@ -726,8 +726,20 @@ export class AriaEngine {
       });
 
       if (!res.ok || !res.body) {
+        // The server returns { error } with a user-appropriate message
+        // (quota, archived session, …) — prefer it over a raw status line.
         const errText = await res.text().catch(() => "");
-        throw new Error(`Ask failed: ${res.status} ${errText}`);
+        let serverMessage: string | null = null;
+        try {
+          serverMessage =
+            (JSON.parse(errText) as { error?: string }).error ?? null;
+        } catch {
+          // Non-JSON body — fall through to the generic message.
+        }
+        devLog("error", `Ask failed: ${res.status} ${errText}`);
+        throw new Error(
+          serverMessage ?? "Kivo couldn't answer that — try again in a moment."
+        );
       }
 
       await this.playAudioResponse(res, "Playing spoken answer in browser.", {
@@ -745,7 +757,12 @@ export class AriaEngine {
       const msg = err instanceof Error ? err.message : "unknown";
       devLog("error", msg);
       this.cues.playError();
-      useAriaStore.getState().setError(msg);
+      // Raw transport failures read like stack noise to users; keep server-
+      // provided messages (already user-appropriate) and translate the rest.
+      const friendly = /fetch|network|load failed|unknown/i.test(msg)
+        ? "Kivo couldn't answer that — check your connection and try again."
+        : msg;
+      useAriaStore.getState().setError(friendly);
     } finally {
       if (this.activeFetchAbort === controller) {
         this.activeFetchAbort = null;

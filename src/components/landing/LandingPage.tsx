@@ -675,16 +675,12 @@ export function LandingPage() {
               </div>
               <div className="footer-col">
                 <h5>Company</h5>
-                <a href="#">About</a>
-                <a href="#">Careers</a>
-                <a href="#">Blog</a>
-                <a href="#">Contact</a>
+                <a href="mailto:hello@kivo.ai">Contact</a>
               </div>
               <div className="footer-col">
                 <h5>Legal</h5>
-                <a href="#">Privacy</a>
-                <a href="#">Security</a>
-                <a href="#">Terms</a>
+                <Link href="/privacy">Privacy</Link>
+                <Link href="/terms">Terms</Link>
               </div>
             </div>
           </div>
