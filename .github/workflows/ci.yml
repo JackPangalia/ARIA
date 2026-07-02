@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Dummy Firebase client config so `next build` can inline NEXT_PUBLIC_* values.
+  # src/lib/firebase/client.ts throws at module scope when these are missing.
+  # Server secrets are read lazily per-request and are not needed to build.
+  NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-dummy.firebaseapp.com
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-dummy
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-dummy.appspot.com
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "000000"
+  NEXT_PUBLIC_FIREBASE_APP_ID: 1:000000:web:dummy
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run test
+      - run: npm run build
