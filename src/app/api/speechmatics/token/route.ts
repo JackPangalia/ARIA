@@ -64,5 +64,5 @@ export async function POST(req: NextRequest) {
       expiresIn: REALTIME_TOKEN_TTL_SECONDS,
       region: "eu",
     });
-  });
+  }, { rateLimit: { name: "stt_token", limit: 10, windowSeconds: 60 } });
 }

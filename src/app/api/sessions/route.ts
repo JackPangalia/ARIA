@@ -54,5 +54,5 @@ export async function POST(req: NextRequest) {
       transcriptionMode,
     });
     return jsonOk(session, 201);
-  });
+  }, { rateLimit: { name: "session_write", limit: 60, windowSeconds: 60 } });
 }

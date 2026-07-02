@@ -44,5 +44,5 @@ export async function POST(req: NextRequest) {
         error instanceof Error ? error.message : "Failed to create project.";
       return jsonError(msg, 400);
     }
-  });
+  }, { rateLimit: { name: "project_write", limit: 60, windowSeconds: 60 } });
 }

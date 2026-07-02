@@ -24,5 +24,5 @@ export async function POST(req: NextRequest) {
 
     const result = await accrueListeningHeartbeat(uid, parsed.data.sessionId);
     return jsonOk(result);
-  });
+  }, { rateLimit: { name: "heartbeat", limit: 30, windowSeconds: 60 } });
 }

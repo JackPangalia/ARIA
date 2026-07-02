@@ -86,5 +86,5 @@ export async function POST(req: NextRequest, context: RouteContext) {
         error instanceof Error ? error.message : "Failed to create project source.";
       return jsonError(msg, msg.includes("not found") ? 404 : 400);
     }
-  });
+  }, { rateLimit: { name: "source_upload", limit: 10, windowSeconds: 60 } });
 }

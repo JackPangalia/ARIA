@@ -40,5 +40,5 @@ export async function POST(req: NextRequest, context: RouteContext) {
       const msg = error instanceof Error ? error.message : "Failed to save turn.";
       return jsonError(msg, msg.includes("not found") ? 404 : 400);
     }
-  });
+  }, { rateLimit: { name: "turn_write", limit: 60, windowSeconds: 60 } });
 }

@@ -8,6 +8,8 @@ import { parseGeminiQuotaError } from "@/lib/aria/llm/gemini-errors";
 import { getServerEnv, type ServerEnv } from "@/lib/env";
 import { AskBodySchema } from "@/lib/sessions/types";
 import { authErrorResponse, verifyRequestAuth } from "@/lib/firebase/verify-auth";
+import { checkRateLimit } from "@/lib/rate-limit/limiter";
+import { rateLimitedResponse } from "@/lib/sessions/api-response";
 import { assertSessionOwner } from "@/lib/sessions/repository";
 import type { SessionDoc } from "@/lib/sessions/types";
 import { loadEntitlements } from "@/lib/plan/repository";
@@ -32,6 +34,17 @@ export async function POST(req: NextRequest) {
     ({ uid } = await verifyRequestAuth(req));
   } catch (error) {
     return authErrorResponse(error);
+  }
+
+  // Asks drive the LLM + TTS spend — the ask-token quota is a soft, fail-open
+  // backstop, so this hard per-minute cap is what bounds a runaway client.
+  const rate = await checkRateLimit(uid, {
+    name: "ask",
+    limit: 20,
+    windowSeconds: 60,
+  });
+  if (!rate.allowed) {
+    return rateLimitedResponse(rate.retryAfterSeconds);
   }
 
   let body;
