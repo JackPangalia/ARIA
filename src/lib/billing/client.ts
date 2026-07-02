@@ -1,6 +1,7 @@
 "use client";
 
 import { auth } from "@/lib/firebase/client";
+import { track } from "@/lib/analytics/client";
 import type { PaidTier } from "@/lib/plan/tiers";
 
 async function getAuthHeader(): Promise<HeadersInit> {
@@ -29,6 +30,7 @@ async function billingFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function startCheckout(tier: PaidTier): Promise<string> {
+  track("checkout_started", { props: { tier } });
   const { url } = await billingFetch<{ url: string }>("/api/billing/checkout", {
     method: "POST",
     body: JSON.stringify({ tier }),

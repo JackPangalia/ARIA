@@ -8,6 +8,7 @@
     "start": "next start",
     "worker": "tsx src/worker/bot-server.ts",
     "set-tier": "tsx scripts/set-tier.ts",
+    "funnel": "tsx scripts/funnel.ts",
     "lint": "eslint",
     "test": "vitest run"
   },

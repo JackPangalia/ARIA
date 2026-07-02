@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/firebase/AuthProvider";
+import { ClientBoot } from "@/components/ClientBoot";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
@@ -54,6 +55,7 @@ export default function RootLayout({
         <Script id="aria-theme-init" strategy="beforeInteractive">
           {themeInitScript}
         </Script>
+        <ClientBoot />
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>

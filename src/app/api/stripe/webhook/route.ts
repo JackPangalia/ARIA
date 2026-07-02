@@ -55,6 +55,21 @@ async function handleCheckoutCompleted(
   const stripe = getStripe();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   await syncPlanFromSubscription(uid, subscription, eventCreated);
+
+  // Funnel event written server-side — the webhook is the only reliable
+  // observer of a completed purchase (the client may never return from Stripe).
+  await getAdminDb()
+    .collection("events")
+    .add({
+      name: "plan_activated",
+      anonId: "server",
+      uid,
+      props: {},
+      ts: FieldValue.serverTimestamp(),
+    })
+    .catch((err: unknown) =>
+      console.error("[stripe-webhook] plan_activated event write failed:", err)
+    );
 }
 
 async function customerFirebaseUid(

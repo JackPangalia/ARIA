@@ -26,6 +26,19 @@ export async function deleteUserAccount(uid: string): Promise<void> {
   await teardownStripeForUser(await getPlanStripeIds(uid));
 
   const db = getAdminDb();
+
+  // GDPR: analytics events reference the uid outside the user subtree.
+  try {
+    const events = await db
+      .collection("events")
+      .where("uid", "==", uid)
+      .limit(500)
+      .get();
+    await Promise.all(events.docs.map((doc) => doc.ref.delete()));
+  } catch (err) {
+    console.error("[delete-account] events sweep failed (continuing):", err);
+  }
+
   const userRef = db.collection("users").doc(uid);
   await db.recursiveDelete(userRef);
 

@@ -114,6 +114,23 @@ export type AskTimingReport = {
 };
 
 export function logAskTimingSummary(report: AskTimingReport): void {
+  // One structured line per ask, ALWAYS — this is the production latency/health
+  // signal in Vercel logs (filter on "[ask]"). Verbose breakdown stays dev-only.
+  console.log(
+    "[ask]",
+    JSON.stringify({
+      sessionId: shortSessionId(report.sessionId),
+      model: report.model,
+      totalMs: Math.round(report.totalMs),
+      llmFirstTokenMs:
+        report.llmFirstTokenMs != null ? Math.round(report.llmFirstTokenMs) : null,
+      firstAudioByteMs:
+        report.firstAudioByteMs != null ? Math.round(report.firstAudioByteMs) : null,
+      answerTokens: report.answerTokens,
+      composioCache: report.composioCache,
+    })
+  );
+
   if (!isAskPipelineLoggingEnabled()) return;
 
   const sid = shortSessionId(report.sessionId);

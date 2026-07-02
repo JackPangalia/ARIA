@@ -8,6 +8,7 @@ import {
   type AssembledTranscriptTurn,
 } from "./turn-assembler";
 import { VisualMicLevelNormalizer } from "./visual-level";
+import { track } from "@/lib/analytics/client";
 import { devLog } from "@/lib/client/dev-log";
 import {
   askSessionQuestion,
@@ -717,6 +718,7 @@ export class AriaEngine {
         enableFollowUp: true,
         clientT0,
       });
+      track("ask_success");
       this.onSessionActivity?.();
     } catch (err) {
       this.cues.stopThinkingLoop();

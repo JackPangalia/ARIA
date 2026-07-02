@@ -20,6 +20,7 @@ import {
 } from "react";
 import { auth } from "@/lib/firebase/client";
 import { upsertUserProfile } from "@/lib/firebase/profile";
+import { track } from "@/lib/analytics/client";
 
 type AuthContextValue = {
   user: User | null;
@@ -50,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
 
       if (!nextUser) return;
+
+      // Fires on every sign-in; the funnel script dedupes to first-ever by uid.
+      track("sign_up", { uid: nextUser.uid });
 
       try {
         await upsertUserProfile(nextUser);
