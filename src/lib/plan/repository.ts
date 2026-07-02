@@ -169,27 +169,88 @@ export interface StripePlanSync extends StripePlanPatch {
   billingAnchorDay: number;
 }
 
+/**
+ * Ordering guard for Stripe webhook writes. Stripe delivers events at-least-once
+ * and out of order; an older subscription.updated arriving after a newer one must
+ * not regress the plan. Returns true when the incoming event is newer than the
+ * last one applied (or when either side has no ordering information).
+ */
+export function shouldApplyStripeEvent(
+  lastEventCreated: number | null | undefined,
+  eventCreated: number | null | undefined
+): boolean {
+  if (typeof eventCreated !== "number") return true;
+  if (typeof lastEventCreated !== "number") return true;
+  return eventCreated >= lastEventCreated;
+}
+
 /** Authoritative entitlement write from Stripe webhooks / checkout completion. */
 export async function updatePlanFromStripe(
   uid: string,
-  sync: StripePlanSync
+  sync: StripePlanSync,
+  options?: { eventCreated?: number }
 ): Promise<void> {
   const db = getAdminDb();
+  const ref = planRef(db, uid);
+  const eventCreated = options?.eventCreated;
+  const fields = {
+    tier: sync.tier,
+    billingAnchorDay: sync.billingAnchorDay,
+    stripeCustomerId: sync.stripeCustomerId ?? null,
+    stripeSubscriptionId: sync.stripeSubscriptionId ?? null,
+    stripePriceId: sync.stripePriceId ?? null,
+    stripeStatus: sync.stripeStatus ?? null,
+    cancelAtPeriodEnd: sync.cancelAtPeriodEnd ?? false,
+    currentPeriodEnd: sync.currentPeriodEnd ?? null,
+    // A subscription back in good standing clears any dunning flag.
+    ...(sync.stripeStatus === "active" || sync.stripeStatus === "trialing"
+      ? { paymentFailedAt: null }
+      : {}),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  if (typeof eventCreated === "number") {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const last = snap.exists ? snap.data()?.lastStripeEventCreated : null;
+      if (!shouldApplyStripeEvent(typeof last === "number" ? last : null, eventCreated)) {
+        return; // Stale event — a newer one already wrote the plan.
+      }
+      tx.set(ref, { ...fields, lastStripeEventCreated: eventCreated }, { merge: true });
+    });
+  } else {
+    await ref.set(fields, { merge: true });
+  }
+  await getOrCreatePlan(uid);
+}
+
+/** Dunning flag: set when Stripe reports a failed payment; cleared on recovery. */
+export async function markPaymentFailed(uid: string): Promise<void> {
+  const db = getAdminDb();
   await planRef(db, uid).set(
-    {
-      tier: sync.tier,
-      billingAnchorDay: sync.billingAnchorDay,
-      stripeCustomerId: sync.stripeCustomerId ?? null,
-      stripeSubscriptionId: sync.stripeSubscriptionId ?? null,
-      stripePriceId: sync.stripePriceId ?? null,
-      stripeStatus: sync.stripeStatus ?? null,
-      cancelAtPeriodEnd: sync.cancelAtPeriodEnd ?? false,
-      currentPeriodEnd: sync.currentPeriodEnd ?? null,
-      updatedAt: FieldValue.serverTimestamp(),
-    },
+    { paymentFailedAt: new Date().toISOString(), updatedAt: FieldValue.serverTimestamp() },
     { merge: true }
   );
-  await getOrCreatePlan(uid);
+}
+
+/**
+ * Stripe ids for account deletion. Reads without creating — a missing plan doc
+ * means there is nothing to tear down in Stripe.
+ */
+export async function getPlanStripeIds(uid: string): Promise<{
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+}> {
+  const db = getAdminDb();
+  const snap = await planRef(db, uid).get();
+  if (!snap.exists) return { stripeCustomerId: null, stripeSubscriptionId: null };
+  const data = snap.data() ?? {};
+  return {
+    stripeCustomerId: data.stripeCustomerId ? String(data.stripeCustomerId) : null,
+    stripeSubscriptionId: data.stripeSubscriptionId
+      ? String(data.stripeSubscriptionId)
+      : null,
+  };
 }
 
 async function readUsage(

@@ -4,10 +4,11 @@ import { resolveSubscriptionEntitlement } from "@/lib/stripe/subscription";
 
 export async function syncPlanFromSubscription(
   uid: string,
-  subscription: Stripe.Subscription
+  subscription: Stripe.Subscription,
+  eventCreated?: number
 ): Promise<void> {
   const resolved = resolveSubscriptionEntitlement(subscription);
-  await updatePlanFromStripe(uid, resolved);
+  await updatePlanFromStripe(uid, resolved, { eventCreated });
 }
 
 export function firebaseUidFromMetadata(

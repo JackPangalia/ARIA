@@ -5,6 +5,8 @@ import {
   deleteConnection,
   listConnectionsForUser,
 } from "@/lib/composio/connections";
+import { getPlanStripeIds } from "@/lib/plan/repository";
+import { teardownStripeForUser } from "@/lib/stripe/cleanup";
 
 export async function deleteUserAccount(uid: string): Promise<void> {
   invalidateComposioToolsCache(uid);
@@ -16,6 +18,12 @@ export async function deleteUserAccount(uid: string): Promise<void> {
       // Composio cleanup is best-effort; Firestore and Auth removal still run.
     }
   }
+
+  // Stripe teardown runs BEFORE the Firestore delete: the plan doc is the only
+  // link from uid to Stripe customer. A failure here throws and aborts the whole
+  // deletion (user retries) — proceeding would leave a subscription billing a
+  // customer we can no longer identify.
+  await teardownStripeForUser(await getPlanStripeIds(uid));
 
   const db = getAdminDb();
   const userRef = db.collection("users").doc(uid);
