@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { isComposioConfigured } from "@/lib/composio/client";
 import { warmComposioToolsCache } from "@/lib/composio/tools-cache";
+import { CONNECTORS_ENABLED } from "@/lib/features";
 import { isAskPipelineLoggingEnabled } from "@/lib/server/ask-pipeline-log";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   return withAuth(req, async ({ uid }) => {
-    if (!isComposioConfigured()) {
+    if (!CONNECTORS_ENABLED || !isComposioConfigured()) {
       return jsonOk({ ok: true });
     }
     try {

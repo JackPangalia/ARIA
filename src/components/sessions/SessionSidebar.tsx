@@ -670,10 +670,13 @@ export function SessionSidebar(props: {
           </button>
         ) : (
           <span
-            className="select-none pl-[0.65em] text-[10px] font-normal tracking-[0.65em] text-app-subtle"
-            aria-label="Kivo"
+            className="flex select-none items-baseline gap-1.5 pl-[0.65em] text-[10px] font-normal tracking-[0.65em] text-app-subtle"
+            aria-label="Kivo, beta"
           >
             KIVO
+            <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1 py-0.5 text-[7px] font-medium tracking-[0.2em]">
+              BETA
+            </span>
           </span>
         )}
         {props.onCollapse ? (

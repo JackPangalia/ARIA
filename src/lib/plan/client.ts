@@ -4,6 +4,7 @@ import { auth } from "@/lib/firebase/client";
 import type { UsageSummary } from "@/lib/plan/types";
 import type { Tier } from "@/lib/plan/tiers";
 import type { TranscriptionMode } from "@/lib/sessions/types";
+import type { AskModelId, AskModelOption } from "@/lib/aria/models";
 
 async function getAuthHeader(): Promise<HeadersInit> {
   const user = auth.currentUser;
@@ -39,6 +40,11 @@ export interface TranscriptionModePreference {
   defaultTranscriptionMode: TranscriptionMode;
   effectiveTranscriptionMode: TranscriptionMode;
   speakerModeLocked: boolean;
+  speakerSecondsUsed: number;
+  /** `null` = unlimited Speaker recognition minutes for this tier. */
+  speakerSecondsCap: number | null;
+  speakerSecondsRemaining: number | null;
+  speakerModeExhausted: boolean;
 }
 
 export async function getTranscriptionModePreference(): Promise<TranscriptionModePreference> {
@@ -51,6 +57,24 @@ export async function updateTranscriptionModePreference(
   return apiFetch<TranscriptionModePreference>("/api/transcription-mode", {
     method: "PATCH",
     body: JSON.stringify({ defaultTranscriptionMode }),
+  });
+}
+
+export interface AnswerModelPreference {
+  current: AskModelId;
+  options: readonly AskModelOption[];
+}
+
+export async function getAnswerModelPreference(): Promise<AnswerModelPreference> {
+  return apiFetch<AnswerModelPreference>("/api/answer-model");
+}
+
+export async function updateAnswerModelPreference(
+  answerModel: AskModelId
+): Promise<AnswerModelPreference> {
+  return apiFetch<AnswerModelPreference>("/api/answer-model", {
+    method: "PATCH",
+    body: JSON.stringify({ answerModel }),
   });
 }
 

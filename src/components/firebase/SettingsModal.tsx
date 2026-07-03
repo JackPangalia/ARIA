@@ -7,12 +7,17 @@ import { useAuth } from "@/components/firebase/AuthProvider";
 import { SpeakerProfilesManager } from "@/components/firebase/SpeakerProfilesManager";
 import { ConnectorsManager } from "@/components/firebase/ConnectorsManager";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { CONNECTORS_ENABLED } from "@/lib/features";
 import { deleteAccount } from "@/lib/account/client";
 import {
+  getAnswerModelPreference,
   getTranscriptionModePreference,
+  updateAnswerModelPreference,
   updateTranscriptionModePreference,
+  type AnswerModelPreference,
   type TranscriptionModePreference,
 } from "@/lib/plan/client";
+import type { AskModelId } from "@/lib/aria/models";
 import {
   deleteSession,
   listSessions,
@@ -20,6 +25,7 @@ import {
 } from "@/lib/sessions/client";
 import type { SessionDoc, TranscriptionMode } from "@/lib/sessions/types";
 import { BillingPanel } from "@/components/billing/BillingPanel";
+import { UsageMeter } from "@/components/aria/UsageMeter";
 import {
   GrokSettingsButton,
   GrokSettingsRow,
@@ -27,8 +33,10 @@ import {
 
 type SettingsTab =
   | "account"
+  | "usage"
   | "billing"
   | "appearance"
+  | "model"
   | "speakers"
   | "connectors"
   | "trash";
@@ -102,6 +110,20 @@ function AppearanceIcon({ className }: { className?: string }) {
   );
 }
 
+function ModelIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="7" y="7" width="10" height="10" rx="2.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M12 3v3M12 18v3M3 12h3M18 12h3M5.5 5.5l2 2M16.5 16.5l2 2M5.5 18.5l2-2M16.5 7.5l2-2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function SpeakersIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -136,6 +158,19 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
+function UsageIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 19V13M11 19V9M18 19V5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function BillingIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -158,18 +193,24 @@ function ConnectorsIcon({ className }: { className?: string }) {
   );
 }
 
-const TABS: {
+const ALL_TABS: {
   id: SettingsTab;
   label: string;
   Icon: (props: { className?: string }) => React.JSX.Element;
 }[] = [
   { id: "account", label: "Account", Icon: AccountIcon },
+  { id: "usage", label: "Usage", Icon: UsageIcon },
   { id: "billing", label: "Billing", Icon: BillingIcon },
   { id: "appearance", label: "Appearance", Icon: AppearanceIcon },
+  { id: "model", label: "Model", Icon: ModelIcon },
   { id: "speakers", label: "Speakers", Icon: SpeakersIcon },
   { id: "connectors", label: "Connectors", Icon: ConnectorsIcon },
   { id: "trash", label: "Trash", Icon: TrashIcon },
 ];
+
+const TABS = CONNECTORS_ENABLED
+  ? ALL_TABS
+  : ALL_TABS.filter((tab) => tab.id !== "connectors");
 
 const TAB_BY_ID = Object.fromEntries(TABS.map((tab) => [tab.id, tab])) as Record<
   SettingsTab,
@@ -177,8 +218,13 @@ const TAB_BY_ID = Object.fromEntries(TABS.map((tab) => [tab.id, tab])) as Record
 >;
 
 const MOBILE_MENU_GROUPS: { label: string; tabs: SettingsTab[] }[] = [
-  { label: "App", tabs: ["appearance", "billing"] },
-  { label: "Kivo", tabs: ["speakers", "connectors", "trash"] },
+  { label: "App", tabs: ["usage", "appearance", "billing"] },
+  {
+    label: "Kivo",
+    tabs: CONNECTORS_ENABLED
+      ? ["model", "speakers", "connectors", "trash"]
+      : ["model", "speakers", "trash"],
+  },
 ];
 
 function openMobileTab(
@@ -385,6 +431,23 @@ function TrashPanel(props: {
   );
 }
 
+function BetaBadge() {
+  return (
+    <span className="relative top-[-1px] ml-1.5 rounded-full border border-app-subtle/40 px-1 py-0.5 text-[7px] font-medium tracking-[0.2em] text-app-muted">
+      BETA
+    </span>
+  );
+}
+
+function formatMinutes(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds / 60));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
 function TranscriptionModeSettings() {
   const [preference, setPreference] =
     useState<TranscriptionModePreference | null>(null);
@@ -429,6 +492,16 @@ function TranscriptionModeSettings() {
 
   const activeMode = preference?.effectiveTranscriptionMode ?? "basic";
   const speakerLocked = preference?.speakerModeLocked ?? true;
+  const speakerExhausted = preference?.speakerModeExhausted ?? false;
+  const speakerRemaining = preference?.speakerSecondsRemaining ?? null;
+  const speakerCapped = preference != null && preference.speakerSecondsCap !== null;
+
+  let speakerDescription = "Use enrolled speaker profiles and Speechmatics diarization.";
+  if (speakerCapped) {
+    speakerDescription = speakerExhausted
+      ? "You've used this month's Speaker recognition minutes. Upgrade for unlimited access."
+      : `${formatMinutes(speakerRemaining ?? 0)} left this month · uses enrolled speaker profiles.`;
+  }
 
   return (
     <section className="mb-6">
@@ -460,12 +533,13 @@ function TranscriptionModeSettings() {
           }
         />
         <GrokSettingsRow
-          title={<span className="font-medium">Speaker recognition</span>}
-          description={
-            speakerLocked
-              ? "Paid plans can identify enrolled speakers and label the transcript."
-              : "Use enrolled speaker profiles and Speechmatics diarization."
+          title={
+            <span className="font-medium">
+              Speaker recognition
+              <BetaBadge />
+            </span>
           }
+          description={speakerDescription}
           action={
             <GrokSettingsButton
               disabled={
@@ -477,7 +551,7 @@ function TranscriptionModeSettings() {
               onClick={() => void selectMode("speaker")}
             >
               {speakerLocked
-                ? "Upgrade"
+                ? "Used up"
                 : busyMode === "speaker"
                   ? "Saving…"
                   : activeMode === "speaker"
@@ -486,6 +560,79 @@ function TranscriptionModeSettings() {
             </GrokSettingsButton>
           }
         />
+      </div>
+    </section>
+  );
+}
+
+function AnswerModelSettings() {
+  const [preference, setPreference] = useState<AnswerModelPreference | null>(null);
+  const [busyModel, setBusyModel] = useState<AskModelId | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAnswerModelPreference()
+      .then((data) => {
+        if (!cancelled) setPreference(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Could not load model preference.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectModel = async (id: AskModelId) => {
+    if (!preference || preference.current === id) return;
+    setBusyModel(id);
+    setError(null);
+    try {
+      const next = await updateAnswerModelPreference(id);
+      setPreference(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update model.");
+    } finally {
+      setBusyModel(null);
+    }
+  };
+
+  const options = preference?.options ?? [];
+  const current = preference?.current ?? null;
+
+  return (
+    <section className="mb-6">
+      <p className="grok-settings-section-title">Answer model</p>
+      <p className="grok-settings-section-desc">
+        Choose which model answers when you ask Kivo a question. Faster models
+        respond quicker; slower models tend to answer with more nuance.
+      </p>
+
+      {error ? <p className="grok-settings-delete-error mt-2 text-xs">{error}</p> : null}
+
+      <div className="mt-2">
+        {options.map((option) => (
+          <GrokSettingsRow
+            key={option.id}
+            title={<span className="font-medium">{option.label}</span>}
+            description={option.description}
+            action={
+              <GrokSettingsButton
+                disabled={!preference || current === option.id || busyModel !== null}
+                onClick={() => void selectModel(option.id)}
+              >
+                {busyModel === option.id
+                  ? "Saving…"
+                  : current === option.id
+                    ? "Current"
+                    : "Use this"}
+              </GrokSettingsButton>
+            }
+          />
+        ))}
       </div>
     </section>
   );
@@ -551,6 +698,21 @@ function SettingsTabContent(props: {
     );
   }
 
+  if (props.tab === "usage") {
+    return (
+      <section>
+        <p className="grok-settings-section-title">Usage this month</p>
+        <p className="grok-settings-section-desc">
+          Listening time and Kivo Q&A usage against your plan&apos;s monthly
+          limits.
+        </p>
+        <div className="mt-3">
+          <UsageMeter />
+        </div>
+      </section>
+    );
+  }
+
   if (props.tab === "appearance") {
     return (
       <section>
@@ -561,6 +723,14 @@ function SettingsTabContent(props: {
 
   if (props.tab === "billing") {
     return <BillingPanel />;
+  }
+
+  if (props.tab === "model") {
+    return (
+      <section>
+        <AnswerModelSettings />
+      </section>
+    );
   }
 
   if (props.tab === "speakers") {
@@ -577,6 +747,7 @@ function SettingsTabContent(props: {
   }
 
   if (props.tab === "connectors") {
+    if (!CONNECTORS_ENABLED) return null;
     return <ConnectorsManager grok />;
   }
 

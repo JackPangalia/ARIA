@@ -8,6 +8,8 @@ import {
   resetComposioToolsCacheForTests,
 } from "./tools-cache";
 
+vi.mock("@/lib/features", () => ({ CONNECTORS_ENABLED: true }));
+
 const mockTool = { name: "NOTION_CREATE_PAGE" } as unknown as Tool;
 const mockGmailTool = { name: "GMAIL_SEND_EMAIL" } as unknown as Tool;
 

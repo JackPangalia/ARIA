@@ -10,6 +10,8 @@
  * soft token backstop on "asks". Listening is a hard cap; asks are a soft backstop.
  */
 
+import { CONNECTORS_ENABLED } from "@/lib/features";
+
 export type Tier = "free" | "plus" | "pro" | "max";
 
 export const TIERS: readonly Tier[] = ["free", "plus", "pro", "max"] as const;
@@ -32,8 +34,17 @@ export interface PlanLimits {
   listeningMinutesPerMonth: number;
   /** Soft backstop. Combined input+output ask tokens per billing period. */
   askTokensPerMonth: number;
-  /** Max saved speaker profiles. `null` = unlimited. */
+  /**
+   * Max saved speaker profiles. `null` = unlimited. Same cap across all tiers
+   * today — a system safety limit, not a monetization lever.
+   */
   maxSpeakerProfiles: number | null;
+  /**
+   * Minutes of Speaker recognition (diarization) mode per billing period.
+   * `null` = unlimited. Separate from `listeningMinutesPerMonth`, which caps
+   * total listening regardless of mode.
+   */
+  speakerMinutesPerMonth: number | null;
   /** Max connected app integrations. `null` = unlimited (all). */
   maxConnectors: number | null;
   /** Session-history retention window in days. `null` = unlimited. */
@@ -61,12 +72,16 @@ export interface PlanConfig {
 
 const HOUR = 60;
 
+/** System safety cap on saved speaker profiles, same for every tier. */
+const MAX_SPEAKER_PROFILES = 25;
+
 export const PLANS: Record<Tier, PlanConfig> = {
   free: {
     limits: {
       listeningMinutesPerMonth: 3 * HOUR,
       askTokensPerMonth: 750_000,
-      maxSpeakerProfiles: 0,
+      maxSpeakerProfiles: MAX_SPEAKER_PROFILES,
+      speakerMinutesPerMonth: 2 * HOUR,
       maxConnectors: 1,
       historyRetentionDays: 30,
       priorityProcessing: false,
@@ -81,6 +96,7 @@ export const PLANS: Record<Tier, PlanConfig> = {
       featureBullets: [
         "3 hours of listening / month",
         "Basic real-time transcription",
+        "2 hrs/month of Speaker recognition (beta)",
         "Live Kivo Q&A",
         "1 app connector",
         "30-day session history",
@@ -92,7 +108,8 @@ export const PLANS: Record<Tier, PlanConfig> = {
     limits: {
       listeningMinutesPerMonth: 10 * HOUR,
       askTokensPerMonth: 1_500_000,
-      maxSpeakerProfiles: null,
+      maxSpeakerProfiles: MAX_SPEAKER_PROFILES,
+      speakerMinutesPerMonth: null,
       maxConnectors: 3,
       historyRetentionDays: 365,
       priorityProcessing: false,
@@ -106,7 +123,7 @@ export const PLANS: Record<Tier, PlanConfig> = {
       ctaLabel: "Choose Plus",
       featureBullets: [
         "10 hours of listening / month",
-        "Unlimited speaker profiles",
+        "Unlimited Speaker recognition",
         "3 app connectors",
         "1-year session history",
         "Everything in Free",
@@ -117,7 +134,8 @@ export const PLANS: Record<Tier, PlanConfig> = {
     limits: {
       listeningMinutesPerMonth: 30 * HOUR,
       askTokensPerMonth: 4_500_000,
-      maxSpeakerProfiles: null,
+      maxSpeakerProfiles: MAX_SPEAKER_PROFILES,
+      speakerMinutesPerMonth: null,
       maxConnectors: null,
       historyRetentionDays: null,
       priorityProcessing: true,
@@ -142,7 +160,8 @@ export const PLANS: Record<Tier, PlanConfig> = {
     limits: {
       listeningMinutesPerMonth: 60 * HOUR,
       askTokensPerMonth: 9_000_000,
-      maxSpeakerProfiles: null,
+      maxSpeakerProfiles: MAX_SPEAKER_PROFILES,
+      speakerMinutesPerMonth: null,
       maxConnectors: null,
       historyRetentionDays: null,
       priorityProcessing: true,
@@ -166,6 +185,15 @@ export const PLANS: Record<Tier, PlanConfig> = {
 
 export function planLimits(tier: Tier): PlanLimits {
   return PLANS[tier].limits;
+}
+
+const CONNECTOR_BULLET_RE = /connector/i;
+
+/** Pricing-card bullets — omits connector copy when connectors are disabled. */
+export function planFeatureBullets(tier: Tier): string[] {
+  const bullets = PLANS[tier].display.featureBullets;
+  if (CONNECTORS_ENABLED) return bullets;
+  return bullets.filter((b) => !CONNECTOR_BULLET_RE.test(b));
 }
 
 /** How often the client pings the server while actively listening. */

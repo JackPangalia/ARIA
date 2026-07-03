@@ -37,3 +37,20 @@ paths: `src/worker/`, `src/lib/recall/`, `src/app/api/recall/`, and
 
 If a task is about the in-person app (the thing being shipped), you can ignore the
 bot code entirely.
+
+## App connectors (Composio — Notion, Gmail, etc.) — POST-BETA, HARD-DISABLED
+
+Third-party **app connectors** (OAuth into Notion, Gmail, Google Calendar, Slack,
+etc. via Composio) are **built but disabled for beta**:
+
+- **`CONNECTORS_ENABLED` is `false`** in `src/lib/features.ts` — the UI, APIs, and
+  answer-pipeline Composio tools are all gated on this constant. Do not flip it on
+  for beta work.
+- No connector mentions on the landing page, pricing, settings, or privacy policy.
+
+**Before extending or turning this on, read
+[`docs/connectors.md`](docs/connectors.md).** Affected paths: `src/lib/composio/`,
+`src/app/api/composio/`, `src/components/firebase/ConnectorsManager.tsx`, and
+`src/lib/aria/answer-pipeline.ts`.
+
+If a task is about the beta in-person app, you can ignore connector code entirely.

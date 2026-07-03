@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AriaEngine } from "@/lib/audio/aria-engine";
 import { track } from "@/lib/analytics/client";
 import { warmComposioTools } from "@/lib/composio/client-api";
+import { CONNECTORS_ENABLED } from "@/lib/features";
 import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
 import type { SessionDoc, TranscriptionMode } from "@/lib/sessions/types";
 import { useAriaStore } from "@/lib/store";
@@ -106,9 +107,11 @@ export function Controls(props: {
       engineRef.current = engine;
       await engine.start();
       track("session_start");
-      void warmComposioTools().catch(() => {
-        // Best-effort prefetch before first wake question.
-      });
+      if (CONNECTORS_ENABLED) {
+        void warmComposioTools().catch(() => {
+          // Best-effort prefetch before first wake question.
+        });
+      }
     } catch {
       engineRef.current = null;
     } finally {

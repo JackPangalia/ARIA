@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { LandingOrb } from "@/components/landing/LandingOrb";
 import { useLandingEffects } from "@/components/landing/useLandingEffects";
-import { ConnectorIcon } from "@/components/settings/ConnectorIcon";
-import { PLANS, TIERS } from "@/lib/plan/tiers";
+import { planFeatureBullets, PLANS, TIERS } from "@/lib/plan/tiers";
 
 const WAVE_HEIGHTS = [
   { height: 24, delay: 0 },
@@ -108,15 +107,11 @@ const FAQ_ITEMS = [
   },
   {
     q: "What can I actually ask it to do?",
-    a: "Say “Hey Kivo” and ask it to summarize, recall a past decision, weigh in on a disagreement, or take action — create a ClickUp task, draft a Gmail message, add a Google Calendar event, write a Notion page. Because it’s been listening, it already has the context.",
+    a: "Say “Hey Kivo” and ask it to summarize, recall a past decision, weigh in on a disagreement, or answer a question about what was just said. Because it’s been listening, it already has the context.",
   },
   {
     q: "Is my data private?",
-    a: "Yes. Transcripts and recordings are encrypted in transit and at rest, voice profiles are only created when you explicitly enroll them, and Kivo only reads or writes to connected apps when you ask it to. You can delete any session, voice print, or connection at any time.",
-  },
-  {
-    q: "Which apps does it connect to?",
-    a: "Today: Notion, Gmail, Google Calendar, ClickUp, Google Docs and Google Sheets — with Slack, Linear, Salesforce and more on the way. Connecting or disconnecting any app takes a single click in settings.",
+    a: "Yes. Transcripts and recordings are encrypted in transit and at rest, voice profiles are only created when you explicitly enroll them, and you can delete any session or voice print at any time.",
   },
 ];
 
@@ -458,42 +453,6 @@ export function LandingPage() {
               </div>
             </div>
 
-            <div className="bento-tile b3 reveal">
-              <div className="bento-art">
-                <div className="logo-row">
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="notion" size={26} />
-                  </span>
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="gmail" size={26} />
-                  </span>
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="googlecalendar" size={26} />
-                  </span>
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="clickup" size={26} />
-                  </span>
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="googledocs" size={26} />
-                  </span>
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="googlesheets" size={26} />
-                  </span>
-                  <span className="logo-chip">
-                    <ConnectorIcon slug="outlook" size={26} />
-                  </span>
-                </div>
-              </div>
-              <div className="bento-foot">
-                <span className="lbl">Connectors</span>
-                <h3>Lives where you work</h3>
-                <p>
-                  Connect your apps and Kivo can pull context or take action —
-                  create the task, draft the email, add the event.
-                </p>
-              </div>
-            </div>
-
             <div className="bento-tile b3 reveal d1">
               <div className="bento-art">
                 <div className="lockwrap">
@@ -590,7 +549,7 @@ export function LandingPage() {
                     {display.ctaLabel}
                   </Link>
                   <ul className="price-feats">
-                    {display.featureBullets.map((bullet) => (
+                    {planFeatureBullets(tier).map((bullet) => (
                       <li key={bullet}>
                         <CheckIcon />
                         {bullet}

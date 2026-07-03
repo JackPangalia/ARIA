@@ -43,10 +43,12 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid session payload.", 400);
     }
 
-    const { plan } = await loadEntitlements(uid);
+    const { plan, limits, usage } = await loadEntitlements(uid);
     const transcriptionMode = effectiveDefaultTranscriptionMode(
       plan.tier,
-      plan.defaultTranscriptionMode
+      plan.defaultTranscriptionMode,
+      limits,
+      usage
     );
     const session = await createSession(uid, {
       ...parsed.data,

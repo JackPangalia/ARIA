@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import { accrueListeningHeartbeat } from "@/lib/plan/repository";
 import { HeartbeatBodySchema } from "@/lib/plan/types";
+import { getSession } from "@/lib/sessions/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +23,12 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid heartbeat payload.", 400);
     }
 
-    const result = await accrueListeningHeartbeat(uid, parsed.data.sessionId);
+    const session = await getSession(uid, parsed.data.sessionId);
+    const result = await accrueListeningHeartbeat(
+      uid,
+      parsed.data.sessionId,
+      session?.transcriptionMode
+    );
     return jsonOk(result);
   }, { rateLimit: { name: "heartbeat", limit: 30, windowSeconds: 60 } });
 }

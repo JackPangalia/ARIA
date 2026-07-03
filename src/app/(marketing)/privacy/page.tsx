@@ -100,7 +100,6 @@ export default function PrivacyPage() {
           <li><strong>Speechmatics</strong> — real-time speech-to-text and speaker identification.</li>
           <li><strong>Cartesia</strong> — converts Kivo&apos;s answers to speech.</li>
           <li><strong>Stripe</strong> — subscription billing.</li>
-          <li><strong>Composio</strong> — optional app connectors (only if you connect an app).</li>
           <li><strong>Vercel</strong> — application hosting and logs.</li>
         </ul>
       </Section>

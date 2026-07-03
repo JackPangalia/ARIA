@@ -5,6 +5,16 @@ const ServerEnvSchema = z.object({
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
   GEMINI_SUMMARY_MODEL: z.string().optional(),
+  /**
+   * Only required if a user selects a Claude ask model; Gemini-only deployments
+   * can omit it. `.min(1)` is intentionally absent — an empty string (e.g. an
+   * unfilled `ANTHROPIC_API_KEY=` line copied from .env.example) must be treated
+   * as "unset", not as a validation failure that crashes the whole server.
+   */
+  ANTHROPIC_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v : undefined)),
   CARTESIA_API_KEY: z.string().min(1),
   CARTESIA_MODEL_ID: z.string().default("sonic-2"),
   CARTESIA_VOICE_ID: z.string().min(1),

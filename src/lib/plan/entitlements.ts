@@ -26,6 +26,26 @@ export function listeningExhausted(limits: PlanLimits, usage: UsageDoc): boolean
   return remainingListeningSeconds(limits, usage) <= 0;
 }
 
+/** `null` = unlimited Speaker recognition minutes for this tier. */
+export function speakerCapSeconds(limits: PlanLimits): number | null {
+  if (limits.speakerMinutesPerMonth === null) return null;
+  return limits.speakerMinutesPerMonth * 60;
+}
+
+export function remainingSpeakerSeconds(
+  limits: PlanLimits,
+  usage: UsageDoc
+): number | null {
+  const cap = speakerCapSeconds(limits);
+  if (cap === null) return null;
+  return Math.max(0, cap - usage.speakerSeconds);
+}
+
+export function speakerModeExhausted(limits: PlanLimits, usage: UsageDoc): boolean {
+  const remaining = remainingSpeakerSeconds(limits, usage);
+  return remaining !== null && remaining <= 0;
+}
+
 /** Asks are a SOFT backstop — only "exhausted" once fully over the generous budget. */
 export function askTokensExhausted(limits: PlanLimits, usage: UsageDoc): boolean {
   return usage.askTokens >= limits.askTokensPerMonth;

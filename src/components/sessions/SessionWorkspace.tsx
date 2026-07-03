@@ -655,7 +655,7 @@ export function SessionWorkspace() {
     try {
       const content = await exportSession(sessionId, format);
       downloadText(
-        `aria-session-${sessionId}.${format === "json" ? "json" : "md"}`,
+        `kivo-session-${sessionId}.${format === "json" ? "json" : "md"}`,
         content,
         format === "json" ? "application/json" : "text/markdown"
       );
@@ -986,8 +986,11 @@ export function SessionWorkspace() {
             <div className="pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
               <div className="flex flex-col items-center gap-7 sm:gap-10">
                 <div className="relative flex flex-col items-center">
-                  <p className="absolute bottom-full left-1/2 mb-8 -translate-x-1/2 select-none whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
+                  <p className="absolute bottom-full left-1/2 mb-8 flex -translate-x-1/2 select-none items-baseline gap-1.5 whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
                     KIVO
+                    <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1 py-0.5 text-[7px] font-medium tracking-[0.2em]">
+                      BETA
+                    </span>
                   </p>
 
                   <OrbVisualizer

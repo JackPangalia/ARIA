@@ -1,33 +1,50 @@
 import { Agent, Runner, type Tool } from "@openai/agents";
 import { aisdk } from "@openai/agents-extensions/ai-sdk";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ServerEnv } from "@/lib/env";
-import { resolveModelId } from "@/lib/aria/models";
+import {
+  DEFAULT_ASK_MODEL_ID,
+  getAskModelOption,
+  resolveModelId,
+  type AskModelId,
+} from "@/lib/aria/models";
 import type { AskPipelineHandle } from "@/lib/server/ask-pipeline-log";
 import { logRawPrompt } from "@/lib/server/context-dev-log";
 import { getAriaTools } from "./tools";
 
-export const ARIA_SYSTEM_PROMPT = `You are Kivo — a sharp, curious colleague sitting in on this conversation. You've heard everything said so far. You stay quiet until someone brings you in, and when they do, you talk the way a genuinely switched-on person in the room would.
+export const ARIA_SYSTEM_PROMPT = `You are Kivo — a sharp, warm, genuinely curious person sitting in on this conversation. You've heard everything said so far. You stay quiet until someone brings you in, and when they do, you talk the way a smart, direct friend in the room would — never like a report, a coach, or a customer-service bot.
 
-Read the moment before you answer. A quick question just wants an answer. "What do you think?" wants your actual take, not a menu of options. A debate that's gone in circles wants someone to name what it's really about underneath. Two people talking past each other want their positions reflected back cleanly, with the real crux or the common ground surfaced. A weak idea wants to be told so, plainly. Match what the moment actually needs — that judgment is the whole job.
+# The transcript is reference material, not a script to continue
 
-Talk like a person, not a memo. Say what you'd actually say out loud: plain sentences, natural rhythm, no throat-clearing, no "honestly" or "I think it's worth noting" — just say the thing. A quick or social question gets a sentence or two. A real question — strategy, a tradeoff, an actual decision — gets a few sentences that say something, not more just to sound thorough. You're allowed warmth, a bit of humor, genuine interest in what people are working through; this isn't a report.
+You'll be given a block of prior conversation formatted as lines like "Jack: ..." or "Kivo: ...". This is READ-ONLY CONTEXT — never something you continue, repeat, or add new lines to. You are not writing dialogue for Jack, for "Unregistered speaker," or for a past version of yourself.
 
-Lead with the answer. Your first sentence should usually contain the useful thing, not the setup for it. Default to one to three spoken sentences unless the room is clearly asking for depth.
+Never do any of the following:
+- Start your reply with a name, role, or label followed by a colon.
+- Invent or restate a line as if someone else just said it.
+- Repeat back verbatim something already said earlier in the transcript.
+- Quote the question back before answering it ("So the question is...", "It sounds like you're asking...").
 
-Have a point of view. Look at it from a couple of angles before you commit, then say what you actually think, plainly, without hedging it into mush — and drop it the second someone gives you a real reason to. Push back when something's off, the way a colleague who respects you would: direct, never cutting, and never flattering just to be liked. You're not scoring points; you're trying to get the room somewhere true.
+Output is exactly and only the words you'd say out loud, starting directly with your answer. Nothing before it, nothing wrapping it.
 
-Ground everything in what was actually said. Use people's names, reference the specific thing someone argued, catch a contradiction if there is one. An answer that could've come from an AI that wasn't in the room has missed the entire point of you. Don't manufacture a next step or a question just to sound like you're driving things forward — most of the time the answer is just the answer; only push the room somewhere further when there's actually somewhere further to push it.
+# How you engage
 
-Reading the speakers:
-- Speakers with a confirmed name (registered voice) are labeled by that name; refer to them by it.
-- Everyone else is labeled "Unregistered speaker" — their identity is unconfirmed. They may be an active participant who simply hasn't registered their voice, or they may be background/ambient noise. Use the conversation itself to judge which: treat a coherent, engaged voice as a real participant, and discount stray or out-of-context lines.
+When something's vague, don't stack clarifying questions — take your best read of what they mean and say it like you believe it, with your actual take attached. Ask a real question only when you truly can't proceed without one.
 
-Mechanics:
+Match the moment: a quick question gets a quick answer, a real question gets whatever length it actually takes — never pad, never clip a real thought short. Have an actual point of view and commit to it, but drop it the moment someone gives you a real reason to. Push back when something's off, directly but never cutting.
+
+Ground everything in what was actually said — names, specific arguments, contradictions if there are any. An answer that could've come from someone who wasn't in the room has missed the point of you. Don't manufacture a next step just to seem useful; most of the time the answer is just the answer.
+
+# Reading the speakers
+
+Speakers with a confirmed name (registered voice) are labeled by that name. Everyone else is "Unregistered speaker" — could be a real participant who hasn't registered their voice, or could be background noise. Judge from context: a coherent, engaged voice is a participant; a stray out-of-context line probably isn't.
+
+# Mechanics
+
 - Never read the conversation back or summarize for its own sake. Synthesize.
 - Use Google Search only when you genuinely need to look something up — current facts, news, markets, weather, dates, or when explicitly asked. Weave in specifics and name a source. Don't search for opinions you can form from the room, small talk, or recap-only questions.
 - You may have access to connected apps (e.g. Notion) via additional tools. Use them only when explicitly asked to read from or write to a connected app, then briefly confirm what you did.
-- Plain spoken prose only. No markdown, no bullet points, no headings — your words are spoken aloud.`;
+- Plain spoken prose only. No markdown, no bullet points, no headings, no speaker labels of any kind.`;
 
 interface RunAriaAgentInput {
   messages: string;
@@ -37,54 +54,92 @@ interface RunAriaAgentInput {
   signal?: AbortSignal;
   composioTools?: Tool[];
   pipeline?: AskPipelineHandle;
+  /** User's chosen ask model; defaults to Gemini 2.5 Flash when omitted. */
+  askModel?: AskModelId;
 }
 
 export function buildAriaUserPrompt(input: {
   messages: string;
   question: string;
 }): string {
-  return `# Messages so far\n\n${
+  return `# Transcript so far (read-only reference — do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
     input.messages || "(no messages yet)"
-  }\n\n# Question\n\n${input.question}`;
+  }\n</transcript>\n\n# What you're being asked right now\n\n${input.question}\n\nRespond now as Kivo, out loud, starting directly with your answer — no label, no recap of the question.`;
 }
 
-function buildGeminiModel(env: ServerEnv, modelId: string) {
+function buildGeminiModel(env: ServerEnv, apiModelId: string) {
   const google = createGoogleGenerativeAI({ apiKey: env.geminiApiKey });
-  return aisdk(google(modelId));
+  return aisdk(google(apiModelId));
+}
+
+function buildAnthropicModel(env: ServerEnv, apiModelId: string) {
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      `Missing ANTHROPIC_API_KEY — required to use ${apiModelId} as the ask model.`
+    );
+  }
+  const anthropic = createAnthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  return aisdk(anthropic(apiModelId));
+}
+
+/**
+ * Both Gemini 2.5 Flash and Claude Sonnet 5 run internal "thinking" by default,
+ * which burns reasoning tokens before the first visible token and directly
+ * inflates time-to-first-token — the single biggest LLM-side latency cost for a
+ * live voice assistant. Disable it on whichever provider is active. The aisdk
+ * wrapper spreads `modelSettings.providerData` straight into the underlying
+ * LanguageModel request, so this maps to providerOptions.<provider>.
+ */
+function thinkingDisabledSettings(provider: "google" | "anthropic") {
+  if (provider === "google") {
+    return {
+      google: {
+        thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
+      },
+    };
+  }
+  return {
+    anthropic: {
+      thinking: { type: "disabled" },
+    },
+  };
 }
 
 async function buildAgent(input: RunAriaAgentInput): Promise<Agent> {
   const buildStart = performance.now();
-  const modelId = resolveModelId(input.env);
+  // The internal web-search subroutine (tools.ts) always runs on Gemini
+  // regardless of the chosen ask model — it's a research tool call, not the
+  // user-facing voice, so it doesn't need to match the answer model's provider.
+  const searchModelId = resolveModelId(input.env);
+  const askModelOption = getAskModelOption(input.askModel ?? DEFAULT_ASK_MODEL_ID);
   const composioTools = input.composioTools ?? [];
 
-  const ariaTools = getAriaTools(input.question, modelId, {
+  const ariaTools = getAriaTools(input.question, searchModelId, {
     meetingSnippet: input.messages,
   });
   input.pipeline?.stage("agent.build", {
     composioTools: composioTools.length,
     ariaTools: ariaTools.length,
-    model: modelId,
+    model: askModelOption.id,
     ms: Math.round(performance.now() - buildStart),
   });
+
+  const model =
+    askModelOption.provider === "google"
+      ? buildGeminiModel(input.env, askModelOption.apiModelId)
+      : buildAnthropicModel(input.env, askModelOption.apiModelId);
 
   return new Agent({
     name: "Kivo",
     instructions: ARIA_SYSTEM_PROMPT,
-    model: buildGeminiModel(input.env, modelId),
-    // Gemini 2.5 Flash enables "thinking" by default, which burns internal
-    // reasoning tokens before the first visible token and directly inflates
-    // time-to-first-token — the single biggest LLM-side latency cost for a live
-    // voice assistant. Disable it (budget 0) to keep first-token latency low.
-    // The aisdk wrapper spreads `modelSettings.providerData` straight into the
-    // underlying LanguageModel request, so this maps to providerOptions.google.
+    model,
     modelSettings: {
+      // Kivo's answers are a handful of spoken sentences, never a document — cap
+      // output generously above that instead of relying on provider defaults
+      // (Anthropic defaults to a very large max_tokens, e.g. 64000, when unset).
+      maxTokens: 2000,
       providerData: {
-        providerOptions: {
-          google: {
-            thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
-          },
-        },
+        providerOptions: thinkingDisabledSettings(askModelOption.provider),
       },
     },
     tools: [...ariaTools, ...composioTools],
@@ -103,7 +158,7 @@ export async function runAriaAgent(input: RunAriaAgentInput): Promise<string> {
   logRawPrompt({
     system: ARIA_SYSTEM_PROMPT,
     user: userPrompt,
-    model: resolveModelId(input.env),
+    model: getAskModelOption(input.askModel ?? DEFAULT_ASK_MODEL_ID).apiModelId,
   });
   const result = await buildRunner().run(
     agent,
@@ -113,7 +168,7 @@ export async function runAriaAgent(input: RunAriaAgentInput): Promise<string> {
 
   const text = result.finalOutput?.trim();
   if (!text) {
-    throw new Error("Gemini returned an empty answer");
+    throw new Error("Kivo returned an empty answer");
   }
 
   return text;
@@ -128,7 +183,7 @@ export async function runAriaAgentStream(
   logRawPrompt({
     system: ARIA_SYSTEM_PROMPT,
     user: userPrompt,
-    model: resolveModelId(input.env),
+    model: getAskModelOption(input.askModel ?? DEFAULT_ASK_MODEL_ID).apiModelId,
   });
   input.pipeline?.stage("agent.run", { phase: "starting" });
   const result = await buildRunner().run(

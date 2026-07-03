@@ -1,5 +1,6 @@
 import type { Tool } from "@openai/agents";
 import type { SupportedToolkit } from "@/lib/composio/connections";
+import { CONNECTORS_ENABLED } from "@/lib/features";
 import { logComposioCache } from "@/lib/server/ask-pipeline-log";
 import {
   fetchComposioAgentTools,
@@ -101,6 +102,17 @@ export async function loadComposioAgentTools(
   options: ComposioToolsLoadOptions
 ): Promise<ComposioToolsLoadResult> {
   const intentLabel = options.toolkits.join(",") || "none";
+
+  if (!CONNECTORS_ENABLED) {
+    return {
+      tools: [],
+      cache: "skip",
+      fetchMs: 0,
+      toolCount: 0,
+      toolkitFingerprint: "",
+      intentToolkits: intentLabel,
+    };
+  }
 
   if (!uid) {
     return {

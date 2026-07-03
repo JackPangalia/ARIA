@@ -44,10 +44,12 @@ struct SettingsView: View {
                     } label: {
                         Label("Speaker profiles", systemImage: "person.2.wave.2")
                     }
-                    NavigationLink {
-                        ConnectorsSettingsView()
-                    } label: {
-                        Label("Connectors", systemImage: "puzzlepiece.extension")
+                    if Features.connectorsEnabled {
+                        NavigationLink {
+                            ConnectorsSettingsView()
+                        } label: {
+                            Label("Connectors", systemImage: "puzzlepiece.extension")
+                        }
                     }
                     NavigationLink {
                         TrashSettingsView()

@@ -6,6 +6,8 @@ import {
   historyCutoffIso,
   listeningExhausted,
   remainingListeningSeconds,
+  remainingSpeakerSeconds,
+  speakerModeExhausted,
   usageSummary,
 } from "@/lib/plan/entitlements";
 import { effectiveDefaultTranscriptionMode } from "@/lib/plan/repository";
@@ -42,19 +44,57 @@ describe("ask soft backstop", () => {
 });
 
 describe("speaker profile limits", () => {
-  it("free does not allow new speaker profiles", () => {
-    const limits = planLimits("free");
-    expect(canCreateSpeakerProfile(limits, 0)).toBe(false);
+  it("every tier shares the same 25-profile safety cap", () => {
+    expect(canCreateSpeakerProfile(planLimits("free"), 0)).toBe(true);
+    expect(canCreateSpeakerProfile(planLimits("free"), 24)).toBe(true);
+    expect(canCreateSpeakerProfile(planLimits("free"), 25)).toBe(false);
+    expect(canCreateSpeakerProfile(planLimits("max"), 24)).toBe(true);
+    expect(canCreateSpeakerProfile(planLimits("max"), 25)).toBe(false);
+  });
+});
+
+describe("speaker recognition minutes (free tier allotment)", () => {
+  it("free tier gets 2 hours = 7200 seconds", () => {
+    expect(remainingSpeakerSeconds(planLimits("free"), usage())).toBe(7_200);
   });
 
-  it("plus and above are unlimited", () => {
-    expect(canCreateSpeakerProfile(planLimits("plus"), 999)).toBe(true);
+  it("reports exhausted once the allotment is used up", () => {
+    const limits = planLimits("free");
+    expect(speakerModeExhausted(limits, usage({ speakerSeconds: 7_199 }))).toBe(false);
+    expect(speakerModeExhausted(limits, usage({ speakerSeconds: 7_200 }))).toBe(true);
+  });
+
+  it("paid tiers are unlimited (null cap)", () => {
+    expect(remainingSpeakerSeconds(planLimits("plus"), usage())).toBeNull();
+    expect(speakerModeExhausted(planLimits("plus"), usage({ speakerSeconds: 999_999 }))).toBe(
+      false
+    );
   });
 });
 
 describe("default transcription mode", () => {
-  it("locks free users to basic mode", () => {
-    expect(effectiveDefaultTranscriptionMode("free", "speaker")).toBe("basic");
+  it("free users default to basic when they haven't opted into speaker mode", () => {
+    expect(effectiveDefaultTranscriptionMode("free", null)).toBe("basic");
+    expect(effectiveDefaultTranscriptionMode("free", "basic")).toBe("basic");
+  });
+
+  it("free users get speaker mode while their monthly allotment remains", () => {
+    const limits = planLimits("free");
+    expect(effectiveDefaultTranscriptionMode("free", "speaker", limits, usage())).toBe(
+      "speaker"
+    );
+  });
+
+  it("free users fall back to basic once the speaker allotment is exhausted", () => {
+    const limits = planLimits("free");
+    expect(
+      effectiveDefaultTranscriptionMode(
+        "free",
+        "speaker",
+        limits,
+        usage({ speakerSeconds: 7_200 })
+      )
+    ).toBe("basic");
   });
 
   it("lets paid users choose basic or speaker mode", () => {

@@ -8,6 +8,7 @@ import {
   listConnectionsForUser,
 } from "@/lib/composio/connections";
 import { invalidateComposioToolsCache } from "@/lib/composio/tools-cache";
+import { CONNECTORS_ENABLED } from "@/lib/features";
 import { loadEntitlements } from "@/lib/plan/repository";
 import { canAddConnector } from "@/lib/plan/entitlements";
 import { PLANS } from "@/lib/plan/tiers";
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   return withAuth(req, async ({ uid }) => {
-    if (!isComposioConfigured()) return jsonOk({ connections: [] });
+    if (!CONNECTORS_ENABLED) return jsonOk({ connections: [] });
     try {
       const connections = await listConnectionsForUser(uid);
       return jsonOk({ connections });
@@ -32,6 +33,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   return withAuth(req, async ({ uid }) => {
+    if (!CONNECTORS_ENABLED) {
+      return jsonError("App connectors are not available.", 404);
+    }
     if (!isComposioConfigured()) {
       return jsonError("Composio is not configured on the server.", 503);
     }
@@ -77,6 +81,9 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   return withAuth(req, async ({ uid }) => {
+    if (!CONNECTORS_ENABLED) {
+      return jsonError("App connectors are not available.", 404);
+    }
     if (!isComposioConfigured()) {
       return jsonError("Composio is not configured on the server.", 503);
     }

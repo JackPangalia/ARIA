@@ -9,7 +9,7 @@
     "providers": {
       "emailPassword": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "ARIA",
+        "oAuthBrandDisplayName": "Kivo",
         "supportEmail": "jackpangalia1@gmail.com"
       }
     }

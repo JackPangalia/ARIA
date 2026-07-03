@@ -13,7 +13,10 @@ import {
   type PlanLimits,
   type Tier,
 } from "@/lib/plan/tiers";
-import { remainingListeningSeconds } from "@/lib/plan/entitlements";
+import {
+  remainingListeningSeconds,
+  speakerModeExhausted,
+} from "@/lib/plan/entitlements";
 import {
   anchorDayFromDate,
   clampAnchorDay,
@@ -21,6 +24,7 @@ import {
 } from "@/lib/plan/period";
 import { emptyUsage, type UsageDoc, type UserPlanDoc } from "@/lib/plan/types";
 import type { TranscriptionMode } from "@/lib/sessions/types";
+import { isAskModelId, type AskModelId } from "@/lib/aria/models";
 
 // Plan + usage live under server-write-only paths (see firestore.rules).
 function planRef(db: Firestore, uid: string) {
@@ -60,6 +64,7 @@ function mapPlan(data: DocumentData): UserPlanDoc {
     cancelAtPeriodEnd: Boolean(data.cancelAtPeriodEnd),
     currentPeriodEnd: data.currentPeriodEnd ? toIso(data.currentPeriodEnd) : null,
     defaultTranscriptionMode,
+    answerModel: isAskModelId(data.answerModel) ? data.answerModel : null,
   };
 }
 
@@ -67,6 +72,7 @@ function mapUsage(periodKey: string, data: DocumentData): UsageDoc {
   return {
     periodKey,
     listeningSeconds: Number(data.listeningSeconds ?? 0),
+    speakerSeconds: Number(data.speakerSeconds ?? 0),
     askTokens: Number(data.askTokens ?? 0),
     askCount: Number(data.askCount ?? 0),
     lastHeartbeatAt: data.lastHeartbeatAt ? toIso(data.lastHeartbeatAt) : null,
@@ -104,11 +110,23 @@ export async function getUserTier(uid: string): Promise<Tier> {
   return (await getOrCreatePlan(uid)).tier;
 }
 
+/**
+ * Free tier gets a limited monthly allotment of Speaker recognition minutes
+ * (see `PlanLimits.speakerMinutesPerMonth`); once exhausted, new sessions fall
+ * back to Basic until the allotment resets next period. Active sessions keep
+ * the mode they started with — diarization can't change mid-connection.
+ */
 export function effectiveDefaultTranscriptionMode(
   tier: Tier,
-  preferred: TranscriptionMode | null | undefined
+  preferred: TranscriptionMode | null | undefined,
+  limits?: PlanLimits,
+  usage?: UsageDoc
 ): TranscriptionMode {
-  if (tier === "free") return "basic";
+  if (tier === "free") {
+    if (preferred !== "speaker") return "basic";
+    if (limits && usage && speakerModeExhausted(limits, usage)) return "basic";
+    return "speaker";
+  }
   return preferred ?? "speaker";
 }
 
@@ -116,15 +134,38 @@ export async function setDefaultTranscriptionMode(
   uid: string,
   mode: TranscriptionMode
 ): Promise<UserPlanDoc> {
-  const plan = await getOrCreatePlan(uid);
-  if (plan.tier === "free" && mode === "speaker") {
-    throw new Error("Upgrade to use Speaker recognition mode.");
+  const entitlements = await loadEntitlements(uid);
+  const { plan } = entitlements;
+  if (
+    plan.tier === "free" &&
+    mode === "speaker" &&
+    speakerModeExhausted(entitlements.limits, entitlements.usage)
+  ) {
+    throw new Error(
+      "You've used your 2 hours of Speaker recognition for this month. Upgrade for unlimited access."
+    );
   }
 
   const db = getAdminDb();
   await planRef(db, uid).set(
     {
       defaultTranscriptionMode: mode,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return getOrCreatePlan(uid);
+}
+
+/** Open to every tier — no entitlement check, unlike transcription mode. */
+export async function setAnswerModel(
+  uid: string,
+  model: AskModelId
+): Promise<UserPlanDoc> {
+  const db = getAdminDb();
+  await planRef(db, uid).set(
+    {
+      answerModel: model,
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
@@ -292,7 +333,8 @@ export interface HeartbeatResult {
  */
 export async function accrueListeningHeartbeat(
   uid: string,
-  sessionId: string
+  sessionId: string,
+  transcriptionMode?: TranscriptionMode
 ): Promise<HeartbeatResult> {
   const db = getAdminDb();
   const plan = await getOrCreatePlan(uid);
@@ -323,6 +365,9 @@ export async function accrueListeningHeartbeat(
       {
         periodKey,
         listeningSeconds: FieldValue.increment(deltaSeconds),
+        ...(transcriptionMode === "speaker" && deltaSeconds > 0
+          ? { speakerSeconds: FieldValue.increment(deltaSeconds) }
+          : {}),
         lastHeartbeatAt: new Date(nowMs).toISOString(),
         activeSessionId: sessionId,
         updatedAt: FieldValue.serverTimestamp(),

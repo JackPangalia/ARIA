@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.92",
     "@ai-sdk/google": "^3.0.80",
     "@breezystack/lamejs": "^1.2.7",
     "@cartesia/cartesia-js": "^3.1.0",

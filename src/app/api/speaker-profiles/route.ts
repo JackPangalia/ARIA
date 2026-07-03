@@ -8,7 +8,6 @@ import {
 import { SpeakerProfileInputSchema } from "@/lib/speakers/types";
 import { loadEntitlements } from "@/lib/plan/repository";
 import { canCreateSpeakerProfile } from "@/lib/plan/entitlements";
-import { PLANS } from "@/lib/plan/tiers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,14 +38,10 @@ export async function POST(req: NextRequest) {
     const targetId = slugifySpeakerProfileId(parsed.data.name);
     const isNew = !existing.some((p) => p.id === targetId);
     if (isNew) {
-      const { tier, limits } = await loadEntitlements(uid);
+      const { limits } = await loadEntitlements(uid);
       if (!canCreateSpeakerProfile(limits, existing.length)) {
-        const message =
-          limits.maxSpeakerProfiles === 0
-            ? `Your ${PLANS[tier].display.name} plan uses Basic transcription. Upgrade to add speaker profiles.`
-            : `Your ${PLANS[tier].display.name} plan allows ${limits.maxSpeakerProfiles} speaker profiles. Upgrade for more.`;
         return jsonError(
-          message,
+          `You've reached the limit of ${limits.maxSpeakerProfiles} speaker profiles. Delete one to add another.`,
           403
         );
       }

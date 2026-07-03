@@ -15,6 +15,7 @@ import type { SessionDoc } from "@/lib/sessions/types";
 import { loadEntitlements } from "@/lib/plan/repository";
 import { askTokensExhausted } from "@/lib/plan/entitlements";
 import { PLANS } from "@/lib/plan/tiers";
+import type { AskModelId } from "@/lib/aria/models";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,8 +76,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Asks are a soft backstop: only blocked once fully over the generous budget.
+  let askModel: AskModelId | undefined;
   try {
-    const { tier, limits, usage } = await loadEntitlements(uid);
+    const { tier, limits, usage, plan } = await loadEntitlements(uid);
     if (askTokensExhausted(limits, usage)) {
       return new Response(
         JSON.stringify({
@@ -86,8 +88,9 @@ export async function POST(req: NextRequest) {
         { status: 429, headers: { "Content-Type": "application/json" } }
       );
     }
+    askModel = plan.answerModel ?? undefined;
   } catch {
-    // Entitlement read failure must never block answering — fail open.
+    // Entitlement read failure must never block answering — fail open (default model).
   }
 
   const pipeline = startAskPipeline(body.sessionId, body.question);
@@ -115,6 +118,7 @@ export async function POST(req: NextRequest) {
       pipeline,
       authSessionMs: performance.now() - requestStart,
       framed,
+      askModel,
     }));
   } catch (err) {
     if (isAbortError(err, req.signal)) {

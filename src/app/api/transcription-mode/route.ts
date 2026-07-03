@@ -3,9 +3,11 @@ import { z } from "zod";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import {
   effectiveDefaultTranscriptionMode,
-  getOrCreatePlan,
+  loadEntitlements,
   setDefaultTranscriptionMode,
+  type Entitlements,
 } from "@/lib/plan/repository";
+import { remainingSpeakerSeconds, speakerModeExhausted } from "@/lib/plan/entitlements";
 import { TranscriptionModeSchema } from "@/lib/sessions/types";
 
 export const runtime = "nodejs";
@@ -15,23 +17,33 @@ const UpdateTranscriptionModeSchema = z.object({
   defaultTranscriptionMode: TranscriptionModeSchema,
 });
 
-function payloadForPlan(plan: Awaited<ReturnType<typeof getOrCreatePlan>>) {
+function payloadForEntitlements(entitlements: Entitlements) {
+  const { plan, limits, usage } = entitlements;
   const effectiveTranscriptionMode = effectiveDefaultTranscriptionMode(
     plan.tier,
-    plan.defaultTranscriptionMode
+    plan.defaultTranscriptionMode,
+    limits,
+    usage
   );
+  const exhausted = speakerModeExhausted(limits, usage);
   return {
     tier: plan.tier,
     defaultTranscriptionMode: plan.defaultTranscriptionMode ?? "speaker",
     effectiveTranscriptionMode,
-    speakerModeLocked: plan.tier === "free",
+    // Locked only when the tier can never use Speaker mode this period.
+    speakerModeLocked: plan.tier === "free" && exhausted,
+    speakerSecondsUsed: usage.speakerSeconds,
+    speakerSecondsCap:
+      limits.speakerMinutesPerMonth === null ? null : limits.speakerMinutesPerMonth * 60,
+    speakerSecondsRemaining: remainingSpeakerSeconds(limits, usage),
+    speakerModeExhausted: exhausted,
   };
 }
 
 export async function GET(req: NextRequest) {
   return withAuth(req, async ({ uid }) => {
-    const plan = await getOrCreatePlan(uid);
-    return jsonOk(payloadForPlan(plan));
+    const entitlements = await loadEntitlements(uid);
+    return jsonOk(payloadForEntitlements(entitlements));
   });
 }
 
@@ -50,11 +62,9 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
-      const plan = await setDefaultTranscriptionMode(
-        uid,
-        parsed.data.defaultTranscriptionMode
-      );
-      return jsonOk(payloadForPlan(plan));
+      await setDefaultTranscriptionMode(uid, parsed.data.defaultTranscriptionMode);
+      const entitlements = await loadEntitlements(uid);
+      return jsonOk(payloadForEntitlements(entitlements));
     } catch (error) {
       const msg =
         error instanceof Error

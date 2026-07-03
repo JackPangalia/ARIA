@@ -25,7 +25,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
       return new Response(exportSessionJson(detail), {
         headers: {
           "Content-Type": "application/json",
-          "Content-Disposition": `attachment; filename="aria-session-${sessionId}.json"`,
+          "Content-Disposition": `attachment; filename="kivo-session-${sessionId}.json"`,
         },
       });
     }
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
     return new Response(exportSessionMarkdown(detail), {
       headers: {
         "Content-Type": "text/markdown; charset=utf-8",
-        "Content-Disposition": `attachment; filename="aria-session-${sessionId}.md"`,
+        "Content-Disposition": `attachment; filename="kivo-session-${sessionId}.md"`,
       },
     });
   });

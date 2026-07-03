@@ -1,5 +1,5 @@
 import { runAriaAgentStream } from "@/lib/aria/agent";
-import { resolveModelId } from "@/lib/aria/models";
+import { DEFAULT_ASK_MODEL_ID, getAskModelOption, type AskModelId } from "@/lib/aria/models";
 import { buildContextBundle } from "@/lib/aria/context/build-context";
 import { maybeCompactSession } from "@/lib/aria/context/summarize";
 import { estimateTokens } from "@/lib/aria/context/token-estimate";
@@ -79,6 +79,8 @@ export interface AnswerPipelineInput {
   sourceUtteranceIds?: string[];
   env: ServerEnv;
   signal: AbortSignal;
+  /** User's chosen ask model; defaults to Gemini 2.5 Flash when omitted. */
+  askModel?: AskModelId;
   /** Reuse an existing pipeline handle (route); one is created if omitted (worker). */
   pipeline?: AskPipelineHandle;
   /** Auth+session setup time for the timing summary; defaults to 0. */
@@ -125,7 +127,8 @@ export async function runAnswerPipeline(
 
   const pipeline = input.pipeline ?? startAskPipeline(sessionId, question);
   const speakerLabel = speakerName ?? speaker ?? null;
-  const modelUsed = resolveModelId(env);
+  const askModel = input.askModel ?? DEFAULT_ASK_MODEL_ID;
+  const modelUsed = getAskModelOption(askModel).apiModelId;
   const intentToolkits = resolveConnectorToolkits(question);
 
   pipeline.stage("composio.intent", {
@@ -227,6 +230,7 @@ export async function runAnswerPipeline(
       signal,
       composioTools: composioResult.tools,
       pipeline,
+      askModel,
     });
     agentReadyMs = performance.now() - agentStart;
     pipeline.stage("agent.ready", { ms: Math.round(agentReadyMs) });

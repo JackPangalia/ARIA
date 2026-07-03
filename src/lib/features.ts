@@ -6,3 +6,10 @@
  * (see docs/meeting-bot.md).
  */
 export const MEETING_BOT_ENABLED = false;
+
+/**
+ * App connectors (Composio — Notion, Gmail, etc.) are built but parked for
+ * post-beta. Set to `true` when ready to ship — also set COMPOSIO_API_KEY and
+ * read docs/connectors.md.
+ */
+export const CONNECTORS_ENABLED = false;

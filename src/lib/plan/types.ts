@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Tier } from "@/lib/plan/tiers";
 import type { TranscriptionMode } from "@/lib/sessions/types";
+import type { AskModelId } from "@/lib/aria/models";
 
 /**
  * The user's plan record. Stored server-write-only at `users/{uid}/private/plan`
@@ -24,6 +25,8 @@ export interface UserPlanDoc {
   currentPeriodEnd?: string | null;
   /** Preferred mode for new sessions. Free tier resolves to basic regardless. */
   defaultTranscriptionMode?: TranscriptionMode | null;
+  /** Preferred LLM for Kivo's live spoken answers. `null`/unset falls back to the default. */
+  answerModel?: AskModelId | null;
 }
 
 /**
@@ -34,6 +37,12 @@ export interface UserPlanDoc {
 export interface UsageDoc {
   periodKey: string;
   listeningSeconds: number;
+  /**
+   * Subset of `listeningSeconds` accrued while a session was in `speaker`
+   * transcription mode. Free tier's Speaker recognition minutes are capped
+   * against this counter; other tiers track it for display only.
+   */
+  speakerSeconds: number;
   askTokens: number;
   askCount: number;
   /** ISO timestamp of the last heartbeat, used to compute the next accrual delta. */
@@ -47,6 +56,7 @@ export function emptyUsage(periodKey: string): UsageDoc {
   return {
     periodKey,
     listeningSeconds: 0,
+    speakerSeconds: 0,
     askTokens: 0,
     askCount: 0,
     lastHeartbeatAt: null,

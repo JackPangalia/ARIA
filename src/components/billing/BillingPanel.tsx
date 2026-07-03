@@ -72,7 +72,7 @@ export function BillingPanel() {
     <section>
       <p className="grok-settings-section-title">Billing</p>
       <p className="grok-settings-section-desc">
-        Your plan controls listening hours, connectors, and session history limits.
+        Your plan controls listening hours and session history limits.
       </p>
 
       <GrokSettingsRow

@@ -5,12 +5,13 @@ import {
   deleteConnection,
   listConnectionsForUser,
 } from "@/lib/composio/connections";
+import { CONNECTORS_ENABLED } from "@/lib/features";
 import { getPlanStripeIds } from "@/lib/plan/repository";
 import { teardownStripeForUser } from "@/lib/stripe/cleanup";
 
 export async function deleteUserAccount(uid: string): Promise<void> {
   invalidateComposioToolsCache(uid);
-  if (isComposioConfigured()) {
+  if (CONNECTORS_ENABLED && isComposioConfigured()) {
     try {
       const connections = await listConnectionsForUser(uid);
       await Promise.all(connections.map((c) => deleteConnection(c.id)));
