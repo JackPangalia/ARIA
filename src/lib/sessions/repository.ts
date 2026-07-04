@@ -103,6 +103,10 @@ function mapTurn(id: string, data: DocumentData): TurnDoc {
     text: String(data.text ?? ""),
     speaker: data.speaker == null ? null : Number(data.speaker),
     speakerName: data.speakerName == null ? null : String(data.speakerName),
+    providerSpeakerLabel:
+      data.providerSpeakerLabel == null
+        ? null
+        : String(data.providerSpeakerLabel),
     sourceUtteranceIds: Array.isArray(data.sourceUtteranceIds)
       ? data.sourceUtteranceIds.map(String)
       : [],
@@ -412,6 +416,7 @@ export async function appendTurn(
     text: string;
     speaker?: number | null;
     speakerName?: string | null;
+    providerSpeakerLabel?: string | null;
     sourceUtteranceIds?: string[];
   }
 ): Promise<TurnDoc> {
@@ -426,6 +431,7 @@ export async function appendTurn(
     text: input.text,
     speaker: input.speaker ?? null,
     speakerName: input.speakerName?.trim() || null,
+    providerSpeakerLabel: input.providerSpeakerLabel?.trim() || null,
     sourceUtteranceIds: input.sourceUtteranceIds ?? [],
     sequence,
     tokenEstimate,
@@ -445,6 +451,42 @@ export async function appendTurn(
 
   const snap = await turnRef.get();
   return mapTurn(turnRef.id, snap.data() ?? {});
+}
+
+/**
+ * Reassigns the display name on specific turns after a speaker misattribution.
+ * Only `speaker` turns are touched — assistant/user_question turns carry
+ * pipeline semantics — and unknown ids are skipped rather than failing the
+ * batch, since the client's view can lag the store.
+ */
+export async function relabelTurnSpeaker(
+  uid: string,
+  sessionId: string,
+  turnIds: string[],
+  speakerName: string | null
+): Promise<number> {
+  const db = getAdminDb();
+  await assertSessionOwner(uid, sessionId);
+
+  const col = turnsCol(db, uid, sessionId);
+  const refs = [...new Set(turnIds)].map((id) => col.doc(id));
+  const snaps = await db.getAll(...refs);
+
+  const batch = db.batch();
+  let updated = 0;
+  for (const snap of snaps) {
+    if (!snap.exists) continue;
+    if (snap.data()?.role !== "speaker") continue;
+    batch.update(snap.ref, { speakerName: speakerName?.trim() || null });
+    updated += 1;
+  }
+  if (updated > 0) {
+    await batch.commit();
+    await sessionRef(db, uid, sessionId).update({
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+  return updated;
 }
 
 export async function listTurns(

@@ -207,6 +207,91 @@ describe("SpeechmaticsLiveClient start config", () => {
   });
 });
 
+describe("stream epochs (reconnect / speaker-correction restart)", () => {
+  const callbacks = {
+    onUtterance: () => undefined,
+    onUtteranceEnd: () => undefined,
+    onError: () => undefined,
+    onOpen: () => undefined,
+    onClose: () => undefined,
+  };
+
+  type Internals = {
+    handleMessage: (msg: { message: string }) => void;
+    handleTranscript: (msg: {
+      message: "AddPartialTranscript" | "AddTranscript";
+      metadata: { start_time: number; end_time: number; transcript: string };
+      results: Array<{
+        type: "word";
+        start_time: number;
+        end_time: number;
+        alternatives: Array<{ content: string; speaker: string }>;
+      }>;
+    }) => void;
+  };
+
+  function emitWord(client: SpeechmaticsLiveClient, content: string) {
+    (client as unknown as Internals).handleTranscript({
+      message: "AddTranscript",
+      metadata: { start_time: 0.5, end_time: 1, transcript: content },
+      results: [
+        {
+          type: "word",
+          start_time: 0.5,
+          end_time: 1,
+          alternatives: [{ content, speaker: "S1" }],
+        },
+      ],
+    });
+  }
+
+  function startStream(client: SpeechmaticsLiveClient) {
+    (client as unknown as Internals).handleMessage({
+      message: "RecognitionStarted",
+    });
+  }
+
+  it("namespaces utterance ids per stream so restarts cannot collide", () => {
+    const ids: string[] = [];
+    const client = new SpeechmaticsLiveClient({
+      ...callbacks,
+      onUtterance: (u) => ids.push(u.id),
+    });
+
+    startStream(client);
+    emitWord(client, "first");
+    startStream(client); // reconnect/restart — provider timestamps reset to 0
+    emitWord(client, "second");
+
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe("0.5-0");
+    expect(ids[1]).toBe("2:0.5-0");
+  });
+
+  it("rebases the echo timeline on a new stream", () => {
+    const events: Array<{ text: string; overlapsAssistantSpeech?: boolean }> =
+      [];
+    const client = new SpeechmaticsLiveClient({
+      ...callbacks,
+      onUtterance: (u) => events.push(u),
+    });
+
+    startStream(client);
+    // 10s of audio, with TTS playing across the stream boundary.
+    client.sendPcm(new Int16Array(160000));
+    client.markAssistantSpeechStart();
+    startStream(client); // restart: word timestamps are near zero again
+
+    // Word at 0.5s on the NEW timeline, while TTS is still playing — must be
+    // flagged as echo even though the old timeline was already at 10s.
+    emitWord(client, "echoed");
+    client.markAssistantSpeechEnd();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.overlapsAssistantSpeech).toBe(true);
+  });
+});
+
 describe("assistant-speech echo attribution", () => {
   const callbacks = {
     onUtterance: () => undefined,

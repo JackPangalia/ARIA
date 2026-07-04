@@ -11,8 +11,8 @@ import {
 } from "@/lib/speakers/client";
 import {
   ENROLLMENT_IDLE_HINT,
-  ENROLLMENT_READ_ALOUD_SCRIPT,
-  ENROLLMENT_SCRIPT_LABEL,
+  ENROLLMENT_PASSES,
+  type EnrollmentPass,
 } from "@/lib/speakers/enrollment-script";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { GrokSettingsButton } from "@/components/settings/SettingsRow";
@@ -23,6 +23,17 @@ const ENROLL_PROCESSING_TIMEOUT_MS = 25_000;
 const WAVEFORM_BARS = 28;
 const MIN_ENROLL_PEAK_RMS = 0.012;
 const ENROLL_TOO_LOUD_RMS = 0.45;
+// Voiceprint size cap (established against match drift — see git history).
+// Both passes must survive the cap so the stored voiceprint covers read and
+// conversational speech, hence at most 2 identifiers per pass.
+const MAX_PROFILE_IDENTIFIERS = 3;
+const MAX_IDENTIFIERS_PER_PASS = 2;
+
+function combineIdentifierSets(sets: string[][]): string[] {
+  return sets
+    .flatMap((set) => set.slice(0, MAX_IDENTIFIERS_PER_PASS))
+    .slice(0, MAX_PROFILE_IDENTIFIERS);
+}
 
 type EnrollPhase =
   | "idle"
@@ -116,7 +127,8 @@ function rmsFromInt16(frame: Int16Array): number {
 function recordingQualityHint(
   level: number,
   peak: number,
-  secondsLeft: number
+  secondsLeft: number,
+  passIndex: number
 ): string | null {
   if (level >= ENROLL_TOO_LOUD_RMS) {
     return "A little softer — you're very close to the mic.";
@@ -124,12 +136,14 @@ function recordingQualityHint(
   // Avoid nagging on natural pauses: only nudge if we're past halfway and
   // we still haven't picked up any clear speech at all.
   if (secondsLeft <= 7 && peak < MIN_ENROLL_PEAK_RMS) {
-    return "Keep reading the script aloud — we haven't heard enough yet.";
+    return passIndex === 0
+      ? "Keep reading the script aloud — we haven't heard enough yet."
+      : "Keep talking — we haven't heard enough yet.";
   }
   return null;
 }
 
-function EnrollmentScriptCard() {
+function EnrollmentScriptCard({ pass }: { pass: EnrollmentPass }) {
   return (
     <div className="relative w-full overflow-hidden rounded-xl border border-app/60 bg-surface/50 px-4 py-3.5 text-left shadow-sm">
       <span
@@ -137,10 +151,10 @@ function EnrollmentScriptCard() {
         className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-accent/50 to-accent/10"
       />
       <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-app-muted">
-        {ENROLLMENT_SCRIPT_LABEL}
+        {pass.label}
       </p>
       <p className="mt-2 text-[15px] leading-relaxed text-app-secondary">
-        {ENROLLMENT_READ_ALOUD_SCRIPT}
+        {pass.script}
       </p>
     </div>
   );
@@ -298,9 +312,11 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
   const [profiles, setProfiles] = useState<SpeakerProfileDoc[]>([]);
   const [name, setName] = useState("");
   const [phase, setPhase] = useState<EnrollPhase>("idle");
+  const [passIndex, setPassIndex] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(ENROLL_SECONDS);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [savedName, setSavedName] = useState<string | null>(null);
+  const [successNote, setSuccessNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -322,6 +338,9 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
   const rafRef = useRef<number | null>(null);
   const enrollmentAudioActiveRef = useRef(false);
   const enrollPeakRmsRef = useRef(0);
+  // Identifier sets from completed passes (read-aloud first, then
+  // conversational), combined into one profile at the end.
+  const passIdentifiersRef = useRef<string[][]>([]);
 
   const refresh = useCallback(async () => {
     const next = await listSpeakerProfiles();
@@ -372,7 +391,9 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
 
   const cancelEnrollment = useCallback(async () => {
     await teardown();
+    passIdentifiersRef.current = [];
     setPhase("idle");
+    setPassIndex(0);
     setSecondsLeft(ENROLL_SECONDS);
     setCountdown(COUNTDOWN_SECONDS);
   }, [teardown]);
@@ -406,7 +427,12 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       last = smoothed;
       setLevel(smoothed);
       setQualityHint(
-        recordingQualityHint(smoothed, enrollPeakRmsRef.current, secondsLeft)
+        recordingQualityHint(
+          smoothed,
+          enrollPeakRmsRef.current,
+          secondsLeft,
+          passIndex
+        )
       );
       setWaveform([...waveformRef.current]);
       rafRef.current = requestAnimationFrame(tick);
@@ -416,85 +442,115 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, [phase, secondsLeft]);
+  }, [phase, secondsLeft, passIndex]);
 
-  const beginRecording = useCallback(
-    (trimmed: string) => {
-      setPhase("recording");
+  const finishEnrollment = async (trimmed: string, note: string | null) => {
+    await saveSpeakerProfile({
+      name: trimmed,
+      speakerIdentifiers: combineIdentifierSets(passIdentifiersRef.current),
+      sampleCount: passIdentifiersRef.current.length,
+    });
+    passIdentifiersRef.current = [];
+    setName("");
+    setSavedName(trimmed);
+    setSuccessNote(note);
+    setPhase("success");
+    await refresh();
+    await teardown();
+    window.setTimeout(() => {
+      setPhase("idle");
+      setPassIndex(0);
+      setSavedName(null);
+      setSuccessNote(null);
       setSecondsLeft(ENROLL_SECONDS);
-      enrollmentAudioActiveRef.current = true;
-      enrollPeakRmsRef.current = 0;
-      setQualityHint(null);
+    }, 2400);
+  };
 
-      recordTickRef.current = window.setInterval(() => {
-        setSecondsLeft((s) => {
-          if (s <= 1) {
-            if (recordTickRef.current) {
-              window.clearInterval(recordTickRef.current);
-              recordTickRef.current = null;
-            }
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
+  // A failed later pass must not discard an earlier good sample: save what we
+  // have (the read-aloud pass alone is still a working voiceprint) instead of
+  // dead-ending the whole enrollment.
+  const failPassOrFallback = async (trimmed: string, message: string) => {
+    if (passIdentifiersRef.current.length > 0) {
+      try {
+        await finishEnrollment(
+          trimmed,
+          "Only the read-aloud sample was captured — re-enroll anytime to improve matching."
+        );
+        return;
+      } catch {
+        // Saving the partial profile failed too — surface the original error.
+      }
+    }
+    setError(message);
+    setPhase("error");
+    setQualityHint(null);
+    await teardown();
+  };
 
-      requestTimerRef.current = window.setTimeout(() => {
-        void (async () => {
-          enrollmentAudioActiveRef.current = false;
+  const beginRecording = (pass: number, trimmed: string) => {
+    setPhase("recording");
+    setSecondsLeft(ENROLL_SECONDS);
+    enrollmentAudioActiveRef.current = true;
+    enrollPeakRmsRef.current = 0;
+    setQualityHint(null);
+
+    recordTickRef.current = window.setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
           if (recordTickRef.current) {
             window.clearInterval(recordTickRef.current);
             recordTickRef.current = null;
           }
-          await micRef.current?.stop();
-          micRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
 
-          if (enrollPeakRmsRef.current < MIN_ENROLL_PEAK_RMS) {
-            setError(
-              "We didn't hear enough. Try again in a quiet room, speaking clearly for the full recording."
-            );
-            setPhase("error");
-            setQualityHint(null);
-            await teardown();
-            return;
-          }
+    requestTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        enrollmentAudioActiveRef.current = false;
+        if (recordTickRef.current) {
+          window.clearInterval(recordTickRef.current);
+          recordTickRef.current = null;
+        }
+        await micRef.current?.stop();
+        micRef.current = null;
 
-          setPhase("processing");
-          setQualityHint(null);
+        if (enrollPeakRmsRef.current < MIN_ENROLL_PEAK_RMS) {
+          await failPassOrFallback(
+            trimmed,
+            "We didn't hear enough. Try again in a quiet room, speaking clearly for the full recording."
+          );
+          return;
+        }
 
-          const client = clientRef.current;
-          if (!client) {
-            setError("Enrollment connection was lost. Try again.");
-            setPhase("error");
-            return;
-          }
+        setPhase("processing");
+        setQualityHint(null);
 
-          processingTimeoutRef.current = window.setTimeout(() => {
-            setError(
-              "Creating your voice profile timed out. Try again in a quiet room."
-            );
-            setPhase("error");
-            void teardown();
-          }, ENROLL_PROCESSING_TIMEOUT_MS);
+        const client = clientRef.current;
+        if (!client) {
+          await failPassOrFallback(
+            trimmed,
+            "Enrollment connection was lost. Try again."
+          );
+          return;
+        }
 
-          client.sendEndOfStream();
-        })();
-      }, ENROLL_SECONDS * 1000);
+        processingTimeoutRef.current = window.setTimeout(() => {
+          void failPassOrFallback(
+            trimmed,
+            "Creating your voice profile timed out. Try again in a quiet room."
+          );
+        }, ENROLL_PROCESSING_TIMEOUT_MS);
 
-      void trimmed;
-    },
-    [teardown]
-  );
+        client.sendEndOfStream();
+      })();
+    }, ENROLL_SECONDS * 1000);
+  };
 
-  const startEnrollment = async () => {
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError("Enter a name before enrolling.");
-      return;
-    }
-
-    setError(null);
-    setSavedName(null);
+  const startPass = async (pass: number, trimmed: string): Promise<void> => {
+    setPassIndex(pass);
     setPhase("countdown");
     setCountdown(COUNTDOWN_SECONDS);
     setSecondsLeft(ENROLL_SECONDS);
@@ -502,7 +558,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     waveformRef.current = Array(WAVEFORM_BARS).fill(0);
     enrollmentAudioActiveRef.current = false;
 
-    let completed = false;
+    let handled = false;
     const client = new SpeechmaticsLiveClient(
       {
         onOpen: () => {
@@ -512,6 +568,8 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
           // Wait for SpeakersResult or the processing timeout — do not reset UI here.
         },
         onError: (err) => {
+          if (handled) return;
+          handled = true;
           setError(err.message);
           setPhase("error");
           void teardown();
@@ -520,37 +578,36 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         onUtteranceEnd: () => {},
         onSpeakersResult: (speakers) => {
           void (async () => {
-            if (completed) return;
+            if (handled) return;
+            handled = true;
             if (processingTimeoutRef.current) {
               window.clearTimeout(processingTimeoutRef.current);
               processingTimeoutRef.current = null;
             }
-            if (speakers.length !== 1 || speakers[0]!.speakerIdentifiers.length === 0) {
-              setError(
+            if (
+              speakers.length !== 1 ||
+              speakers[0]!.speakerIdentifiers.length === 0
+            ) {
+              await failPassOrFallback(
+                trimmed,
                 "We couldn't detect a single clear voice. Try again in a quiet room, speaking naturally."
               );
-              setPhase("error");
-              await teardown();
               return;
             }
-            completed = true;
-            await saveSpeakerProfile({
-              name: trimmed,
-              speakerIdentifiers: speakers[0]!.speakerIdentifiers,
-              sampleCount: 1,
-            });
-            setName("");
-            setSavedName(trimmed);
-            setPhase("success");
-            await refresh();
-            await teardown();
-            window.setTimeout(() => {
-              setPhase("idle");
-              setSavedName(null);
-              setSecondsLeft(ENROLL_SECONDS);
-            }, 2400);
+            passIdentifiersRef.current.push(speakers[0]!.speakerIdentifiers);
+            // This pass's stream ended with EndOfStream; the next pass (or
+            // nothing) gets a fresh connection.
+            clientRef.current?.close();
+            clientRef.current = null;
+            if (pass + 1 < ENROLLMENT_PASSES.length) {
+              await startPass(pass + 1, trimmed);
+              return;
+            }
+            await finishEnrollment(trimmed, null);
           })().catch((err) => {
-            setError(err instanceof Error ? err.message : "Failed to save speaker.");
+            setError(
+              err instanceof Error ? err.message : "Failed to save speaker."
+            );
             setPhase("error");
             void teardown();
           });
@@ -587,7 +644,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
               window.clearInterval(preTimerRef.current);
               preTimerRef.current = null;
             }
-            beginRecording(trimmed);
+            beginRecording(pass, trimmed);
             return 0;
           }
           return c - 1;
@@ -598,6 +655,20 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
       setPhase("error");
       await teardown();
     }
+  };
+
+  const startEnrollment = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Enter a name before enrolling.");
+      return;
+    }
+
+    setError(null);
+    setSavedName(null);
+    setSuccessNote(null);
+    passIdentifiersRef.current = [];
+    await startPass(0, trimmed);
   };
 
   const onRename = async (profile: SpeakerProfileDoc) => {
@@ -626,15 +697,24 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
     }
   };
 
+  const totalPasses = ENROLLMENT_PASSES.length;
+  const passProgress = `sample ${passIndex + 1} of ${totalPasses}`;
   const statusLine =
     phase === "countdown"
-      ? "Get ready to speak…"
+      ? `Get ready to speak — ${passProgress}`
       : phase === "recording"
-        ? qualityHint ?? "Read the script below aloud"
+        ? qualityHint ??
+          (passIndex === 0
+            ? "Read the script below aloud"
+            : "Just talk naturally — the prompt below has ideas")
         : phase === "processing"
-          ? "Creating voice profile…"
+          ? passIndex + 1 < totalPasses
+            ? `Checking ${passProgress}…`
+            : "Creating voice profile…"
           : phase === "success"
-            ? `${savedName ?? "Voice"} saved — Kivo can recognize this speaker`
+            ? successNote
+              ? `${savedName ?? "Voice"} saved. ${successNote}`
+              : `${savedName ?? "Voice"} saved — Kivo can recognize this speaker`
             : phase === "error"
               ? "Something went wrong"
               : "Ready to enroll";
@@ -666,8 +746,9 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
         <div>
           <p className="text-[9px] tracking-[0.22em] text-app-subtle">SPEAKER MEMORY</p>
           <p className="mt-2 text-[11px] leading-snug text-app-subtle">
-            One read-aloud recording per person so Kivo knows who is speaking. We store a
-            voice identifier, not raw audio.
+            Two short recordings per person — one read aloud, one just talking —
+            so Kivo knows who is speaking. We store voice identifiers, not raw
+            audio.
           </p>
         </div>
       ) : null}
@@ -704,7 +785,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
             </p>
 
             {phase === "countdown" || phase === "recording" ? (
-              <EnrollmentScriptCard />
+              <EnrollmentScriptCard pass={ENROLLMENT_PASSES[passIndex]!} />
             ) : null}
 
             <button

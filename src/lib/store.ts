@@ -17,6 +17,11 @@ interface AriaState {
   setMicLevel: (n: number) => void;
   upsertUtterance: (u: TranscriptUtterance) => void;
   patchUtterance: (id: string, patch: Partial<TranscriptUtterance>) => void;
+  /** Renames every live utterance carrying a provider label (speaker correction). */
+  relabelUtterances: (
+    providerSpeakerLabel: string,
+    speakerName: string | null
+  ) => void;
   clearTranscript: () => void;
 }
 
@@ -51,6 +56,15 @@ export const useAriaStore = create<AriaState>((set) => ({
       next[idx] = { ...next[idx]!, ...patch };
       return { utterances: next };
     }),
+
+  relabelUtterances: (providerSpeakerLabel, speakerName) =>
+    set((state) => ({
+      utterances: state.utterances.map((u) =>
+        u.providerSpeakerLabel === providerSpeakerLabel
+          ? { ...u, speakerName }
+          : u
+      ),
+    })),
 
   clearTranscript: () => set({ utterances: [] }),
 }));

@@ -10,6 +10,8 @@ export interface TranscriptLine {
   text: string;
   speaker: number | null;
   speakerName: string | null;
+  /** Diarization label backing this line — the handle for speaker correction. */
+  providerSpeakerLabel: string | null;
   sourceUtteranceIds: string[];
   isPartial: boolean;
 }
@@ -29,6 +31,7 @@ function turnToLine(turn: TurnDoc): TranscriptLine {
     text: turn.text,
     speaker: turn.speaker,
     speakerName: turn.speakerName,
+    providerSpeakerLabel: turn.providerSpeakerLabel ?? null,
     sourceUtteranceIds: turn.sourceUtteranceIds,
     isPartial: false,
   };
@@ -63,6 +66,7 @@ function liveGroups(utterances: TranscriptUtterance[]): TranscriptLine[] {
       text,
       speaker: utterance.speaker,
       speakerName: labelForUtterance(utterance),
+      providerSpeakerLabel: utterance.providerSpeakerLabel ?? null,
       sourceUtteranceIds: [utterance.id],
       isPartial: !utterance.isFinal,
       end: utterance.end,
@@ -76,6 +80,7 @@ function liveGroups(utterances: TranscriptUtterance[]): TranscriptLine[] {
     text: group.text,
     speaker: group.speaker,
     speakerName: group.speakerName,
+    providerSpeakerLabel: group.providerSpeakerLabel,
     sourceUtteranceIds: group.sourceUtteranceIds,
     isPartial: group.isPartial,
   }));

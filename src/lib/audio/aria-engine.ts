@@ -15,8 +15,10 @@ import {
   appendSessionTurn,
   finalizeSessionTitle,
   prefetchSessionContext,
+  relabelSessionTurns,
 } from "@/lib/sessions/client";
 import { listSpeakerProfiles } from "@/lib/speakers/client";
+import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { sendHeartbeat } from "@/lib/plan/client";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
 import { sanitizeQuestionText } from "@/lib/aria/context/question-text";
@@ -75,6 +77,15 @@ export type AriaEngineOptions = {
   onUsageExhausted?: () => void;
 };
 
+// One engine runs at a time (Controls enforces it); registering the live
+// instance lets UI outside the Controls tree — the transcript panel's speaker
+// correction — reach it without threading refs through the workspace.
+let activeAriaEngine: AriaEngine | null = null;
+
+export function getActiveAriaEngine(): AriaEngine | null {
+  return activeAriaEngine;
+}
+
 export class AriaEngine {
   private sessionId: string;
   private transcriptionMode: TranscriptionMode;
@@ -110,6 +121,13 @@ export class AriaEngine {
   private onUsageExhausted?: () => void;
   private titleFinalized = false;
   private visualMicLevel = new VisualMicLevelNormalizer();
+  private enrolledProfiles: SpeakerProfileDoc[] = [];
+  // Persisted speaker-turn ids per provider label, scoped to the current
+  // recognition stream (cleared on every stream open). This is the relabel
+  // target set when the user corrects a misattributed speaker — earlier
+  // streams' turns under the same label were attributed by different clusters
+  // and are deliberately left alone.
+  private streamTurnIdsByLabel = new Map<string, string[]>();
 
   constructor(options: AriaEngineOptions) {
     this.sessionId = options.sessionId;
@@ -119,6 +137,8 @@ export class AriaEngine {
   }
 
   async start() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- module-level active-instance registry, not a this-alias
+    activeAriaEngine = this;
     const store = useAriaStore.getState();
     store.clearTranscript();
     this.visualMicLevel.reset();
@@ -169,8 +189,12 @@ export class AriaEngine {
           })
         : [];
 
+    this.enrolledProfiles = profiles;
     this.stt = new SpeechmaticsLiveClient({
       onOpen: () => {
+        // A fresh stream means fresh diarization clusters — turns persisted
+        // under the previous stream's labels are no longer correction targets.
+        this.streamTurnIdsByLabel.clear();
         useAriaStore.getState().setNotice(null);
       },
       onClose: () => {
@@ -194,6 +218,9 @@ export class AriaEngine {
   }
 
   async stop() {
+    if (activeAriaEngine === this) {
+      activeAriaEngine = null;
+    }
     this.stopHeartbeat();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     await this.mic?.stop();
@@ -1120,13 +1147,19 @@ export class AriaEngine {
     }
 
     try {
-      await appendSessionTurn(this.sessionId, {
+      const persisted = await appendSessionTurn(this.sessionId, {
         role: "speaker",
         text,
         speaker: this.transcriptionMode === "basic" ? null : u.speaker,
         speakerName: u.speakerName ?? null,
+        providerSpeakerLabel: u.providerSpeakerLabel ?? null,
         sourceUtteranceIds: turn.sourceUtteranceIds,
       });
+      if (u.providerSpeakerLabel) {
+        const ids = this.streamTurnIdsByLabel.get(u.providerSpeakerLabel) ?? [];
+        ids.push(persisted.id);
+        this.streamTurnIdsByLabel.set(u.providerSpeakerLabel, ids);
+      }
       this.onSessionActivity?.();
     } catch (err) {
       for (const id of turn.sourceUtteranceIds) {
@@ -1135,5 +1168,46 @@ export class AriaEngine {
       const msg = err instanceof Error ? err.message : "unknown error";
       devLog("session", `Failed to persist speaker turn: ${msg}`);
     }
+  }
+
+  /** Names available as correction targets in the transcript UI. */
+  getEnrolledSpeakerNames(): string[] {
+    return this.enrolledProfiles.map((profile) => profile.name);
+  }
+
+  /**
+   * "That wasn't Jack" — fixes a speaker misattribution for the current
+   * recognition stream. Relabels this stream's persisted turns and the live
+   * transcript tail, then restarts recognition: the provider's in-stream
+   * clusters adapt toward whoever they absorb, so a wrong first attribution
+   * self-reinforces and can only be shed by re-seeding fresh clusters from
+   * the enrolled voiceprints. Mic audio queues through the ~1–2s restart.
+   */
+  async correctSpeakerAttribution(input: {
+    providerSpeakerLabel: string;
+    /** Corrected display name; null means "not an enrolled voice". */
+    correctedName: string | null;
+  }): Promise<void> {
+    const { providerSpeakerLabel, correctedName } = input;
+    devLog("speaker", "Speaker correction requested.", {
+      providerSpeakerLabel,
+      correctedName,
+    });
+
+    // Persist anything still buffered under the old label so the relabel
+    // below catches it too.
+    await this.flushPersistedSpeakerTurn();
+
+    const turnIds = this.streamTurnIdsByLabel.get(providerSpeakerLabel) ?? [];
+    if (turnIds.length > 0) {
+      await relabelSessionTurns(this.sessionId, turnIds, correctedName);
+    }
+    useAriaStore
+      .getState()
+      .relabelUtterances(providerSpeakerLabel, correctedName);
+
+    useAriaStore.getState().setNotice("Re-reading voices…");
+    await this.stt?.restartRecognition();
+    this.onSessionActivity?.();
   }
 }

@@ -136,6 +136,7 @@ describe("buildLiveTranscriptLines", () => {
         text: "first second",
         speaker: 0,
         speakerName: "Conversation",
+        providerSpeakerLabel: "conversation",
         sourceUtteranceIds: ["u1", "u2"],
         isPartial: true,
       },

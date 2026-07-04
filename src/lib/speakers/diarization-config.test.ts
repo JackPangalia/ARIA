@@ -19,9 +19,12 @@ describe("speakerSensitivityForProfiles", () => {
     expect(speakerSensitivityForProfiles(0)).toBeUndefined();
   });
 
-  it("biases matching toward enrolled speakers when profiles exist", () => {
-    expect(speakerSensitivityForProfiles(1)).toBe(0.2);
-    expect(speakerSensitivityForProfiles(2)).toBe(0.2);
+  it("keeps a mild bias toward enrolled speakers when profiles exist", () => {
+    // 0.4, not lower: an unsure match must fall out as a generic speaker
+    // (recoverable) rather than being rounded into an enrolled label, which
+    // the provider's online clustering then locks in for the whole stream.
+    expect(speakerSensitivityForProfiles(1)).toBe(0.4);
+    expect(speakerSensitivityForProfiles(2)).toBe(0.4);
   });
 });
 
@@ -30,10 +33,10 @@ describe("maxSpeakersForProfiles", () => {
     expect(maxSpeakersForProfiles(0)).toBe(10);
   });
 
-  it("allows enrolled speakers plus one unregistered speaker", () => {
-    expect(maxSpeakersForProfiles(1)).toBe(2);
-    expect(maxSpeakersForProfiles(2)).toBe(3);
-    expect(maxSpeakersForProfiles(9)).toBe(10);
+  it("leaves headroom for guests and Kivo's own TTS cluster", () => {
+    expect(maxSpeakersForProfiles(1)).toBe(4);
+    expect(maxSpeakersForProfiles(2)).toBe(5);
+    expect(maxSpeakersForProfiles(7)).toBe(10);
     expect(maxSpeakersForProfiles(12)).toBe(10);
   });
 });

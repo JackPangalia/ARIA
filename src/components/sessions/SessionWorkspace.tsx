@@ -17,7 +17,11 @@ import {
   patchSession,
   subscribeSessionTurns,
 } from "@/lib/sessions/client";
-import { buildLiveTranscriptLines } from "@/lib/sessions/live-transcript";
+import { getActiveAriaEngine } from "@/lib/audio/aria-engine";
+import {
+  buildLiveTranscriptLines,
+  type TranscriptLine,
+} from "@/lib/sessions/live-transcript";
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
 import { readSidebarCollapsed, SIDEBAR_WIDTH, storeSidebarCollapsed } from "@/lib/sidebar-layout";
@@ -475,6 +479,34 @@ export function SessionWorkspace() {
       }),
     [detail?.turns, liveUtterances, micLive]
   );
+
+  // "Wrong speaker?" correction is only meaningful while the mic session that
+  // produced the labels is still running — it relabels this stream's turns and
+  // restarts recognition so the provider re-seeds clean voice clusters.
+  const handleCorrectSpeaker = useCallback(
+    async (line: TranscriptLine, correctedName: string | null) => {
+      const engine = getActiveAriaEngine();
+      if (!engine || !line.providerSpeakerLabel) return;
+      try {
+        await engine.correctSpeakerAttribution({
+          providerSpeakerLabel: line.providerSpeakerLabel,
+          correctedName,
+        });
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to correct the speaker."
+        );
+      }
+    },
+    [setError]
+  );
+  const speakerCorrection =
+    micLive && detail?.session.transcriptionMode !== "basic"
+      ? {
+          enrolledNames: getActiveAriaEngine()?.getEnrolledSpeakerNames() ?? [],
+          onCorrect: handleCorrectSpeaker,
+        }
+      : undefined;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -961,6 +993,7 @@ export function SessionWorkspace() {
               <SessionInsightsPanel
                 lines={transcriptLines}
                 onCollapse={() => setSummaryOpen(false)}
+                speakerCorrection={speakerCorrection}
               />
             </div>
           </div>

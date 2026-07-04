@@ -217,8 +217,14 @@ export class SpeechmaticsLiveClient {
   private reconnectAttempts = 0;
   private loggedStartConfig = false;
   private transcriptionMode: TranscriptionMode;
-  // Cumulative seconds of mic PCM sent so far — the same timeline Speechmatics
-  // uses for word start_time/end_time, since audio is streamed continuously.
+  // Counts recognition streams on this client (reconnects and restarts start a
+  // new stream). Speechmatics timestamps restart at zero per stream, so the
+  // epoch namespaces utterance ids and scopes the audio timeline below.
+  private streamEpoch = 0;
+  // Seconds of mic PCM delivered to the *current* stream — the same timeline
+  // Speechmatics uses for word start_time/end_time. Reset when a new stream
+  // starts; counted at actual socket send so frames queued during an outage
+  // (delivered to the next stream) land on the right timeline.
   private audioSecondsSent = 0;
   private assistantSpeechIntervals: Array<{ start: number; end: number | null }> =
     [];
@@ -253,7 +259,11 @@ export class SpeechmaticsLiveClient {
       this.sendJson(this.buildStartRecognitionMessage());
     });
 
+    // Every listener bails if this.ws has moved on — a socket abandoned by
+    // restartRecognition() still fires its close/error events asynchronously
+    // and must not clobber the replacement stream's state.
     ws.addEventListener("message", (event) => {
+      if (this.ws !== ws) return;
       if (typeof event.data !== "string") return;
       let msg: SpeechmaticsMessage;
       try {
@@ -265,10 +275,12 @@ export class SpeechmaticsLiveClient {
     });
 
     ws.addEventListener("error", () => {
+      if (this.ws !== ws) return;
       this.callbacks.onError(new Error("Speechmatics WebSocket error"));
     });
 
     ws.addEventListener("close", (event) => {
+      if (this.ws !== ws) return;
       this.recognitionStarted = false;
       this.ws = null;
       this.callbacks.onClose();
@@ -332,6 +344,33 @@ export class SpeechmaticsLiveClient {
     }
     this.reconnectAttempts = 0;
     void this.connect().catch((err) => this.handleConnectFailure(err));
+  }
+
+  /**
+   * Tears down the current stream and starts a fresh recognition on purpose.
+   * Speechmatics' in-stream speaker clusters adapt online — a wrong first
+   * attribution self-reinforces and cannot be corrected mid-stream — so the
+   * only way to shed a poisoned cluster is a new StartRecognition, which
+   * re-seeds clean clusters from the (never-modified) enrolled voiceprints.
+   * The mic keeps streaming; frames queue while the socket is down and flush
+   * into the new stream, so speech during the gap is delayed, not lost.
+   */
+  async restartRecognition(): Promise<void> {
+    if (this.closedByClient || this.endOfStreamSent) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    const previous = this.ws;
+    this.ws = null;
+    this.recognitionStarted = false;
+    try {
+      previous?.close();
+    } catch {
+      // ignore — the socket may already be dead.
+    }
+    await this.connect().catch((err) => this.handleConnectFailure(err));
   }
 
   get isConnected(): boolean {
@@ -434,6 +473,22 @@ export class SpeechmaticsLiveClient {
 
   private handleMessage(msg: SpeechmaticsMessage) {
     if (msg.message === "RecognitionStarted") {
+      this.streamEpoch += 1;
+      // Word timestamps restart at zero on a new stream, so the mic timeline
+      // rebases too (before the queue flush below): audio queued during the
+      // outage becomes the head of this stream, so the counter restarts at
+      // the queued duration, not zero. An assistant-speech interval still
+      // open across the boundary re-opens at zero (it covers the queued audio
+      // as well); closed ones belong to the old timeline and are dropped.
+      this.audioSecondsSent = this.audioQueue.reduce(
+        (seconds, frame) => seconds + frame.byteLength / 2 / SAMPLE_RATE,
+        0
+      );
+      this.assistantSpeechIntervals = this.assistantSpeechIntervals.some(
+        (interval) => interval.end === null
+      )
+        ? [{ start: 0, end: null }]
+        : [];
       this.recognitionStarted = true;
       this.reconnectAttempts = 0;
       this.callbacks.onOpen();
@@ -478,7 +533,13 @@ export class SpeechmaticsLiveClient {
   ) {
     const isFinal = msg.message === "AddTranscript";
     const speechFinal = isFinal;
-    const baseId = `${msg.metadata.start_time}`;
+    // start_time restarts at zero per stream; the epoch prefix keeps ids from
+    // colliding across reconnects/restarts (dedup sets and the transcript
+    // store are keyed by these ids). Epoch 1 stays unprefixed.
+    const baseId =
+      this.streamEpoch > 1
+        ? `${this.streamEpoch}:${msg.metadata.start_time}`
+        : `${msg.metadata.start_time}`;
 
     // Partition words by whether their audio-timeline timestamp falls inside a
     // known assistant-speech interval. This identifies Kivo's own echo by

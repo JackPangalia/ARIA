@@ -56,6 +56,8 @@ export interface TurnDoc {
   text: string;
   speaker: number | null;
   speakerName: string | null;
+  /** Raw diarization label from the STT provider (enrolled name or "S1"…). */
+  providerSpeakerLabel?: string | null;
   sourceUtteranceIds: string[];
   sequence: number;
   tokenEstimate: number;
@@ -117,7 +119,15 @@ export const CreateTurnSchema = z.object({
   text: z.string().trim().min(1).max(16000),
   speaker: z.number().int().min(0).max(9).nullable().optional(),
   speakerName: z.string().trim().min(1).max(100).nullable().optional(),
+  providerSpeakerLabel: z.string().trim().min(1).max(100).nullable().optional(),
   sourceUtteranceIds: z.array(z.string()).max(50).optional(),
+});
+
+// "That wasn't Jack" — reassign the display name on a batch of turns after a
+// speaker misattribution. Null clears back to the generic "Other speaker".
+export const RelabelTurnsSchema = z.object({
+  turnIds: z.array(z.string().min(1).max(256)).min(1).max(200),
+  speakerName: z.string().trim().min(1).max(100).nullable(),
 });
 
 export const CreateBotRequestSchema = z.object({

@@ -106,12 +106,25 @@ export async function appendSessionTurn(
     text: string;
     speaker?: number | null;
     speakerName?: string | null;
+    providerSpeakerLabel?: string | null;
     sourceUtteranceIds?: string[];
   }
 ): Promise<TurnDoc> {
   return apiFetch<TurnDoc>(`/api/sessions/${sessionId}/turns`, {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+/** Reassigns the speaker name on already-persisted turns (misattribution fix). */
+export async function relabelSessionTurns(
+  sessionId: string,
+  turnIds: string[],
+  speakerName: string | null
+): Promise<{ updated: number }> {
+  return apiFetch<{ updated: number }>(`/api/sessions/${sessionId}/turns`, {
+    method: "PATCH",
+    body: JSON.stringify({ turnIds, speakerName }),
   });
 }
 

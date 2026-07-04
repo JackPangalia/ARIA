@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
+
+/** Wiring for "that wasn't Jack" — offered on speaker lines while listening. */
+export interface SpeakerCorrectionProps {
+  enrolledNames: string[];
+  onCorrect: (
+    line: TranscriptLine,
+    correctedName: string | null
+  ) => void | Promise<void>;
+}
 
 const LABEL_GUTTER = "5.25rem";
 const LABEL_GAP = "0.75rem";
@@ -96,6 +105,7 @@ function CloseIcon({ className }: { className?: string }) {
 export function SessionInsightsPanel(props: {
   lines: TranscriptLine[];
   onCollapse?: () => void;
+  speakerCorrection?: SpeakerCorrectionProps;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const lastLineId = props.lines[props.lines.length - 1]?.id;
@@ -136,17 +146,108 @@ export function SessionInsightsPanel(props: {
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
-        <TranscriptLines lines={props.lines} gutter />
+        <TranscriptLines
+          lines={props.lines}
+          gutter
+          speakerCorrection={props.speakerCorrection}
+        />
         <div ref={endRef} className="h-px shrink-0" aria-hidden />
       </div>
     </div>
   );
 }
 
+function correctionChoices(
+  line: TranscriptLine,
+  enrolledNames: string[]
+): Array<{ key: string; label: string; correctedName: string | null }> {
+  const choices: Array<{
+    key: string;
+    label: string;
+    correctedName: string | null;
+  }> = enrolledNames
+    .filter((name) => name !== line.speakerName)
+    .map((name) => ({
+      key: `name:${name}`,
+      label: `This is ${name}`,
+      correctedName: name,
+    }));
+  if (line.speakerName != null) {
+    choices.push({
+      key: "someone-else",
+      label: "Someone else",
+      correctedName: null,
+    });
+  }
+  return choices;
+}
+
+function SpeakerLabelMenu(props: {
+  line: TranscriptLine;
+  correction: SpeakerCorrectionProps;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const choices = correctionChoices(props.line, props.correction.enrolledNames);
+  if (choices.length === 0) return <>{props.children}</>;
+
+  return (
+    <span className="relative inline-flex max-w-full">
+      <button
+        type="button"
+        onClick={props.onToggle}
+        aria-label={`Correct speaker for this line (currently ${
+          props.line.speakerName ?? "Other speaker"
+        })`}
+        className="inline-flex max-w-full items-center rounded-sm underline decoration-dotted decoration-app-subtle/60 underline-offset-4 transition-colors hover:text-app-secondary focus:outline-none focus-visible:text-app-secondary"
+      >
+        {props.children}
+      </button>
+      {props.open ? (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            onClick={props.onClose}
+            className="fixed inset-0 z-20 cursor-default"
+          />
+          <div className="absolute left-0 top-full z-30 mt-1.5 w-max min-w-[9rem] overflow-hidden rounded-xl border border-app-strong bg-app py-1 shadow-lg">
+            <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-app-subtle">
+              Wrong speaker?
+            </p>
+            {choices.map((choice) => (
+              <button
+                key={choice.key}
+                type="button"
+                onClick={() => {
+                  props.onClose();
+                  void props.correction.onCorrect(
+                    props.line,
+                    choice.correctedName
+                  );
+                }}
+                className="block w-full px-3 py-1.5 text-left text-xs normal-case tracking-normal text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
 function TranscriptLines(props: {
   lines: TranscriptLine[];
   gutter?: boolean;
+  speakerCorrection?: SpeakerCorrectionProps;
 }) {
+  const [openMenuLineId, setOpenMenuLineId] = useState<string | null>(null);
+
   if (props.lines.length === 0) {
     return (
       <p
@@ -161,7 +262,18 @@ function TranscriptLines(props: {
 
   return (
     <ul className="w-full space-y-4 px-1 pb-2 lg:space-y-3.5 lg:px-0">
-      {props.lines.map((line) => (
+      {props.lines.map((line) => {
+        const correctable =
+          props.speakerCorrection != null &&
+          line.role === "speaker" &&
+          line.providerSpeakerLabel != null;
+        const labelContent = (
+          <>
+            <SpeakerDot line={line} />
+            <span className="truncate">{turnLabel(line)}</span>
+          </>
+        );
+        return (
         <li
           key={line.id}
           className={
@@ -180,8 +292,23 @@ function TranscriptLines(props: {
             }`}
             title={turnLabel(line)}
           >
-            <SpeakerDot line={line} />
-            <span className="truncate">{turnLabel(line)}</span>
+            {correctable ? (
+              <SpeakerLabelMenu
+                line={line}
+                correction={props.speakerCorrection!}
+                open={openMenuLineId === line.id}
+                onToggle={() =>
+                  setOpenMenuLineId((current) =>
+                    current === line.id ? null : line.id
+                  )
+                }
+                onClose={() => setOpenMenuLineId(null)}
+              >
+                {labelContent}
+              </SpeakerLabelMenu>
+            ) : (
+              labelContent
+            )}
           </span>
           <p
             className={`w-full min-w-0 text-sm font-normal leading-[1.65] break-words ${
@@ -198,7 +325,8 @@ function TranscriptLines(props: {
             ) : null}
           </p>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
