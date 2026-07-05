@@ -202,6 +202,22 @@ export function LandingPage() {
           <a href="#top" className="wordmark">
             KIVO
           </a>
+          <div className="nav-mobile-actions">
+            <a href="#pricing" className="nav-mobile-cta btn btn-primary">
+              Start free
+            </a>
+            <button
+              type="button"
+              className="nav-toggle"
+              aria-label="Toggle menu"
+              aria-expanded="false"
+              aria-controls="mobile-menu"
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+          </div>
           <nav className="nav-links">
             <a href="#how">How it works</a>
             <a href="#features">Features</a>
@@ -216,17 +232,6 @@ export function LandingPage() {
               Start free
             </a>
           </div>
-          <button
-            type="button"
-            className="nav-toggle"
-            aria-label="Toggle menu"
-            aria-expanded="false"
-            aria-controls="mobile-menu"
-          >
-            <span />
-            <span />
-            <span />
-          </button>
         </div>
 
         <div className="mobile-menu" id="mobile-menu">
@@ -294,7 +299,7 @@ export function LandingPage() {
       <section className="how-helps" id="how" data-screen-label="How Kivo helps">
         <div className="wrap">
           <div className="section-head center reveal">
-            <span className="eyebrow green">Conversational intelligence</span>
+            <span className="eyebrow">Conversational intelligence</span>
             <h2 className="h2">The third mind in the room.</h2>
             <p className="lead">
               Kivo sits in, absorbs the nuance of your debate, and speaks out loud to offer objective breakthroughs the moment you say its name.
@@ -345,7 +350,6 @@ export function LandingPage() {
 
                 <div className="helps-orb-stage">
                   <div className="helps-orb-wrap">
-                    <div className="helps-orb-aura" aria-hidden />
                     <LandingOrb className="helps-orb-canvas" compact variant="grey" />
                   </div>
                 </div>
@@ -484,7 +488,7 @@ export function LandingPage() {
               </div>
             </div>
 
-            <div className="bento-tile b3 reveal d2 bento-tile--accent">
+            <div className="bento-tile b3 reveal d2">
               <div className="bento-art">
                 <div className="bento-chips" aria-hidden>
                   <span className="bento-chip active">You</span>
@@ -539,7 +543,8 @@ export function LandingPage() {
               a minute.
             </p>
           </div>
-          <div className="price-grid price-grid-4">
+          <div className="price-rail reveal d1">
+            <div className="price-grid price-grid-4">
             {TIERS.map((tier, index) => {
               const { display } = PLANS[tier];
               const cardClass = [
@@ -567,7 +572,7 @@ export function LandingPage() {
                         ? "/sign-in"
                         : `/sign-in?plan=${tier}`
                     }
-                    className={`btn ${display.featured ? "btn-primary" : "btn-ghost"}`}
+                    className="btn btn-ghost"
                   >
                     {display.ctaLabel}
                   </Link>
@@ -582,6 +587,7 @@ export function LandingPage() {
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       </section>
@@ -589,7 +595,7 @@ export function LandingPage() {
       <section className="section" id="faq" data-screen-label="FAQ">
         <div className="wrap">
           <div className="section-head center reveal">
-            <span className="eyebrow green">Questions</span>
+            <span className="eyebrow">Questions</span>
             <h2 className="h2">Good to know.</h2>
           </div>
           <div className="faq reveal d1">
@@ -609,7 +615,6 @@ export function LandingPage() {
       </section>
 
       <section className="cta" data-screen-label="Final CTA">
-        <div className="cta-aura" />
         <div className="wrap cta-content">
           <h2 className="h2 reveal d1">
             Bring Kivo into your

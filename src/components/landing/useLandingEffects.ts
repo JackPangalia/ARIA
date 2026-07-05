@@ -85,7 +85,7 @@ export function useLandingEffects() {
     // close the panel whenever a menu link is tapped
     const menuLinks = Array.from(
       document.querySelectorAll<HTMLAnchorElement>(
-        ".mobile-menu a, .mobile-menu-cta a"
+        ".mobile-menu a, .mobile-menu-cta a, .nav-mobile-cta"
       )
     );
     menuLinks.forEach((link) => link.addEventListener("click", closeMenu));
