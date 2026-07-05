@@ -1019,7 +1019,10 @@ export function SessionWorkspace() {
             <div className="pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
               <div className="flex flex-col items-center gap-7 sm:gap-10">
                 <div className="relative flex flex-col items-center">
-                  <p className="absolute bottom-full left-1/2 mb-8 flex -translate-x-1/2 select-none items-baseline gap-1.5 whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
+                  {/* mb must exceed the orb canvas overhang — the particle field
+                      renders at 140% of the 256px orb box, i.e. ~51px past its
+                      top edge — so the pulse never washes over this wordmark. */}
+                  <p className="absolute bottom-full left-1/2 mb-14 flex -translate-x-1/2 select-none items-baseline gap-1.5 whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
                     KIVO
                     <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1 py-0.5 text-[7px] font-medium tracking-[0.2em]">
                       BETA
@@ -1028,7 +1031,6 @@ export function SessionWorkspace() {
 
                   <OrbVisualizer
                     sessionTitle={detail?.session.title}
-                    resume={Boolean(detail && detail.session.turnCount > 0)}
                     onRenameTitle={
                       selectedSessionId
                         ? (title) => void handleRename(selectedSessionId, title)

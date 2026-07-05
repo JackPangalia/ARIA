@@ -241,7 +241,7 @@ function SpeakerLabelMenu(props: {
   );
 }
 
-function TranscriptLines(props: {
+export function TranscriptLines(props: {
   lines: TranscriptLine[];
   gutter?: boolean;
   speakerCorrection?: SpeakerCorrectionProps;

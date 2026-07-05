@@ -3,12 +3,31 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
+// Same accent family as the in-app orb (listen / think / wake).
+const ORB_PALETTE = [
+  new THREE.Color("#34d399"),
+  new THREE.Color("#8b5cf6"),
+  new THREE.Color("#fef08a"),
+];
+
+const GREY_ORB_ACCENT = new THREE.Color("#a1a1aa");
+
+function samplePalette(t: number, out: THREE.Color): THREE.Color {
+  const scaled = (((t % 1) + 1) % 1) * ORB_PALETTE.length;
+  const i0 = Math.floor(scaled) % ORB_PALETTE.length;
+  const i1 = (i0 + 1) % ORB_PALETTE.length;
+  const f = scaled - Math.floor(scaled);
+  return out.copy(ORB_PALETTE[i0]!).lerp(ORB_PALETTE[i1]!, f);
+}
+
 export function LandingOrb({
   className,
   compact = false,
+  variant = "brand",
 }: {
   className?: string;
   compact?: boolean;
+  variant?: "brand" | "grey";
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -20,9 +39,10 @@ export function LandingOrb({
       "(prefers-reduced-motion: reduce)",
     ).matches;
 
+    const isGrey = variant === "grey";
+
     const cfg = {
       intensity: reduceMotion ? 0.15 : compact ? 0.65 : 0.7,
-      color: { r: 0.29, g: 0.94, b: 0.66 },
       count: compact ? 8000 : 14000,
       particleSize: compact ? 0.05 : 0.055,
     };
@@ -67,7 +87,10 @@ export function LandingOrb({
     const original = new Float32Array(N * 3);
     const velocities = new Float32Array(N * 3);
     const colors = new Float32Array(N * 3);
+    const mix = new Float32Array(N);
     const seeds = new Float32Array(N);
+    const colorTmp = new THREE.Color();
+    const coreColor = new THREE.Color();
 
     const golden = Math.PI * (3 - Math.sqrt(5));
     for (let i = 0; i < N; i++) {
@@ -84,11 +107,7 @@ export function LandingOrb({
       positions[i * 3 + 1] = original[i * 3 + 1] = py;
       positions[i * 3 + 2] = original[i * 3 + 2] = pz;
       seeds[i] = Math.random() * Math.PI * 2;
-
-      const t = Math.pow(Math.random(), 1.6);
-      colors[i * 3] = 1 - t * (1 - cfg.color.r);
-      colors[i * 3 + 1] = 1 - t * (1 - cfg.color.g);
-      colors[i * 3 + 2] = 1 - t * (1 - cfg.color.b);
+      mix[i] = Math.pow(Math.random(), 1.6);
     }
 
     const geo = new THREE.BufferGeometry();
@@ -100,9 +119,9 @@ export function LandingOrb({
       map: sprite,
       vertexColors: true,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.9,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       sizeAttenuation: true,
     });
 
@@ -111,14 +130,10 @@ export function LandingOrb({
 
     const coreGeo = new THREE.SphereGeometry(1.55, 32, 32);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(
-        cfg.color.r * 0.25,
-        cfg.color.g * 0.4,
-        cfg.color.b * 0.32,
-      ),
+      color: isGrey ? GREY_ORB_ACCENT.clone() : ORB_PALETTE[0]!.clone(),
       transparent: true,
-      opacity: 0.35,
-      blending: THREE.AdditiveBlending,
+      opacity: 0.045,
+      blending: THREE.NormalBlending,
       depthWrite: false,
     });
     const core = new THREE.Mesh(coreGeo, coreMat);
@@ -162,6 +177,8 @@ export function LandingOrb({
     const tmpA = new THREE.Vector3();
     const tmpB = new THREE.Vector3();
     const raycaster = new THREE.Raycaster();
+    const invQuat = new THREE.Quaternion();
+    const mouseLocal = new THREE.Vector3();
 
     function updateMouseWorld() {
       if (!hasPointer) {
@@ -185,6 +202,7 @@ export function LandingOrb({
     }
 
     const pos = geo.attributes.position.array as Float32Array;
+    const colArr = geo.attributes.color.array as Float32Array;
     let raf = 0;
 
     function animate(timestamp = 0) {
@@ -196,12 +214,25 @@ export function LandingOrb({
 
       updateMouseWorld();
 
+      // Slowly drift the palette around the sphere so green / purple / yellow
+      // stay visible at once, matching the in-app orb accent family.
+      const colorDrift = t * 0.045;
+      if (isGrey) {
+        coreMat.color.copy(GREY_ORB_ACCENT).multiplyScalar(0.55);
+      } else {
+        samplePalette(colorDrift, coreColor);
+        coreMat.color.copy(coreColor).multiplyScalar(0.55);
+      }
+
+      invQuat.copy(points.quaternion).invert();
+      mouseLocal.copy(mouseWorld).applyQuaternion(invQuat);
+
       const breathe = 1 + Math.sin(t * 1.1) * 0.03 * (0.5 + I);
       points.scale.setScalar(breathe);
       core.scale.setScalar(breathe);
 
       const influence = 1.4;
-      const reach = mouseWorld.x < 900;
+      const reach = mouseLocal.x < 900;
 
       for (let i = 0; i < N; i++) {
         const ix = i * 3;
@@ -211,10 +242,29 @@ export function LandingOrb({
         const s = seeds[i]!;
         const wobble = Math.sin(t * 1.6 + s) * 0.012 * I;
 
+        const ox = original[ix]!;
+        const oy = original[iy]!;
+        const oz = original[iz]!;
+        const m = mix[i]!;
+        if (isGrey) {
+          colorTmp.copy(GREY_ORB_ACCENT);
+        } else {
+          const angle = Math.atan2(oz, ox);
+          const lat = oy / RADIUS;
+          const paletteT =
+            ((angle + Math.PI) / (Math.PI * 2)) * 0.68 +
+            (lat + 1) * 0.16 +
+            colorDrift;
+          samplePalette(paletteT, colorTmp);
+        }
+        colArr[ix] = colorTmp.r * (1 - m * 0.55);
+        colArr[iy] = colorTmp.g * (1 - m * 0.55);
+        colArr[iz] = colorTmp.b * (1 - m * 0.55);
+
         tmpA.set(pos[ix]!, pos[iy]!, pos[iz]!);
 
         if (reach) {
-          tmpB.subVectors(tmpA, mouseWorld);
+          tmpB.subVectors(tmpA, mouseLocal);
           const d = tmpB.length();
           if (d < influence) {
             const f = (influence - d) / influence;
@@ -225,12 +275,12 @@ export function LandingOrb({
           }
         }
 
-        const ox = original[ix]! * (1 + wobble);
-        const oy = original[iy]! * (1 + wobble);
-        const oz = original[iz]! * (1 + wobble);
-        velocities[ix]! += (ox - pos[ix]!) * 0.02;
-        velocities[iy]! += (oy - pos[iy]!) * 0.02;
-        velocities[iz]! += (oz - pos[iz]!) * 0.02;
+        const targetX = ox * (1 + wobble);
+        const targetY = oy * (1 + wobble);
+        const targetZ = oz * (1 + wobble);
+        velocities[ix]! += (targetX - pos[ix]!) * 0.02;
+        velocities[iy]! += (targetY - pos[iy]!) * 0.02;
+        velocities[iz]! += (targetZ - pos[iz]!) * 0.02;
 
         velocities[ix]! *= 0.9;
         velocities[iy]! *= 0.9;
@@ -241,6 +291,7 @@ export function LandingOrb({
         pos[iz]! += velocities[iz]!;
       }
       geo.attributes.position.needsUpdate = true;
+      geo.attributes.color.needsUpdate = true;
 
       points.rotation.y += dt * 0.12 * (0.4 + I);
       points.rotation.x = Math.sin(t * 0.2) * 0.12;
@@ -275,7 +326,7 @@ export function LandingOrb({
       sprite.dispose();
       renderer.dispose();
     };
-  }, [compact]);
+  }, [compact, variant]);
 
   return (
     <canvas ref={canvasRef} className={className} aria-hidden="true" />

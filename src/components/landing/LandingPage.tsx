@@ -5,6 +5,9 @@ import { LandingOrb } from "@/components/landing/LandingOrb";
 import { useLandingEffects } from "@/components/landing/useLandingEffects";
 import { planFeatureBullets, PLANS, TIERS } from "@/lib/plan/tiers";
 
+// Archived for now — re-enable once we have real customer quotes to show.
+const SHOW_TESTIMONIALS = false;
+
 const WAVE_HEIGHTS = [
   { height: 24, delay: 0 },
   { height: 42, delay: 120 },
@@ -114,6 +117,19 @@ const FAQ_ITEMS = [
     a: "Yes. Transcripts and recordings are encrypted in transit and at rest, voice profiles are only created when you explicitly enroll them, and you can delete any session or voice print at any time.",
   },
 ];
+
+function HelpsTurn(props: {
+  speaker: string;
+  children: React.ReactNode;
+  dim?: boolean;
+}) {
+  return (
+    <div className={`helps-turn-group${props.dim ? " dim" : ""}`}>
+      <p className="helps-turn-label">{props.speaker}</p>
+      <p className="helps-turn-text">{props.children}</p>
+    </div>
+  );
+}
 
 function CheckIcon() {
   return (
@@ -278,7 +294,7 @@ export function LandingPage() {
       <section className="how-helps" id="how" data-screen-label="How Kivo helps">
         <div className="wrap">
           <div className="section-head center reveal">
-            <span className="eyebrow">Conversational intelligence</span>
+            <span className="eyebrow green">Conversational intelligence</span>
             <h2 className="h2">The third mind in the room.</h2>
             <p className="lead">
               Kivo sits in, absorbs the nuance of your debate, and speaks out loud to offer objective breakthroughs the moment you say its name.
@@ -296,40 +312,24 @@ export function LandingPage() {
 
               <div className="helps-timer">
                 <div className="helps-timer-val">42:16</div>
-                <div className="helps-rec">Recording</div>
               </div>
 
               <div className="helps-transcript">
-                <div className="helps-turn-group">
-                  <p className="helps-turn-label">Ravi</p>
-                  <p className="helps-turn-text">
-                    Let&apos;s simplify the dashboard so the key metrics are front and center.
-                  </p>
-                </div>
-                <div className="helps-turn-group">
-                  <p className="helps-turn-label">Sofia</p>
-                  <p className="helps-turn-text">
-                    Agreed — we removed the settings clutter and streamlined the layout.
-                  </p>
-                </div>
-                <div className="helps-turn-group">
-                  <p className="helps-turn-label">Marcus</p>
-                  <p className="helps-turn-text">
-                    But what about the database migration? That script is ready Tuesday.
-                  </p>
-                </div>
-                <div className="helps-turn-group">
-                  <p className="helps-turn-label">Sofia</p>
-                  <p className="helps-turn-text">
-                    If we ship the stripped-down dashboard, do we need the full schema rewrite?
-                  </p>
-                </div>
-                <div className="helps-turn-group dim">
-                  <p className="helps-turn-label">Ravi</p>
-                  <p className="helps-turn-text">
-                    We&apos;ve been debating this for forty minutes and we&apos;re still stuck.
-                  </p>
-                </div>
+                <HelpsTurn speaker="Ravi">
+                  Let&apos;s simplify the dashboard so the key metrics are front and center.
+                </HelpsTurn>
+                <HelpsTurn speaker="Sofia">
+                  Agreed — we removed the settings clutter and streamlined the layout.
+                </HelpsTurn>
+                <HelpsTurn speaker="Marcus">
+                  But what about the database migration? That script is ready Tuesday.
+                </HelpsTurn>
+                <HelpsTurn speaker="Sofia">
+                  If we ship the stripped-down dashboard, do we need the full schema rewrite?
+                </HelpsTurn>
+                <HelpsTurn speaker="Ravi" dim>
+                  We&apos;ve been debating this for forty minutes and we&apos;re still stuck.
+                </HelpsTurn>
               </div>
             </div>
 
@@ -346,7 +346,7 @@ export function LandingPage() {
                 <div className="helps-orb-stage">
                   <div className="helps-orb-wrap">
                     <div className="helps-orb-aura" aria-hidden />
-                    <LandingOrb className="helps-orb-canvas" compact />
+                    <LandingOrb className="helps-orb-canvas" compact variant="grey" />
                   </div>
                 </div>
               </div>
@@ -467,7 +467,10 @@ export function LandingPage() {
                     strokeLinejoin="round"
                   >
                     <path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5z" />
-                    <path d="m9 12 2 2 4-4" />
+                    <path
+                      className="lock-check"
+                      d="m9 12 2 2 4-4"
+                    />
                   </svg>
                 </div>
               </div>
@@ -480,27 +483,47 @@ export function LandingPage() {
                 </p>
               </div>
             </div>
+
+            <div className="bento-tile b3 reveal d2 bento-tile--accent">
+              <div className="bento-art">
+                <div className="bento-chips" aria-hidden>
+                  <span className="bento-chip active">You</span>
+                  <span className="bento-chip active">Alex</span>
+                  <span className="bento-chip nobot">Bot</span>
+                </div>
+              </div>
+              <div className="bento-foot">
+                <span className="lbl">Your device</span>
+                <h3>No creepy meeting bots</h3>
+                <p>
+                  Kivo listens through your mic — no extra participant, nothing
+                  for others to see in the call.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="section tsection" data-screen-label="Testimonials">
-        <div className="wrap">
-          <div className="section-head center reveal">
-            <span className="eyebrow">In their words</span>
-            <h2 className="h2">
-              Loved in the rooms
-              <br />
-              that move fast.
-            </h2>
+      {SHOW_TESTIMONIALS && (
+        <section className="section tsection" data-screen-label="Testimonials">
+          <div className="wrap">
+            <div className="section-head center reveal">
+              <span className="eyebrow">In their words</span>
+              <h2 className="h2">
+                Loved in the rooms
+                <br />
+                that move fast.
+              </h2>
+            </div>
           </div>
-        </div>
-        <div className="tcols">
-          <TestimonialColumn className="tcol s1" items={TESTIMONIALS.s1} />
-          <TestimonialColumn className="tcol s2" items={TESTIMONIALS.s2} />
-          <TestimonialColumn className="tcol s3" items={TESTIMONIALS.s3} />
-        </div>
-      </section>
+          <div className="tcols">
+            <TestimonialColumn className="tcol s1" items={TESTIMONIALS.s1} />
+            <TestimonialColumn className="tcol s2" items={TESTIMONIALS.s2} />
+            <TestimonialColumn className="tcol s3" items={TESTIMONIALS.s3} />
+          </div>
+        </section>
+      )}
 
       <section className="section" id="pricing" data-screen-label="Pricing">
         <div className="wrap">
@@ -566,7 +589,7 @@ export function LandingPage() {
       <section className="section" id="faq" data-screen-label="FAQ">
         <div className="wrap">
           <div className="section-head center reveal">
-            <span className="eyebrow">Questions</span>
+            <span className="eyebrow green">Questions</span>
             <h2 className="h2">Good to know.</h2>
           </div>
           <div className="faq reveal d1">
@@ -588,7 +611,6 @@ export function LandingPage() {
       <section className="cta" data-screen-label="Final CTA">
         <div className="cta-aura" />
         <div className="wrap cta-content">
-          <div className="mini-orb reveal" />
           <h2 className="h2 reveal d1">
             Bring Kivo into your
             <br />
@@ -644,7 +666,7 @@ export function LandingPage() {
             </div>
           </div>
           <div className="footer-bottom">
-            <span>© {year} Kivo. All rights reserved.</span>
+            <span>© {year} Centonis AI Inc. All rights reserved.</span>
             <span>Always listening. Never interrupting.</span>
           </div>
         </div>

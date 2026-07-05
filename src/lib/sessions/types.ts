@@ -142,12 +142,18 @@ export const CreatePinSchema = z.object({
 
 export const AskBodySchema = z.object({
   sessionId: z.string().min(1),
-  question: z.string().trim().min(1).max(4000),
+  // Generous by design: a spoken question is whatever the person said between
+  // wake and silence, and a rambling monologue easily passes 4k chars (~4 min
+  // of speech hit the old cap in the wild and 400'd after Kivo listened to all
+  // of it). 12k ≈ 12+ minutes of continuous talking — an abuse bound, not a
+  // realistic-speech bound. The web client tail-caps to this before sending.
+  question: z.string().trim().min(1).max(12000),
   speaker: z.number().int().min(0).max(9).nullable().optional(),
   speakerName: z.string().trim().min(1).max(100).nullable().optional(),
   // Raw live-transcript utterance ids that fed this question, so the persisted
-  // user_question turn can dedup them out of the live tail in the UI.
-  sourceUtteranceIds: z.array(z.string()).max(50).optional(),
+  // user_question turn can dedup them out of the live tail in the UI. Long
+  // captures produce one id per Speechmatics final — hundreds is legitimate.
+  sourceUtteranceIds: z.array(z.string()).max(400).optional(),
 });
 
 export interface ContextBundle {

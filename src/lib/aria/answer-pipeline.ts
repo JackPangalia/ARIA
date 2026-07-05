@@ -101,7 +101,7 @@ export interface AnswerPipelineInput {
 }
 
 export interface AnswerPipelineResult {
-  /** MP3 audio bytes for Kivo's spoken answer. */
+  /** MP3 bytes for Kivo's answer. */
   audioStream: ReadableStream<Uint8Array>;
   /** Resolves after streaming + persistence; never rejects (errors surface via the stream). */
   done: Promise<{ answerText: string }>;
@@ -231,6 +231,10 @@ export async function runAnswerPipeline(
       composioTools: composioResult.tools,
       pipeline,
       askModel,
+      // Voice-identified asker (if any) is addressed as "you"; basic sessions
+      // get the no-attribution variant of the system prompt.
+      askerName: speakerName,
+      speakerAware: session.transcriptionMode !== "basic",
     });
     agentReadyMs = performance.now() - agentStart;
     pipeline.stage("agent.ready", { ms: Math.round(agentReadyMs) });
@@ -276,9 +280,15 @@ export async function runAnswerPipeline(
           ttsChunks.push({ text: t, index: chunkCount });
         };
 
-        // Cartesia free tier allows very low concurrency (e.g. 2). Synthesize one chunk at a time.
+        // Cartesia free tier allows low concurrency (2). Playback consumes chunks
+        // strictly in order, but synthesis of chunk n+1 starts while chunk n is
+        // still streaming (lookahead of 1) so sentences butt up against each
+        // other instead of leaving a synth-latency gap between them.
         const drain = (async () => {
           let drainPos = 0;
+          let lookahead: Promise<ReadableStream<Uint8Array>> | null = null;
+          const startSynth = (text: string) =>
+            createCartesiaSpeechStream(ttsConfig, text, signal);
           while (true) {
             if (signal.aborted) return;
             if (drainPos >= ttsChunks.length) {
@@ -290,10 +300,19 @@ export async function runAnswerPipeline(
             const ttsStart = performance.now();
             let stream: ReadableStream<Uint8Array>;
             try {
-              stream = await createCartesiaSpeechStream(ttsConfig, text, signal);
+              stream = await (lookahead ?? startSynth(text));
             } catch (err) {
               if (isAbortError(err, signal)) return;
               throw err;
+            }
+            lookahead = null;
+            if (drainPos < ttsChunks.length) {
+              // Kick off the next chunk now; errors are re-surfaced when this
+              // promise is awaited next iteration (the no-op catch just keeps
+              // an early rejection from tripping unhandledRejection).
+              const started = startSynth(ttsChunks[drainPos].text);
+              started.catch(() => {});
+              lookahead = started;
             }
             pipeline.stage("tts.ready", {
               chunk: index,

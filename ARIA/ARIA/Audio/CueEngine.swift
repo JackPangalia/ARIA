@@ -12,6 +12,11 @@ final class CueEngine: NSObject {
     private let sampleRate: Double = 44_100
     private var players: [AVAudioPlayer] = []
     private var pulseTimer: Timer?
+    private var pulseStartTimer: Timer?
+    /// Fast answers should be silent — the pulse only starts once a think has
+    /// gone on long enough that the user might wonder whether Kivo heard them.
+    /// Mirrors the web cue engine's PULSE_START_DELAY_MS.
+    private let pulseStartDelay: TimeInterval = 1.5
 
     private struct Note {
         let freq: Double
@@ -28,22 +33,17 @@ final class CueEngine: NSObject {
     }
 
     // Frequencies / gains / timing / envelopes mirror the web cue engine exactly.
+    // The set is deliberately minimal — one short quiet acknowledgment where
+    // state genuinely needs confirming, silence elsewhere; multi-note chimes
+    // read as gimmicky next to a natural back-and-forth.
     private lazy var wakeData = makeWav([
-        // Soft ascending major triad (E–G#–B) swelling in, plus a faint octave halo.
-        Note(freq: 659.25, durationMs: 520, gain: 0.1, startOffsetMs: 0, attackMs: 45, releaseMs: 380, detuneCents: 4),
-        Note(freq: 830.61, durationMs: 520, gain: 0.09, startOffsetMs: 90, attackMs: 55, releaseMs: 400, detuneCents: -4),
-        Note(freq: 987.77, durationMs: 560, gain: 0.085, startOffsetMs: 180, attackMs: 70, releaseMs: 460, detuneCents: 5),
-        Note(freq: 1318.51, durationMs: 480, gain: 0.028, startOffsetMs: 200, attackMs: 90, releaseMs: 420),
-    ])
-    private lazy var followUpData = makeWav([
-        // Single warm bell — soft fundamental + quiet octave partial.
-        Note(freq: 659.25, durationMs: 480, gain: 0.075, startOffsetMs: 0, attackMs: 35, releaseMs: 400),
-        Note(freq: 1318.51, durationMs: 360, gain: 0.018, startOffsetMs: 0, attackMs: 50, releaseMs: 300),
+        // A single soft tick — "I'm listening" — over in under 200ms.
+        Note(freq: 830.61, durationMs: 170, gain: 0.06, startOffsetMs: 0, attackMs: 12, releaseMs: 140),
     ])
     private lazy var errorData = makeWav([
-        // Soft descending minor third (A4 -> F4).
-        Note(freq: 440.0, durationMs: 320, gain: 0.1, startOffsetMs: 0, attackMs: 25, releaseMs: 260, triangle: true),
-        Note(freq: 349.23, durationMs: 380, gain: 0.1, startOffsetMs: 160, attackMs: 30, releaseMs: 320, triangle: true),
+        // Short low descending pair — clearly "that didn't work", kept brief.
+        Note(freq: 440.0, durationMs: 220, gain: 0.08, startOffsetMs: 0, attackMs: 20, releaseMs: 180, triangle: true),
+        Note(freq: 349.23, durationMs: 260, gain: 0.08, startOffsetMs: 120, attackMs: 24, releaseMs: 220, triangle: true),
     ])
     private lazy var pulseData = makeWav([
         // Faint, slow low-fifth breath (A2 + E3).
@@ -51,10 +51,8 @@ final class CueEngine: NSObject {
         Note(freq: 164.81, durationMs: 820, gain: 0.03, startOffsetMs: 0, attackMs: 200, releaseMs: 560),
     ])
     private lazy var closeData = makeWav([
-        // Gentle descending chime (B–E) with a soft octave sparkle.
-        Note(freq: 987.77, durationMs: 460, gain: 0.085, startOffsetMs: 0, attackMs: 40, releaseMs: 360, detuneCents: 3),
-        Note(freq: 659.25, durationMs: 620, gain: 0.09, startOffsetMs: 150, attackMs: 50, releaseMs: 520, detuneCents: -3),
-        Note(freq: 1318.51, durationMs: 420, gain: 0.022, startOffsetMs: 160, attackMs: 70, releaseMs: 360),
+        // One low, warm note — a quiet "goodbye" without a melody.
+        Note(freq: 392.0, durationMs: 300, gain: 0.06, startOffsetMs: 0, attackMs: 20, releaseMs: 250),
     ])
 
     // MARK: - Cues (each paired with a matching haptic)
@@ -65,10 +63,10 @@ final class CueEngine: NSObject {
         play(wakeData)
     }
 
-    /// Single soft tone when the follow-up window opens.
+    /// Follow-up window opening is haptic-only — it fires after every answer,
+    /// and a chime there is the biggest source of "talking to a gadget" feel.
     func playFollowUp() {
         Haptics.followUp()
-        play(followUpData)
     }
 
     /// Descending two-note on error.
@@ -83,19 +81,30 @@ final class CueEngine: NSObject {
         play(closeData)
     }
 
-    /// Low quiet pulse repeated while Kivo is thinking.
+    /// Low quiet pulse repeated while Kivo is thinking. Silent at first — most
+    /// answers start speaking before the delay elapses and never need a cue.
     func startThinkingLoop() {
         guard enabled else { return }
         stopThinkingLoop()
-        playPulse()
-        let timer = Timer(timeInterval: 2.6, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.playPulse() }
+        let startTimer = Timer(timeInterval: pulseStartDelay, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.pulseStartTimer = nil
+                self.playPulse()
+                let timer = Timer(timeInterval: 2.6, repeats: true) { [weak self] _ in
+                    Task { @MainActor in self?.playPulse() }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+                self.pulseTimer = timer
+            }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        pulseTimer = timer
+        RunLoop.main.add(startTimer, forMode: .common)
+        pulseStartTimer = startTimer
     }
 
     func stopThinkingLoop() {
+        pulseStartTimer?.invalidate()
+        pulseStartTimer = nil
         pulseTimer?.invalidate()
         pulseTimer = nil
     }

@@ -145,21 +145,18 @@ function recordingQualityHint(
 
 function EnrollmentScriptCard({ pass }: { pass: EnrollmentPass }) {
   return (
-    <div className="relative w-full overflow-hidden rounded-xl border border-app/60 bg-surface/50 px-4 py-3.5 text-left shadow-sm">
-      <span
-        aria-hidden
-        className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-accent/50 to-accent/10"
-      />
-      <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-app-muted">
-        {pass.label}
-      </p>
-      <p className="mt-2 text-[15px] leading-relaxed text-app-secondary">
-        {pass.script}
-      </p>
+    <div className="grok-speaker-script-card w-full text-left">
+      <p className="grok-speaker-script-label">{pass.label}</p>
+      <p className="grok-speaker-script-body">{pass.script}</p>
     </div>
   );
 }
 
+// Flat circular-progress indicator — a single ring that fills as the
+// recording elapses, replacing what used to be a glowing multicolor orb.
+// Kept monochrome to match the rest of the settings surface; green/red are
+// reserved for the same success/error semantics used elsewhere (see
+// grok-connector-status-dot and --grok-danger-fg).
 function EnrollmentOrb(props: {
   phase: EnrollPhase;
   level: number;
@@ -169,73 +166,76 @@ function EnrollmentOrb(props: {
 }) {
   const { phase, level, countdown, secondsLeft, compact = false } = props;
 
-  const scale =
-    phase === "recording"
-      ? 1 + Math.min(0.35, level * 1.8)
-      : phase === "success"
-        ? 1.04
-        : phase === "processing"
+  const size = compact ? 64 : 96;
+  const stroke = compact ? 3 : 3.5;
+  const radius = size / 2 - stroke * 2;
+  const circumference = 2 * Math.PI * radius;
+
+  const progress =
+    phase === "countdown"
+      ? (COUNTDOWN_SECONDS - countdown + 1) / COUNTDOWN_SECONDS
+      : phase === "recording"
+        ? (ENROLL_SECONDS - secondsLeft) / ENROLL_SECONDS
+        : phase === "success" || phase === "error"
           ? 1
-          : 1;
+          : 0;
 
-  const ringOpacity =
-    phase === "recording" ? Math.min(0.85, 0.28 + level * 2.2) : 0.35;
-
-  const palette =
+  const ringColor =
     phase === "success"
-      ? ["#10b981", "#34d399"]
+      ? "#4ade80"
       : phase === "error"
-        ? ["#ef4444", "#f87171"]
-        : phase === "processing"
-          ? ["#3b82f6", "#8b5cf6"]
-          : phase === "recording"
-            ? ["#10b981", "#22d3ee"]
-            : phase === "countdown"
-              ? ["#f59e0b", "#fbbf24"]
-              : ["#71717a", "#a1a1aa"];
+        ? "var(--grok-danger-fg)"
+        : "var(--grok-fg)";
 
-  const shell = compact ? "h-[4.5rem] w-[4.5rem]" : "h-32 w-32";
-  const orb = compact ? "h-[3.25rem] w-[3.25rem]" : "h-24 w-24";
-  const inner = compact ? "h-[3.25rem] w-[3.25rem]" : "h-24 w-24";
+  const pulse = phase === "recording" ? 1 + Math.min(0.06, level * 0.3) : 1;
 
   return (
-    <div className={`relative flex shrink-0 items-center justify-center ${shell}`}>
-      <div
+    <div
+      className="relative flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <svg
         aria-hidden
-        className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
-          phase === "recording" ? "animate-pulse" : ""
-        }`}
-        style={{
-          opacity: ringOpacity,
-          background: `radial-gradient(circle at 50% 50%, ${palette[0]}66 0%, transparent 70%)`,
-        }}
-      />
-      <div
-        aria-hidden
-        className={`absolute rounded-full transition-transform duration-100 ease-out ${orb}`}
-        style={{
-          transform: `scale(${scale})`,
-          background: `radial-gradient(circle at 35% 30%, ${palette[1]} 0%, ${palette[0]} 70%)`,
-          boxShadow: compact
-            ? `0 0 16px ${palette[0]}44, inset 0 0 12px ${palette[1]}88`
-            : `0 0 30px ${palette[0]}55, inset 0 0 20px ${palette[1]}aa`,
-        }}
-      />
-      <div className={`relative z-10 flex items-center justify-center ${inner}`}>
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        className="absolute inset-0 -rotate-90 transition-transform duration-150 ease-out"
+        style={{ transform: `rotate(-90deg) scale(${pulse})` }}
+      >
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="var(--grok-border)"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={ringColor}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - progress)}
+          className="transition-[stroke-dashoffset] duration-300 ease-linear"
+        />
+      </svg>
+
+      <div className="relative z-10 flex items-center justify-center">
         {phase === "countdown" ? (
           <span
             key={countdown}
-            className={`font-light text-white drop-shadow-md ${
-              compact ? "text-xl" : "text-3xl"
-            }`}
-            style={{ animation: "speaker-pop 0.6s ease-out" }}
+            className={`grok-speaker-orb-glyph font-medium ${compact ? "text-lg" : "text-2xl"}`}
           >
             {countdown}
           </span>
         ) : phase === "recording" ? (
           <span
-            className={`tabular-nums font-light text-white drop-shadow-md ${
-              compact ? "text-lg" : "text-2xl"
+            className={`grok-speaker-orb-glyph tabular-nums font-medium ${
+              compact ? "text-base" : "text-xl"
             }`}
           >
             {secondsLeft}
@@ -243,50 +243,42 @@ function EnrollmentOrb(props: {
         ) : phase === "processing" ? (
           <span
             aria-hidden
-            className={`animate-spin rounded-full border-2 border-white/30 border-t-white ${
-              compact ? "h-4 w-4" : "h-6 w-6"
+            className={`animate-spin rounded-full border-2 border-current border-t-transparent opacity-60 ${
+              compact ? "h-4 w-4" : "h-5 w-5"
             }`}
+            style={{ color: "var(--grok-fg)" }}
           />
         ) : phase === "success" ? (
-          <CheckIcon className={compact ? "h-5 w-5 text-white" : "h-8 w-8 text-white"} />
+          <CheckIcon
+            className={`text-[#4ade80] ${compact ? "h-5 w-5" : "h-6 w-6"}`}
+          />
         ) : phase === "error" ? (
-          <span className={`font-light text-white ${compact ? "text-lg" : "text-2xl"}`}>
+          <span
+            className={`font-medium text-[color:var(--grok-danger-fg)] ${
+              compact ? "text-lg" : "text-xl"
+            }`}
+          >
             !
           </span>
         ) : (
-          <MicIcon className={compact ? "h-5 w-5 text-white" : "h-7 w-7 text-white"} />
+          <MicIcon
+            className={`text-[color:var(--grok-muted)] ${compact ? "h-4 w-4" : "h-5 w-5"}`}
+          />
         )}
       </div>
-
-      <style jsx>{`
-        @keyframes speaker-pop {
-          0% {
-            opacity: 0;
-            transform: scale(0.5);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.15);
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-      `}</style>
     </div>
   );
 }
 
 function Waveform(props: { levels: number[]; active: boolean; compact?: boolean }) {
   const compact = props.compact ?? false;
-  const maxH = compact ? 22 : 40;
-  const minH = compact ? 4 : 8;
+  const maxH = compact ? 20 : 36;
+  const minH = compact ? 3 : 6;
 
   return (
     <div
       className={`flex items-center justify-center ${
-        compact ? "h-6 gap-[2px]" : "h-10 gap-[3px]"
+        compact ? "h-5 gap-[2px]" : "h-9 gap-[3px]"
       }`}
     >
       {props.levels.map((v, i) => {
@@ -294,12 +286,13 @@ function Waveform(props: { levels: number[]; active: boolean; compact?: boolean 
         return (
           <span
             key={i}
-            className={`rounded-full bg-accent transition-[height,opacity] duration-100 ease-out ${
+            className={`rounded-full transition-[height,opacity] duration-100 ease-out ${
               compact ? "w-[2px]" : "w-[3px]"
             }`}
             style={{
               height: `${h}px`,
-              opacity: props.active ? 0.45 + Math.min(0.55, v * 1.5) : 0.2,
+              background: "var(--grok-fg, currentColor)",
+              opacity: props.active ? 0.35 + Math.min(0.5, v * 1.4) : 0.15,
             }}
           />
         );
@@ -758,7 +751,7 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
           <div
             className={
               compact
-                ? "mx-auto flex w-full max-w-md flex-col items-center gap-3 py-1"
+                ? "mx-auto flex w-full max-w-md flex-col items-center gap-4 py-2"
                 : "flex flex-col items-center gap-4"
             }
           >
@@ -791,7 +784,11 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
             <button
               type="button"
               onClick={() => void cancelEnrollment()}
-              className="text-xs font-normal text-app-muted underline-offset-4 transition-colors hover:text-app hover:underline"
+              className={
+                props.grok
+                  ? "grok-settings-btn-ghost mt-1 text-xs"
+                  : "text-xs font-normal text-app-muted underline-offset-4 transition-colors hover:text-app hover:underline"
+              }
             >
               Cancel
             </button>
@@ -887,19 +884,22 @@ export function SpeakerProfilesManager(props: { embedded?: boolean; grok?: boole
           <ul
             className={
               props.grok
-                ? "grok-speaker-list space-y-1"
+                ? "grok-speaker-list"
                 : "divide-y divide-app rounded-xl border border-app"
             }
           >
-            {profiles.map((profile) => {
+            {profiles.map((profile, index) => {
               const editing = editingId === profile.id;
               const hue = avatarHue(profile.name);
+              const isLast = index === profiles.length - 1;
               return (
                 <li
                   key={profile.id}
                   className={
                     props.grok
-                      ? "group flex items-center gap-3 py-2"
+                      ? `group flex items-center gap-3 py-2.5${
+                          isLast ? "" : " grok-speaker-list-item--divided"
+                        }`
                       : "group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-surface-hover/50"
                   }
                 >

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import {
   isAbortError,
   runAnswerPipeline,
@@ -37,36 +38,53 @@ export async function POST(req: NextRequest) {
     return authErrorResponse(error);
   }
 
-  // Asks drive the LLM + TTS spend — the ask-token quota is a soft, fail-open
-  // backstop, so this hard per-minute cap is what bounds a runaway client.
-  const rate = await checkRateLimit(uid, {
-    name: "ask",
-    limit: 20,
-    windowSeconds: 60,
-  });
-  if (!rate.allowed) {
-    return rateLimitedResponse(rate.retryAfterSeconds);
-  }
-
   let body;
   try {
     body = AskBodySchema.parse(await req.json());
-  } catch {
+  } catch (err) {
+    // A 400 here means Kivo heard a whole question and then refused it — that
+    // must never be silent. Name the failing field(s) in the server log.
+    if (err instanceof z.ZodError) {
+      console.warn(
+        "[Ask] Rejected request body:",
+        err.issues
+          .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+          .join("; ")
+      );
+    }
     return new Response(JSON.stringify({ error: "Invalid request body" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  let session: SessionDoc;
-  try {
-    session = await assertSessionOwner(uid, body.sessionId);
-  } catch {
+  // The three pre-ask reads (rate limit, session ownership, entitlements) hit
+  // independent documents — run them concurrently; every ms here is dead air
+  // between the user going silent and Kivo starting to speak. Outcomes are
+  // still evaluated in the original precedence order below.
+  const [rate, sessionResult, entitlements] = await Promise.all([
+    // Asks drive the LLM + TTS spend — the ask-token quota is a soft, fail-open
+    // backstop, so this hard per-minute cap is what bounds a runaway client.
+    checkRateLimit(uid, { name: "ask", limit: 20, windowSeconds: 60 }),
+    assertSessionOwner(uid, body.sessionId).then(
+      (session) => ({ session, error: false as const }),
+      () => ({ session: null, error: true as const })
+    ),
+    // Entitlement read failure must never block answering — fail open (default model).
+    loadEntitlements(uid).catch(() => null),
+  ]);
+
+  if (!rate.allowed) {
+    return rateLimitedResponse(rate.retryAfterSeconds);
+  }
+
+  if (sessionResult.error || !sessionResult.session) {
     return new Response(JSON.stringify({ error: "Session not found." }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
     });
   }
+  const session: SessionDoc = sessionResult.session;
 
   if (session.status === "archived") {
     return new Response(JSON.stringify({ error: "Session is archived." }), {
@@ -77,8 +95,8 @@ export async function POST(req: NextRequest) {
 
   // Asks are a soft backstop: only blocked once fully over the generous budget.
   let askModel: AskModelId | undefined;
-  try {
-    const { tier, limits, usage, plan } = await loadEntitlements(uid);
+  if (entitlements) {
+    const { tier, limits, usage, plan } = entitlements;
     if (askTokensExhausted(limits, usage)) {
       return new Response(
         JSON.stringify({
@@ -89,8 +107,6 @@ export async function POST(req: NextRequest) {
       );
     }
     askModel = plan.answerModel ?? undefined;
-  } catch {
-    // Entitlement read failure must never block answering — fail open (default model).
   }
 
   const pipeline = startAskPipeline(body.sessionId, body.question);

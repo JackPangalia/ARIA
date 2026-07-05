@@ -21,18 +21,19 @@ export interface AskModelOption {
 
 export const ASK_MODELS: readonly AskModelOption[] = [
   {
-    id: "gemini-2.5-flash",
-    provider: "google",
-    apiModelId: "gemini-2.5-flash",
-    label: "Gemini 2.5 Flash",
-    description: "Fastest responses. Good default for a live conversation.",
-  },
-  {
     id: "claude-haiku-4-5",
     provider: "anthropic",
     apiModelId: "claude-haiku-4-5",
     label: "Claude Haiku 4.5",
-    description: "Balanced speed and conversational quality.",
+    description:
+      "Fast and natural in conversation. The default — same family Claude's voice mode uses.",
+  },
+  {
+    id: "gemini-2.5-flash",
+    provider: "google",
+    apiModelId: "gemini-2.5-flash",
+    label: "Gemini 2.5 Flash",
+    description: "Fast responses with a more utilitarian tone.",
   },
   {
     id: "claude-sonnet-5",
@@ -43,7 +44,7 @@ export const ASK_MODELS: readonly AskModelOption[] = [
   },
 ] as const;
 
-export const DEFAULT_ASK_MODEL_ID: AskModelId = "gemini-2.5-flash";
+export const DEFAULT_ASK_MODEL_ID: AskModelId = "claude-haiku-4-5";
 
 export function isAskModelId(value: unknown): value is AskModelId {
   return (

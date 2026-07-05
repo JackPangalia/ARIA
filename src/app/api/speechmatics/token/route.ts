@@ -62,7 +62,9 @@ export async function POST(req: NextRequest) {
     return jsonOk({
       token: data.key_value,
       expiresIn: REALTIME_TOKEN_TTL_SECONDS,
-      region: "eu",
+      // Both browser and iOS build the wss URL from this. Temporary keys are
+      // valid in either region; "us" is ~100ms less round trip for NA users.
+      region: env.SPEECHMATICS_RT_REGION,
     });
   }, { rateLimit: { name: "stt_token", limit: 10, windowSeconds: 60 } });
 }

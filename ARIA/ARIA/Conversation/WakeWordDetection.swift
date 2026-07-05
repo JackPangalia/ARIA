@@ -1,11 +1,14 @@
 import Foundation
 
 enum WakeWordDetection: Sendable {
-    nonisolated static let questionSettleMs: UInt64 = 2_800
-    nonisolated static let speechFinalSettleMs: UInt64 = 2_800
+    // Fallback settle while the speaker may still be mid-utterance (no
+    // EndOfUtterance yet). Mirrors web wake.ts QUESTION_SETTLE_MS.
+    nonisolated static let questionSettleMs: UInt64 = 1_500
+    nonisolated static let speechFinalSettleMs: UInt64 = 1_500
     // Short grace applied once Speechmatics reports end-of-turn (EndOfUtterance),
     // replacing the long settle wait once we know the speaker has gone silent.
-    nonisolated static let endOfUtteranceGraceMs: UInt64 = 500
+    // Mirrors web wake.ts END_OF_UTTERANCE_GRACE_MS.
+    nonisolated static let endOfUtteranceGraceMs: UInt64 = 250
     nonisolated static let followUpWindowMs: UInt64 = 8_000
 
     private static let kivoWakeToken =

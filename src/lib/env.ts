@@ -16,9 +16,17 @@ const ServerEnvSchema = z.object({
     .optional()
     .transform((v) => (v ? v : undefined)),
   CARTESIA_API_KEY: z.string().min(1),
-  CARTESIA_MODEL_ID: z.string().default("sonic-2"),
+  CARTESIA_MODEL_ID: z.string().default("sonic-3"),
   CARTESIA_VOICE_ID: z.string().min(1),
   SPEECHMATICS_API_KEY: z.string().min(1),
+  /**
+   * Regional realtime endpoint the CLIENT connects to (temporary keys work in
+   * both). "us" halves the WS round trip for North American users — partials,
+   * finals, and EndOfUtterance all land ~100ms sooner, which is directly in
+   * the silence→answer path. Verified 2026-07-04: same temp key starts
+   * sessions in both regions.
+   */
+  SPEECHMATICS_RT_REGION: z.enum(["eu", "us"]).default("us"),
   COMPOSIO_API_KEY: z.string().min(1).optional(),
   // Recall.ai meeting-bot mode (optional — in-person app boots without these).
   RECALL_API_KEY: z.string().min(1).optional(),

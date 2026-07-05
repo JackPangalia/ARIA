@@ -6,7 +6,7 @@ import { useTheme } from "@/components/theme/ThemeProvider";
 import { useAriaStore } from "@/lib/store";
 import type { AriaStatus } from "@/lib/types";
 
-type Mode =
+export type Mode =
   | "idle"
   | "listen"
   | "followup"
@@ -14,7 +14,7 @@ type Mode =
   | "think"
   | "speak";
 
-function modeFor(status: AriaStatus): Mode {
+export function modeFor(status: AriaStatus): Mode {
   if (status === "idle" || status === "error") return "idle";
   if (status === "speaking") return "speak";
   if (status === "thinking") return "think";
@@ -50,28 +50,13 @@ const STATUS_LABEL: Record<AriaStatus, string> = {
   error: "Something went wrong",
 };
 
-function accentFor(mode: Mode, isLight: boolean): string {
+export function accentFor(mode: Mode, isLight: boolean): string {
   if (isLight && mode === "idle") return LIGHT_IDLE_ACCENT;
   return ACCENT[mode];
 }
 
-function PencilIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 20h4l10-10-4-4L4 16v4zM14 6l4 4"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 export function OrbVisualizer(props: {
   sessionTitle?: string;
-  resume?: boolean;
   onRenameTitle?: (title: string) => void;
 }) {
   const { resolvedTheme } = useTheme();
@@ -81,13 +66,12 @@ export function OrbVisualizer(props: {
   const notice = useAriaStore((s) => s.notice);
 
   const mode = modeFor(status);
+  const idle = mode === "idle";
   const isLight = resolvedTheme === "light";
   const accent = accentFor(mode, isLight);
-  const showSessionTitle =
-    status === "idle" && props.resume && Boolean(props.sessionTitle?.trim());
-  const statusLabel = showSessionTitle
-    ? props.sessionTitle!.trim()
-    : STATUS_LABEL[status];
+  const sessionTitle = props.sessionTitle?.trim() ?? "";
+  const showSessionTitle = idle && Boolean(sessionTitle);
+  const statusLabel = showSessionTitle ? sessionTitle : STATUS_LABEL[status];
 
   const canEditTitle = showSessionTitle && Boolean(props.onRenameTitle);
 
@@ -100,24 +84,24 @@ export function OrbVisualizer(props: {
           ? 0.3
           : 0;
 
-  const idle = mode === "idle";
-
   return (
-    <div className="flex flex-col items-center gap-4 sm:gap-6">
-      <div className="relative h-72 w-72 origin-center select-none max-sm:-my-5 max-sm:scale-[0.82]">
-        {/* The canvas renders larger than this 288px box (with the camera pulled
+    <div className="flex flex-col items-center gap-6 sm:gap-8">
+      <div className="relative h-64 w-64 origin-center select-none max-sm:-my-5 max-sm:scale-[0.82]">
+        {/* The canvas renders larger than this 256px box (with the camera pulled
             back to match, in OrbParticles) so the orb has transparent headroom
             to grow into when it's loud — otherwise the expanding particles get
-            clipped at the frustum edge. */}
+            clipped at the frustum edge. The gaps above/below must stay larger
+            than the canvas overhang (~20% of the box per side) so the pulsing
+            field never washes over the KIVO label or the status text. */}
         <OrbParticles
-          className="absolute left-1/2 top-1/2 h-[140%] w-[140%] -translate-x-1/2 -translate-y-1/2"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[140%] w-[140%] -translate-x-1/2 -translate-y-1/2"
           color={accent}
           energy={energy}
           isLight={isLight}
         />
       </div>
 
-      <div className="flex flex-col items-center gap-1">
+      <div className="relative z-20 flex flex-col items-center gap-1">
         {canEditTitle ? (
           <EditableSessionTitle
             title={statusLabel}
@@ -125,10 +109,10 @@ export function OrbVisualizer(props: {
           />
         ) : (
           <div
-            className={`max-w-xs text-center transition-colors duration-300 ${
+            className={`text-center transition-colors duration-300 ${
               showSessionTitle
-                ? "truncate text-sm font-normal text-app-secondary"
-                : "text-[11px] font-normal uppercase tracking-[0.22em] text-app-muted pl-[0.22em]"
+                ? "max-w-md text-sm font-normal text-app-secondary sm:max-w-lg"
+                : "max-w-xs text-[11px] font-normal uppercase tracking-[0.22em] text-app-muted pl-[0.22em]"
             }`}
             style={{ color: idle ? undefined : accent }}
             aria-live="polite"
@@ -153,60 +137,86 @@ export function OrbVisualizer(props: {
   );
 }
 
+const SESSION_TITLE_BASE =
+  "relative z-20 max-w-md text-center text-sm font-normal leading-snug sm:max-w-lg";
+
 function EditableSessionTitle(props: {
   title: string;
   onRenameTitle: (title: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(props.title);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (editing) inputRef.current?.select();
+    if (!editing) setDraft(props.title);
+  }, [props.title, editing]);
+
+  useEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
   }, [editing]);
+
+  const commitEdit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    if (!next || next === props.title) {
+      setDraft(props.title);
+      return;
+    }
+    props.onRenameTitle(next);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setDraft(props.title);
+  };
 
   const beginEdit = () => {
     setDraft(props.title);
     setEditing(true);
   };
 
-  const commitEdit = () => {
-    setEditing(false);
-    const next = draft.trim();
-    if (!next || next === props.title) return;
-    props.onRenameTitle(next);
-  };
-
   if (editing) {
     return (
       <input
         ref={inputRef}
-        autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commitEdit}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            commitEdit();
+            inputRef.current?.blur();
           }
-          if (e.key === "Escape") setEditing(false);
+          if (e.key === "Escape") {
+            e.preventDefault();
+            cancelEdit();
+            inputRef.current?.blur();
+          }
         }}
-        aria-label="Rename session"
-        className="max-w-xs rounded-md border border-app/50 bg-app px-2 py-1 text-center text-sm font-normal text-app outline-none"
+        aria-label="Session title"
+        size={Math.min(Math.max(draft.length, props.title.length, 12), 80)}
+        className={`${SESSION_TITLE_BASE} border-0 bg-transparent p-0 outline-none cursor-text text-app caret-app selection:bg-accent/15`}
       />
     );
   }
 
   return (
-    <button
-      type="button"
+    <span
+      role="button"
+      tabIndex={0}
       onClick={beginEdit}
-      title="Rename session"
-      className="group flex max-w-xs items-center gap-1.5 rounded-md px-2 py-1 text-sm font-normal text-app-secondary transition-colors duration-300 hover:bg-surface-hover hover:text-app"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          beginEdit();
+        }
+      }}
+      className={`${SESSION_TITLE_BASE} inline-block cursor-text break-words text-app-secondary transition-colors duration-200 hover:text-app hover:underline hover:decoration-1 hover:underline-offset-[0.2em] hover:decoration-current/45 focus-visible:outline-none focus-visible:text-app focus-visible:underline focus-visible:underline-offset-[0.2em] focus-visible:decoration-current/45`}
     >
-      <span className="truncate">{props.title}</span>
-      <PencilIcon className="shrink-0 text-app-muted opacity-0 transition-opacity group-hover:opacity-100" />
-    </button>
+      {props.title}
+    </span>
   );
 }

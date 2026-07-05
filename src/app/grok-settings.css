@@ -407,6 +407,36 @@
   margin: 0;
 }
 
+.grok-speaker-list-item--divided {
+  border-bottom: 1px solid var(--grok-border);
+}
+
+.grok-speaker-orb-glyph {
+  color: var(--grok-fg);
+}
+
+.grok-speaker-script-card {
+  border-radius: var(--grok-radius-control);
+  border: 1px solid var(--grok-border);
+  background: var(--grok-btn-bg);
+  padding: 14px 16px;
+}
+
+.grok-speaker-script-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grok-muted);
+}
+
+.grok-speaker-script-body {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--grok-fg);
+}
+
 .grok-settings-embedded {
   color: var(--grok-fg);
 }

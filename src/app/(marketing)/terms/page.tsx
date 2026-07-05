@@ -16,7 +16,8 @@ export default function TermsPage() {
 
       <Section title="1. Agreement">
         <p>
-          By creating an account or using Kivo you agree to these Terms and to
+          Kivo is provided by Centonis AI Inc. (&quot;Centonis&quot;, &quot;we&quot;, &quot;us&quot;). By
+          creating an account or using Kivo you agree to these Terms and to
           our <Link className="underline" href="/privacy">Privacy Policy</Link>.
           If you don&apos;t agree, don&apos;t use the service.
         </p>

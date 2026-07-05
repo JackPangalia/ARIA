@@ -20,11 +20,16 @@ type Note = {
 
 // Thinking pulse is a slow, faint breath rather than an insistent beep.
 const PULSE_INTERVAL_MS = 2600;
+// Answers that arrive quickly should play no thinking cue at all — silence
+// reads as responsiveness. The pulse only starts once a think has gone on
+// long enough that the user might wonder whether Kivo heard them.
+const PULSE_START_DELAY_MS = 1500;
 
 export class CueEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  private pulseStartTimer: ReturnType<typeof setTimeout> | null = null;
   private enabled = true;
 
   setEnabled(on: boolean) {
@@ -125,54 +130,58 @@ export class CueEngine {
     }
   }
 
+  // The cue set is deliberately minimal and understated — one short, quiet
+  // acknowledgment where state genuinely needs confirming, silence everywhere
+  // the conversation itself already carries the signal. Multi-note chimes read
+  // as gimmicky next to a natural back-and-forth.
+
   playWake() {
-    // Soft ascending major triad (E–G#–B) that swells in — an airy, welcoming
-    // shimmer rather than a bright beep. Long releases let the notes bloom.
+    // A single soft tick — "I'm listening" — quiet and over in under 200ms so
+    // it never competes with the speaker, who is usually still mid-sentence.
     this.playSequence([
-      { freq: 659.25, durationMs: 520, gain: 0.1, attackMs: 45, releaseMs: 380, detuneCents: 4 },
-      { freq: 830.61, durationMs: 520, gain: 0.09, startOffsetMs: 90, attackMs: 55, releaseMs: 400, detuneCents: -4 },
-      { freq: 987.77, durationMs: 560, gain: 0.085, startOffsetMs: 180, attackMs: 70, releaseMs: 460, detuneCents: 5 },
-      // Faint octave halo above for sparkle.
-      { freq: 1318.51, durationMs: 480, gain: 0.028, startOffsetMs: 200, attackMs: 90, releaseMs: 420 },
+      { freq: 830.61, durationMs: 170, gain: 0.06, attackMs: 12, releaseMs: 140 },
     ]);
   }
 
   playFollowUp() {
-    // Single warm bell — a soft fundamental with a quiet octave partial.
-    this.playSequence([
-      { freq: 659.25, durationMs: 480, gain: 0.075, attackMs: 35, releaseMs: 400 },
-      { freq: 1318.51, durationMs: 360, gain: 0.018, attackMs: 50, releaseMs: 300 },
-    ]);
+    // Intentionally silent. This fires after every single answer, and a chime
+    // here is the biggest source of "talking to a gadget" feel. The answer
+    // ending is itself the signal that Kivo is still listening; the UI shows
+    // the follow-up state for anyone looking.
   }
 
   playClose() {
-    // Gentle descending chime (B–E) — a calm, resolved sign-off.
+    // One low, warm note — a quiet "goodbye" without a melody.
     this.playSequence([
-      { freq: 987.77, durationMs: 460, gain: 0.085, attackMs: 40, releaseMs: 360, detuneCents: 3 },
-      { freq: 659.25, durationMs: 620, gain: 0.09, startOffsetMs: 150, attackMs: 50, releaseMs: 520, detuneCents: -3 },
-      { freq: 1318.51, durationMs: 420, gain: 0.022, startOffsetMs: 160, attackMs: 70, releaseMs: 360 },
+      { freq: 392.0, durationMs: 300, gain: 0.06, attackMs: 20, releaseMs: 250 },
     ]);
   }
 
   playError() {
-    // Soft descending minor third (A4 -> F4) — a gentle "didn't catch that"
-    // rather than a harsh buzz.
+    // Short low descending pair — clearly "that didn't work", kept brief.
     this.playSequence([
-      { freq: 440.0, durationMs: 320, gain: 0.1, attackMs: 25, releaseMs: 260, type: "triangle" },
-      { freq: 349.23, durationMs: 380, gain: 0.1, startOffsetMs: 160, attackMs: 30, releaseMs: 320, type: "triangle" },
+      { freq: 440.0, durationMs: 220, gain: 0.08, attackMs: 20, releaseMs: 180, type: "triangle" },
+      { freq: 349.23, durationMs: 260, gain: 0.08, startOffsetMs: 120, attackMs: 24, releaseMs: 220, type: "triangle" },
     ]);
   }
 
   startThinkingLoop() {
     if (!this.enabled) return;
     this.stopThinkingLoop();
-    // Fire one immediately so the user gets feedback right away, then continue
-    // on an interval until something else takes over.
-    this.playPulse();
-    this.pulseTimer = setInterval(() => this.playPulse(), PULSE_INTERVAL_MS);
+    // Stay silent at first — most answers start speaking before the delay
+    // elapses and never need a cue. Only a long think gets the pulse.
+    this.pulseStartTimer = setTimeout(() => {
+      this.pulseStartTimer = null;
+      this.playPulse();
+      this.pulseTimer = setInterval(() => this.playPulse(), PULSE_INTERVAL_MS);
+    }, PULSE_START_DELAY_MS);
   }
 
   stopThinkingLoop() {
+    if (this.pulseStartTimer) {
+      clearTimeout(this.pulseStartTimer);
+      this.pulseStartTimer = null;
+    }
     if (!this.pulseTimer) return;
     clearInterval(this.pulseTimer);
     this.pulseTimer = null;

@@ -16,7 +16,8 @@ export default function PrivacyPage() {
 
       <Section title="What Kivo is">
         <p>
-          Kivo (&quot;we&quot;, &quot;us&quot;) is a real-time AI assistant that listens to live,
+          Kivo is a product of Centonis AI Inc. (&quot;Centonis&quot;, &quot;we&quot;, &quot;us&quot;), a
+          real-time AI assistant that listens to live,
           in-person conversations through your device&apos;s microphone, produces a
           speaker-attributed transcript, and answers questions when you address
           it. This policy explains what we collect, why, and the controls you

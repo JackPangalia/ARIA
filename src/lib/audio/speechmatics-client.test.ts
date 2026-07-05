@@ -160,7 +160,8 @@ describe("SpeechmaticsLiveClient start config", () => {
       max_delay: 0.7,
       max_delay_mode: "fixed",
       conversation_config: {
-        end_of_utterance_silence_trigger: 0.8,
+        // Must stay LESS than max_delay per Speechmatics turn-detection docs.
+        end_of_utterance_silence_trigger: 0.6,
       },
     });
   });

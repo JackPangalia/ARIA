@@ -42,6 +42,10 @@ const PLAYBACK_STT_COOLDOWN_MS = 300;
 const ASSISTANT_COMMAND_MAX_WORDS = 5;
 const TURN_IDLE_FLUSH_MS = 1800;
 const CONTEXT_PREFETCH_DEBOUNCE_MS = 400;
+// Server-side AskBodySchema limits. A marathon monologue capture must degrade
+// (keep the tail, where the actual ask lives) rather than 400 the whole turn.
+const ASK_QUESTION_MAX_CHARS = 12000;
+const ASK_SOURCE_IDS_MAX = 400;
 
 function pcmLevel(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;
@@ -725,6 +729,13 @@ export class AriaEngine {
     speakerName: string | null,
     sourceUtteranceIds: string[] = []
   ) {
+    if (question.length > ASK_QUESTION_MAX_CHARS) {
+      devLog("ask", `Question over ${ASK_QUESTION_MAX_CHARS} chars — keeping the tail.`);
+      question = question.slice(-ASK_QUESTION_MAX_CHARS);
+    }
+    if (sourceUtteranceIds.length > ASK_SOURCE_IDS_MAX) {
+      sourceUtteranceIds = sourceUtteranceIds.slice(-ASK_SOURCE_IDS_MAX);
+    }
     const store = useAriaStore.getState();
     store.setStatus("thinking");
     this.cues.startThinkingLoop();

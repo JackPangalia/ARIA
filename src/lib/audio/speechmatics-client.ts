@@ -452,7 +452,10 @@ export class SpeechmaticsLiveClient {
         },
       ],
       conversation_config: {
-        end_of_utterance_silence_trigger: 0.8,
+        // Silence gap (s) before EndOfUtterance fires — the main knob for how
+        // quickly Kivo reacts when a speaker stops. Speechmatics requires this
+        // to be LESS than max_delay (0.7 above) or end-of-turn turns unreliable.
+        end_of_utterance_silence_trigger: 0.6,
       },
     };
 

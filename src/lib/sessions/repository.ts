@@ -51,6 +51,7 @@ function pinsCol(db: Firestore, uid: string, sessionId: string) {
   return sessionRef(db, uid, sessionId).collection("pins");
 }
 
+
 function toIso(value: unknown): string {
   if (value instanceof Date) return value.toISOString();
   if (

@@ -319,7 +319,9 @@ final class SpeechmaticsLiveClient: NSObject {
             ],
             "speaker_diarization_config": speakerDiarizationConfig,
             "conversation_config": [
-                "end_of_utterance_silence_trigger": 1.2,
+                // Silence gap (s) before EndOfUtterance — must stay LESS than
+                // max_delay (0.7 above). Mirrors the web client's tuning.
+                "end_of_utterance_silence_trigger": 0.6,
             ],
         ]
         if !loggedStartConfig {
