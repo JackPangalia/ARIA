@@ -4,8 +4,8 @@ import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import { loadEntitlements, setAnswerModel } from "@/lib/plan/repository";
 import {
   ASK_MODELS,
-  DEFAULT_ASK_MODEL_ID,
   isAskModelId,
+  parseAnswerModel,
   type AskModelId,
 } from "@/lib/aria/models";
 
@@ -15,10 +15,6 @@ export const dynamic = "force-dynamic";
 const UpdateAnswerModelSchema = z.object({
   answerModel: z.string().refine(isAskModelId, "Invalid answer model."),
 });
-
-function resolveCurrent(answerModel: unknown): AskModelId {
-  return isAskModelId(answerModel) ? answerModel : DEFAULT_ASK_MODEL_ID;
-}
 
 function payload(current: AskModelId) {
   return {
@@ -30,7 +26,7 @@ function payload(current: AskModelId) {
 export async function GET(req: NextRequest) {
   return withAuth(req, async ({ uid }) => {
     const { plan } = await loadEntitlements(uid);
-    return jsonOk(payload(resolveCurrent(plan.answerModel)));
+    return jsonOk(payload(parseAnswerModel(plan.answerModel)));
   });
 }
 
@@ -50,7 +46,7 @@ export async function PATCH(req: NextRequest) {
 
     try {
       const plan = await setAnswerModel(uid, parsed.data.answerModel);
-      return jsonOk(payload(resolveCurrent(plan.answerModel)));
+      return jsonOk(payload(parseAnswerModel(plan.answerModel)));
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Failed to update answer model.";

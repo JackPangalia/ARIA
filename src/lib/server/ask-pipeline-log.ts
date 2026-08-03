@@ -9,6 +9,7 @@ export type AskPipelineDetail = Record<
 
 export type AskPipelineHandle = {
   sessionId: string;
+  turnId: string | null;
   /** Elapsed ms since ask request began. */
   elapsed: () => number;
   stage: (phase: string, detail?: AskPipelineDetail) => void;
@@ -32,25 +33,32 @@ export function isAskPipelineLoggingEnabled(): boolean {
 
 export function startAskPipeline(
   sessionId: string,
-  question: string
+  question: string,
+  turnId: string | null = null
 ): AskPipelineHandle {
   const t0 = performance.now();
   const sid = shortSessionId(sessionId);
 
   const handle: AskPipelineHandle = {
     sessionId,
+    turnId,
     elapsed: () => performance.now() - t0,
     stage(phase, detail) {
       if (!isAskPipelineLoggingEnabled()) return;
       const offset = formatMs(performance.now() - t0).padStart(6, " ");
       console.log(
-        `${PREFIX} ask │ ${sid} │ ${offset} │ ${phase}${formatDetail(detail)}`
+        `${PREFIX} ask │ ${sid} │ ${offset} │ ${phase}${formatDetail({
+          turnId: turnId ?? undefined,
+          ...detail,
+        })}`
       );
     },
   };
 
   if (isAskPipelineLoggingEnabled()) {
-    console.log(`${PREFIX} ask │ ${sid} │      0ms │ start │ Q: ${truncate(question, 100)}`);
+    console.log(
+      `${PREFIX} ask │ ${sid} │      0ms │ start${turnId ? ` │ turnId=${turnId}` : ""} │ Q: ${truncate(question, 100)}`
+    );
   }
 
   return handle;
@@ -111,6 +119,8 @@ export type AskTimingReport = {
   answerTokens: number;
   composioCache: string;
   composioToolCount: number;
+  ttsTransport: string;
+  ttsFallbackReason: string | null;
 };
 
 export function logAskTimingSummary(report: AskTimingReport): void {
@@ -128,6 +138,8 @@ export function logAskTimingSummary(report: AskTimingReport): void {
         report.firstAudioByteMs != null ? Math.round(report.firstAudioByteMs) : null,
       answerTokens: report.answerTokens,
       composioCache: report.composioCache,
+      ttsTransport: report.ttsTransport,
+      ttsFallbackReason: report.ttsFallbackReason,
     })
   );
 

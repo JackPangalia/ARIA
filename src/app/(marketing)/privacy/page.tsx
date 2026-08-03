@@ -97,7 +97,7 @@ export default function PrivacyPage() {
       <Section title="Service providers (subprocessors)">
         <ul className="list-disc space-y-2 pl-6">
           <li><strong>Google Cloud / Firebase</strong> — authentication, database, hosting of your data.</li>
-          <li><strong>Google Gemini</strong> — generates Kivo&apos;s answers from your session context.</li>
+          <li><strong>Anthropic</strong> — generates Kivo&apos;s answers and summaries from your session context, and runs web searches on its own infrastructure when a question needs current information.</li>
           <li><strong>Speechmatics</strong> — real-time speech-to-text and speaker identification.</li>
           <li><strong>Cartesia</strong> — converts Kivo&apos;s answers to speech.</li>
           <li><strong>Stripe</strong> — subscription billing.</li>

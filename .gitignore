@@ -45,6 +45,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# electron desktop
+desktop/node_modules/
+desktop/release/
+
 # Xcode / iOS
 **/xcuserdata/
 *.xcuserstate

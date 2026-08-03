@@ -119,9 +119,68 @@ export const SPEECH_FINAL_SETTLE_MS = 1500;
 // stopped. Collapse the long settle to this short grace — enough to allow an
 // immediate continuation, but far quicker than waiting the full settle from the
 // last transcript. Best case fast, worst case (no EndOfUtterance) unchanged.
-export const END_OF_UTTERANCE_GRACE_MS = 250;
+// Kept comfortably above a natural mid-sentence thinking pause: too low and a
+// beat of silence gets answered before the speaker has actually finished.
+export const END_OF_UTTERANCE_GRACE_MS = 550;
+// When the captured question *reads* unfinished (trailing "and", a comma, a
+// filler), the speaker is pausing to think, not done — hold the dispatch this
+// much longer so a mid-thought breath doesn't get answered as a question.
+export const INCOMPLETE_TAIL_GRACE_MS = 1500;
+
+// Words that essentially never end a finished spoken question. A tail landing
+// on one of these means the sentence is still open ("...and the", "what about
+// the", "should we use React or..."). Deliberately conservative: only words
+// that are ungrammatical sentence-enders — bare verbs/nouns stay "complete"
+// so normal questions keep the fast path.
+const INCOMPLETE_TAIL_WORDS = new Set([
+  // conjunctions / connectors
+  "and", "or", "but", "so", "because", "if", "when", "while", "whereas",
+  "than", "then", "versus", "vs", "plus", "also", "either", "neither",
+  // prepositions
+  "to", "of", "for", "with", "without", "in", "on", "at", "by", "from",
+  "about", "into", "onto", "over", "under", "between", "through", "after",
+  "before", "during", "against", "toward", "towards", "like",
+  // determiners / possessives (demonstratives like "that"/"this" excluded —
+  // they legitimately end questions: "how do we fix that")
+  "the", "a", "an", "my", "your", "his", "her", "its", "our", "their",
+  "some", "each", "every",
+  // relative pronouns mid-clause
+  "which", "whose",
+  // auxiliaries left hanging ("do you think we should...")
+  "is", "are", "was", "were", "be", "been", "being", "am",
+  "do", "does", "did", "have", "has", "had",
+  "can", "could", "should", "would", "will", "shall", "may", "might", "must",
+  // fillers
+  "um", "uh", "umm", "uhh", "er", "erm", "ah", "hmm", "uhm",
+]);
+
+/**
+ * Semantic endpointing: does the captured question look unfinished? Checked
+ * when the STT provider reports end-of-turn — silence alone doesn't mean the
+ * thought is complete, so an open-ended tail extends the dispatch grace
+ * instead of firing after a thinking pause.
+ */
+export function looksIncompleteQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  // Trailing punctuation that opens rather than closes: comma, colon,
+  // semicolon, dash, ellipsis.
+  if (/(?:[,:;-]|\.\.\.|…)$/.test(trimmed)) return true;
+  const lastToken = trimmed
+    .toLowerCase()
+    .replace(/[.!?…]+$/, "")
+    .split(/\s+/)
+    .pop();
+  if (!lastToken) return false;
+  const word = lastToken.replace(/[^a-z']/g, "");
+  return INCOMPLETE_TAIL_WORDS.has(word);
+}
 // How long Kivo keeps listening for a follow-up (no wake word) after answering.
 export const FOLLOW_UP_WINDOW_MS = 8000;
+// In-person conversation mode: after Kivo answers, briefly accept the next
+// utterance without a wake word. If the room stays quiet, return to passive
+// listening quickly rather than leaving the orb in "Anything else?".
+export const CONVERSATION_WINDOW_MS = 3_000;
 
 export function extractQuestionAfterWake(text: string): {
   detected: boolean;
@@ -162,14 +221,17 @@ function levenshtein(a: string, b: string): number {
   return row[b.length]!;
 }
 
-/** Meeting-bot only: catch Recall mishears regex misses (e.g. "kvio", "hey kevo"). */
-function tokenSoundsLikeKivo(token: string): boolean {
+/** Catch ASR mishears the alias regex misses (e.g. "kvio", "hey kevo").
+ * `maxDistance` 2 suits Recall's unbiased low-latency ASR; in-person
+ * Speechmatics already vocab-biases toward "Kivo", so 1 avoids false wakes on
+ * words like "kind". */
+function tokenSoundsLikeKivo(token: string, maxDistance = 2): boolean {
   const t = normalizeToken(token);
   if (t.length < 2 || t.length > 9) return false;
   if (KIVO_ALIAS_SET.has(t)) return true;
   // Fuzzy only when the token plausibly starts like "Kivo" — avoids "video" etc.
   if (!/^[kqce]/.test(t) && t !== "evo") return false;
-  return levenshtein(t, "kivo") <= 2;
+  return levenshtein(t, "kivo") <= maxDistance;
 }
 
 /**
@@ -199,6 +261,38 @@ export function extractQuestionAfterWakeMeeting(text: string): {
     }
   }
 
+  return { detected: false, question: "" };
+}
+
+/**
+ * In-person wake detection: strict patterns first, then a tight fuzzy check
+ * confined to the utterance start (bare or after a greeting). Tighter than the
+ * meeting variant on both position and edit distance because Speechmatics
+ * already biases toward "Kivo" via additional_vocab — this only rescues the
+ * near-miss spellings that slip past both the vocab bias and the alias list.
+ */
+export function extractQuestionAfterWakeInPerson(text: string): {
+  detected: boolean;
+  question: string;
+} {
+  const strict = extractQuestionAfterWake(text);
+  if (strict.detected) return strict;
+
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return { detected: false, question: "" };
+
+  const first = tokens[0]!.replace(/[,.:;!?-]+$/g, "");
+  const idx = tokens.length > 1 && WAKE_GREETING.test(first) ? 1 : 0;
+  const candidate = tokens[idx]!
+    .replace(/^[,]+/, "")
+    .replace(/[,.:;!?-]+$/g, "");
+
+  if (tokenSoundsLikeKivo(candidate, 1)) {
+    return {
+      detected: true,
+      question: tokens.slice(idx + 1).join(" ").trim(),
+    };
+  }
   return { detected: false, question: "" };
 }
 

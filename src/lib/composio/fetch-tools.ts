@@ -1,4 +1,4 @@
-import { tool, type Tool } from "@openai/agents";
+import { jsonSchema, tool, type ToolSet } from "ai";
 import type { SupportedToolkit } from "@/lib/composio/connections";
 import { logComposioToolExecute } from "@/lib/server/ask-pipeline-log";
 import { getComposio, isComposioConfigured } from "./client";
@@ -16,22 +16,21 @@ interface RawTool {
 }
 
 export type ComposioAgentToolsFetch = {
-  tools: Tool[];
+  tools: ToolSet;
   toolkitFingerprint: string;
 };
 
-function toAgentsTool(raw: RawTool, uid: string): Tool {
+function toAgentsTool(raw: RawTool, uid: string) {
+  // Composio hands back raw JSON Schema, so it goes in as-is rather than
+  // through Zod like our first-party tools.
   const parameters = (raw.inputParameters ?? {
     type: "object",
     properties: {},
   }) as Record<string, unknown>;
 
   return tool({
-    name: raw.slug,
-    description:
-      raw.description ?? raw.name ?? `Composio tool ${raw.slug}`,
-    parameters: parameters as never,
-    strict: false,
+    description: raw.description ?? raw.name ?? `Composio tool ${raw.slug}`,
+    inputSchema: jsonSchema(parameters as never),
     async execute(input: unknown) {
       const t0 = performance.now();
       const composio = getComposio();
@@ -51,15 +50,17 @@ function toAgentsTool(raw: RawTool, uid: string): Tool {
 }
 
 export function filterToolsByToolkits(
-  tools: Tool[],
+  tools: ToolSet,
   toolkits: SupportedToolkit[]
-): Tool[] {
-  if (toolkits.length === 0) return [];
+): ToolSet {
+  if (toolkits.length === 0) return {};
   const needles = toolkits.map((t) => t.toLowerCase());
-  return tools.filter((entry) => {
-    const name = (entry as { name?: string }).name?.toLowerCase() ?? "";
-    return needles.some((tk) => name.includes(tk));
-  });
+  return Object.fromEntries(
+    Object.entries(tools).filter(([name]) => {
+      const lowered = name.toLowerCase();
+      return needles.some((tk) => lowered.includes(tk));
+    })
+  );
 }
 
 /** Uncached Composio catalog fetch — used by the per-user tools cache. */
@@ -68,12 +69,12 @@ export async function fetchComposioAgentTools(
   options?: { toolkits?: SupportedToolkit[] }
 ): Promise<ComposioAgentToolsFetch> {
   if (!isComposioConfigured()) {
-    return { tools: [], toolkitFingerprint: "" };
+    return { tools: {}, toolkitFingerprint: "" };
   }
 
   const requested = options?.toolkits;
   if (requested && requested.length === 0) {
-    return { tools: [], toolkitFingerprint: "" };
+    return { tools: {}, toolkitFingerprint: "" };
   }
 
   const composio = getComposio();
@@ -99,7 +100,7 @@ export async function fetchComposioAgentTools(
   const toolkitFingerprint = toolkits.join(",");
 
   if (toolkits.length === 0) {
-    return { tools: [], toolkitFingerprint: "" };
+    return { tools: {}, toolkitFingerprint: "" };
   }
 
   const list = await composio.tools.getRawComposioTools({
@@ -108,8 +109,11 @@ export async function fetchComposioAgentTools(
     limit: MAX_TOOLS_PER_TOOLKIT * toolkits.length,
   });
 
-  return {
-    tools: list.map((raw) => toAgentsTool(raw as RawTool, uid)),
-    toolkitFingerprint,
-  };
+  const tools: ToolSet = {};
+  for (const entry of list) {
+    const raw = entry as RawTool;
+    tools[raw.slug] = toAgentsTool(raw, uid);
+  }
+
+  return { tools, toolkitFingerprint };
 }

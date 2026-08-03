@@ -25,16 +25,23 @@ const PULSE_INTERVAL_MS = 2600;
 // long enough that the user might wonder whether Kivo heard them.
 const PULSE_START_DELAY_MS = 1500;
 
+// The search cue sits high and moves faster than the low thinking breath, so a
+// live lookup never sounds like a long think. It also waits longer before
+// starting: Kivo speaks a short hand-off line as the search begins, and a chime
+// layered under that line is just clutter.
+const SEARCH_PULSE_INTERVAL_MS = 1500;
+const SEARCH_PULSE_START_DELAY_MS = 2200;
+
 export class CueEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private pulseTimer: ReturnType<typeof setInterval> | null = null;
-  private pulseStartTimer: ReturnType<typeof setTimeout> | null = null;
+  private workTimer: ReturnType<typeof setInterval> | null = null;
+  private workStartTimer: ReturnType<typeof setTimeout> | null = null;
   private enabled = true;
 
   setEnabled(on: boolean) {
     this.enabled = on;
-    if (!on) this.stopThinkingLoop();
+    if (!on) this.stopWorkCue();
   }
 
   setMasterVolume(v: number) {
@@ -57,6 +64,24 @@ export class CueEngine {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     this.master.connect(this.ctx.destination);
+  }
+
+  // The answer-playback path schedules raw PCM through this already-unlocked
+  // context (a fresh AudioContext could start suspended outside a gesture).
+  async getPlaybackContext(): Promise<{
+    ctx: AudioContext;
+    master: GainNode;
+  } | null> {
+    await this.ensureReady();
+    if (!this.ctx || !this.master) return null;
+    if (this.ctx.state === "suspended") {
+      try {
+        await this.ctx.resume();
+      } catch {
+        // playback attempt below will surface a real failure
+      }
+    }
+    return { ctx: this.ctx, master: this.master };
   }
 
   // Play an encoded audio clip (e.g. an MP3 answer) through the already-unlocked
@@ -118,7 +143,7 @@ export class CueEngine {
   }
 
   async dispose() {
-    this.stopThinkingLoop();
+    this.stopWorkCue();
     if (this.ctx) {
       try {
         await this.ctx.close();
@@ -157,6 +182,14 @@ export class CueEngine {
     ]);
   }
 
+  playSearch() {
+    // Two soft, airy ascending tones — "Searching" signal — quiet and crisp (~220ms total).
+    this.playSequence([
+      { freq: 523.25, durationMs: 140, gain: 0.05, attackMs: 10, releaseMs: 100 },
+      { freq: 659.25, durationMs: 180, gain: 0.05, startOffsetMs: 70, attackMs: 10, releaseMs: 130 },
+    ]);
+  }
+
   playError() {
     // Short low descending pair — clearly "that didn't work", kept brief.
     this.playSequence([
@@ -166,25 +199,60 @@ export class CueEngine {
   }
 
   startThinkingLoop() {
-    if (!this.enabled) return;
-    this.stopThinkingLoop();
-    // Stay silent at first — most answers start speaking before the delay
-    // elapses and never need a cue. Only a long think gets the pulse.
-    this.pulseStartTimer = setTimeout(() => {
-      this.pulseStartTimer = null;
-      this.playPulse();
-      this.pulseTimer = setInterval(() => this.playPulse(), PULSE_INTERVAL_MS);
-    }, PULSE_START_DELAY_MS);
+    this.startWorkCue(
+      () => this.playPulse(),
+      PULSE_START_DELAY_MS,
+      PULSE_INTERVAL_MS
+    );
   }
 
-  stopThinkingLoop() {
-    if (this.pulseStartTimer) {
-      clearTimeout(this.pulseStartTimer);
-      this.pulseStartTimer = null;
+  /**
+   * Ambient cue while a web search runs. Kept audibly distinct from the
+   * thinking breath: the room should be able to hear that Kivo is looking
+   * something up rather than mulling it over.
+   */
+  startSearchingLoop() {
+    this.startWorkCue(
+      () => this.playSearchPulse(),
+      SEARCH_PULSE_START_DELAY_MS,
+      SEARCH_PULSE_INTERVAL_MS
+    );
+  }
+
+  /**
+   * Stops whichever ambient work cue is running. Thinking and searching share
+   * one slot — they never overlap — so every teardown path can call this
+   * without knowing which one started.
+   */
+  stopWorkCue() {
+    if (this.workStartTimer) {
+      clearTimeout(this.workStartTimer);
+      this.workStartTimer = null;
     }
-    if (!this.pulseTimer) return;
-    clearInterval(this.pulseTimer);
-    this.pulseTimer = null;
+    if (!this.workTimer) return;
+    clearInterval(this.workTimer);
+    this.workTimer = null;
+  }
+
+  private startWorkCue(play: () => void, delayMs: number, intervalMs: number) {
+    if (!this.enabled) return;
+    this.stopWorkCue();
+    // Stay silent at first — most answers start speaking before the delay
+    // elapses and never need a cue. Only slow work gets the pulse.
+    this.workStartTimer = setTimeout(() => {
+      this.workStartTimer = null;
+      play();
+      this.workTimer = setInterval(play, intervalMs);
+    }, delayMs);
+  }
+
+  private playSearchPulse() {
+    // A faint high shimmer (A5 + E6) with a long, airy attack — reads as
+    // "out looking for something", and can't be mistaken for the low breath.
+    this.playSequence([
+      { freq: 880.0, durationMs: 300, gain: 0.026, attackMs: 60, releaseMs: 230 },
+      { freq: 1318.51, durationMs: 240, gain: 0.016, startOffsetMs: 110, attackMs: 60, releaseMs: 180 },
+    ]);
   }
 
   private playPulse() {

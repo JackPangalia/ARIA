@@ -20,6 +20,14 @@ export interface RateLimitConfig {
   /** Max requests per window. */
   limit: number;
   windowSeconds: number;
+  /**
+   * Whether an allowed request increments the window counter. Defaults to
+   * true. Set false to enforce the ceiling *without* consuming budget — used
+   * for speculative asks, which pre-warm the pipeline and are frequently
+   * discarded; a runaway client is still bounded (the check denies once the
+   * window is full) but a normal user's speculations don't burn their quota.
+   */
+  consume?: boolean;
 }
 
 export interface RateLimitResult {
@@ -55,6 +63,9 @@ export async function checkRateLimit(
       const count = snap.exists ? Number(snap.data()?.count ?? 0) : 0;
       if (count >= config.limit) {
         return { allowed: false, retryAfterSeconds };
+      }
+      if (config.consume === false) {
+        return { allowed: true, retryAfterSeconds };
       }
       tx.set(
         ref,

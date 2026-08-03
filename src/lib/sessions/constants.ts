@@ -1,14 +1,15 @@
 /** Approximate chars per token for budgeting (conservative). */
 export const CHARS_PER_TOKEN = 4;
 
-/** Raw turns kept verbatim in model context. */
-export const RECENT_TURN_COUNT = 20;
+/** Raw turns kept verbatim in model context (questions now count as turns). */
+export const RECENT_TURN_COUNT = 40;
 
-/** Unsummarized turn tokens that trigger compaction. */
-export const COMPACTION_THRESHOLD_TOKENS = 8000;
+/** Unsummarized turn tokens that trigger compaction. Kept well under the
+ * context budget so summarization stays a fallback, not the main memory. */
+export const COMPACTION_THRESHOLD_TOKENS = 16000;
 
 /** Max tokens for assembled model context (excluding system prompt). */
-export const CONTEXT_BUDGET_TOKENS = 12000;
+export const CONTEXT_BUDGET_TOKENS = 30000;
 
 /** Max project source tokens injected into the stable context prefix. */
 export const PROJECT_SOURCES_TOKEN_BUDGET = 30000;

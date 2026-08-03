@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import Link from "next/link";
 import { LandingOrb } from "@/components/landing/LandingOrb";
 import { useLandingEffects } from "@/components/landing/useLandingEffects";
@@ -26,6 +27,7 @@ const WAVE_HEIGHTS = [
   { height: 84, delay: 320 },
   { height: 34, delay: 140 },
 ];
+
 
 const TESTIMONIALS = {
   s1: [
@@ -99,6 +101,14 @@ const TESTIMONIALS = {
   ],
 };
 
+const CAPTION_ROWS = [
+  { tone: "a", width: 78, delay: 0 },
+  { tone: "b", width: 52, delay: 0.9 },
+  { tone: "a", width: 90, delay: 1.8 },
+  { tone: "c", width: 40, delay: 2.7 },
+  { tone: "b", width: 66, delay: 3.6 },
+];
+
 const FAQ_ITEMS = [
   {
     q: "How does Kivo know who’s speaking?",
@@ -117,19 +127,6 @@ const FAQ_ITEMS = [
     a: "Yes. Transcripts and recordings are encrypted in transit and at rest, voice profiles are only created when you explicitly enroll them, and you can delete any session or voice print at any time.",
   },
 ];
-
-function HelpsTurn(props: {
-  speaker: string;
-  children: React.ReactNode;
-  dim?: boolean;
-}) {
-  return (
-    <div className={`helps-turn-group${props.dim ? " dim" : ""}`}>
-      <p className="helps-turn-label">{props.speaker}</p>
-      <p className="helps-turn-text">{props.children}</p>
-    </div>
-  );
-}
 
 function CheckIcon() {
   return (
@@ -317,24 +314,28 @@ export function LandingPage() {
 
               <div className="helps-timer">
                 <div className="helps-timer-val">42:16</div>
+                <div className="helps-speakers" aria-hidden>
+                  <span className="helps-speaker" style={{ animationDelay: "0s" }}>R</span>
+                  <span className="helps-speaker" style={{ animationDelay: "1.4s" }}>S</span>
+                  <span className="helps-speaker" style={{ animationDelay: "2.8s" }}>M</span>
+                </div>
               </div>
 
-              <div className="helps-transcript">
-                <HelpsTurn speaker="Ravi">
-                  Let&apos;s simplify the dashboard so the key metrics are front and center.
-                </HelpsTurn>
-                <HelpsTurn speaker="Sofia">
-                  Agreed — we removed the settings clutter and streamlined the layout.
-                </HelpsTurn>
-                <HelpsTurn speaker="Marcus">
-                  But what about the database migration? That script is ready Tuesday.
-                </HelpsTurn>
-                <HelpsTurn speaker="Sofia">
-                  If we ship the stripped-down dashboard, do we need the full schema rewrite?
-                </HelpsTurn>
-                <HelpsTurn speaker="Ravi" dim>
-                  We&apos;ve been debating this for forty minutes and we&apos;re still stuck.
-                </HelpsTurn>
+              <div className="helps-captions" aria-hidden>
+                {CAPTION_ROWS.map((row, i) => (
+                  <div className="helps-caption-row" key={i}>
+                    <span className={`helps-caption-dot tone-${row.tone}`} />
+                    <span
+                      className="helps-caption-bar"
+                      style={
+                        {
+                          "--tw": `${row.width}%`,
+                          animationDelay: `${row.delay}s`,
+                        } as CSSProperties
+                      }
+                    />
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -363,23 +364,9 @@ export function LandingPage() {
                   Kivo synthesizes the debate and delivers a clear path forward.
                 </p>
 
-                <div className="helps-response-box">
-                  <span className="helps-kivo-label">Kivo</span>
-                  <p className="helps-kivo-line">
-                    You agreed to simplify the dashboard twelve minutes ago. Ship the stripped version Tuesday — the migration is already scheduled.
-                  </p>
-                  <div className="helps-wave-mini" aria-hidden>
-                    {WAVE_HEIGHTS.slice(0, 10).map((bar, i) => (
-                      <i
-                        key={i}
-                        style={{
-                          height: `${Math.round(bar.height * 0.45)}px`,
-                          animationDelay: `${bar.delay}ms`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
+                <p className="helps-kivo-line">
+                  You agreed to simplify the dashboard twelve minutes ago. Ship the stripped version Tuesday — the migration is already scheduled.
+                </p>
               </div>
             </div>
           </div>

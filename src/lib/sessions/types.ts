@@ -9,6 +9,11 @@ export type TurnRole = z.infer<typeof TurnRoleSchema>;
 export const SessionModeSchema = z.enum(["in_person", "bot"]);
 export type SessionMode = z.infer<typeof SessionModeSchema>;
 
+export function parseSessionMode(value: unknown): SessionMode {
+  const parsed = SessionModeSchema.safeParse(value);
+  return parsed.success ? parsed.data : "in_person";
+}
+
 export const TranscriptionModeSchema = z.enum(["basic", "speaker"]);
 export type TranscriptionMode = z.infer<typeof TranscriptionModeSchema>;
 
@@ -40,7 +45,7 @@ export interface SessionDoc {
   tokenEstimate: number;
   searchableTextPreview: string;
   turnCount: number;
-  /** "in_person" (default, mic) or "bot" (Recall meeting bot). */
+  /** "in_person" (default) or dormant "bot". */
   mode: SessionMode;
   /** "basic" skips speaker ID; "speaker" keeps diarization and profiles. */
   transcriptionMode: TranscriptionMode;
@@ -63,6 +68,12 @@ export interface TurnDoc {
   tokenEstimate: number;
   summarized: boolean;
   createdAt: string;
+  /** Assistant turn the user cut off — `text` holds only what was spoken (or
+   * everything synthesized, with `heardChars` marking how far playback got). */
+  interrupted?: boolean;
+  /** Chars of `text` actually heard before the stop, when the client reported
+   * a playback position; null/absent means treat all of `text` as heard. */
+  heardChars?: number | null;
 }
 
 export interface SessionSummaryDoc {
@@ -72,6 +83,21 @@ export interface SessionSummaryDoc {
   timeline: string[];
   lastCoveredTurnId: string | null;
   updatedAt: string;
+}
+
+/**
+ * Human-readable meeting summary shown in the Overview tab, generated once
+ * from the full transcript when a session stops. Distinct from
+ * `SessionSummaryDoc`, which is an internal rolling compaction of old turns
+ * written for the AI's own context window, not for people to read.
+ */
+export interface MeetingSummaryDoc {
+  overview: string;
+  keyPoints: string[];
+  decisions: string[];
+  actionItems: string[];
+  generatedAt: string;
+  turnCountAtGeneration: number;
 }
 
 export interface SessionFactDoc {
@@ -96,6 +122,7 @@ export const CreateSessionSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   speakerCount: z.number().int().min(1).max(10).default(2),
   projectId: z.string().trim().min(1).max(256).nullable().optional(),
+  mode: SessionModeSchema.default("in_person"),
 });
 
 export const ListSessionsSchema = z.object({
@@ -112,6 +139,7 @@ export const PatchSessionSchema = z.object({
   speakerCount: z.number().int().min(1).max(10).optional(),
   pinned: z.boolean().optional(),
   projectId: z.string().trim().min(1).max(256).nullable().optional(),
+  mode: SessionModeSchema.optional(),
 });
 
 export const CreateTurnSchema = z.object({
@@ -130,6 +158,13 @@ export const RelabelTurnsSchema = z.object({
   speakerName: z.string().trim().min(1).max(100).nullable(),
 });
 
+// "Stop" mid-answer — the client reports how far playback got so the
+// transcript reflects what was actually heard, not what was synthesized.
+export const ReportAnswerInterruptedSchema = z.object({
+  playedSeconds: z.number().min(0).max(3600),
+  totalSeconds: z.number().min(0).max(3600).nullable().optional(),
+});
+
 export const CreateBotRequestSchema = z.object({
   sessionId: z.string().min(1),
   meetingUrl: z.string().url().max(2000),
@@ -142,6 +177,8 @@ export const CreatePinSchema = z.object({
 
 export const AskBodySchema = z.object({
   sessionId: z.string().min(1),
+  /** Correlates browser speech/endpoint/playback timing with server stages. */
+  turnId: z.string().uuid().optional(),
   // Generous by design: a spoken question is whatever the person said between
   // wake and silence, and a rambling monologue easily passes 4k chars (~4 min
   // of speech hit the old cap in the wild and 400'd after Kivo listened to all
@@ -156,8 +193,21 @@ export const AskBodySchema = z.object({
   sourceUtteranceIds: z.array(z.string()).max(400).optional(),
 });
 
+/** One prior Q/A exchange, sent to the model as a real chat turn. */
+export interface ContextHistoryTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface ContextBundle {
+  /** Ambient reference blocks: session header, summary, facts, room transcript. */
   messages: string;
+  /**
+   * Prior user_question/assistant turns as alternating chat messages —
+   * append-only within a session, which keeps the prompt prefix stable for
+   * provider-side caching.
+   */
+  history: ContextHistoryTurn[];
   tokenEstimate: number;
   /** Sanitized question used for search and the agent prompt. */
   question: string;
@@ -167,6 +217,7 @@ export interface SessionDetailResponse {
   session: SessionDoc;
   turns: TurnDoc[];
   summary: SessionSummaryDoc | null;
+  meetingSummary: MeetingSummaryDoc | null;
   facts: SessionFactDoc[];
   pins: SessionPinDoc[];
 }

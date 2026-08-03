@@ -4,7 +4,11 @@ import {
 } from "@/lib/sessions/constants";
 import type { TurnDoc, TurnRole } from "@/lib/sessions/types";
 
-const CONTEXT_ELIGIBLE_ROLES = new Set<TurnRole>(["speaker", "assistant"]);
+const CONTEXT_ELIGIBLE_ROLES = new Set<TurnRole>([
+  "speaker",
+  "user_question",
+  "assistant",
+]);
 
 export function isContextEligibleTurn(role: TurnRole): boolean {
   return CONTEXT_ELIGIBLE_ROLES.has(role);

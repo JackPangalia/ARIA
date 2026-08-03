@@ -19,6 +19,19 @@ function questionKey(question: string): string {
   return sanitizeQuestionText(question).toLowerCase();
 }
 
+function draftMatchesFinal(draft: string, finalQuestion: string): boolean {
+  if (draft === finalQuestion) return true;
+  if (draft.length >= 24 && finalQuestion.startsWith(draft)) return true;
+  const draftWords = new Set(draft.split(/\s+/).filter(Boolean));
+  const finalWords = new Set(finalQuestion.split(/\s+/).filter(Boolean));
+  if (draftWords.size < 4 || finalWords.size < 4) return false;
+  let overlap = 0;
+  for (const word of draftWords) {
+    if (finalWords.has(word)) overlap += 1;
+  }
+  return overlap / Math.max(draftWords.size, finalWords.size) >= 0.8;
+}
+
 export function storePrefetchedContext(
   sessionId: string,
   question: string,
@@ -41,9 +54,15 @@ export function takePrefetchedContext(
     cache.delete(sessionId);
     return null;
   }
-  if (entry.questionKey !== questionKey(question)) return null;
+  const finalKey = questionKey(question);
+  if (!draftMatchesFinal(entry.questionKey, finalKey)) return null;
   cache.delete(sessionId);
-  return entry.bundle;
+  return {
+    ...entry.bundle,
+    // Search/context came from the near-final draft, but the model must receive
+    // the exact settled question.
+    question: sanitizeQuestionText(question),
+  };
 }
 
 /** For tests only. */

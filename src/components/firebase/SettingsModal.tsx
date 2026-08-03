@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/firebase/AuthProvider";
@@ -30,6 +30,8 @@ import {
   GrokSettingsButton,
   GrokSettingsRow,
 } from "@/components/settings/SettingsRow";
+import { VoiceSettingsPanel } from "@/components/settings/VoiceSettingsPanel";
+import { useAriaStore } from "@/lib/store";
 
 type SettingsTab =
   | "account"
@@ -202,7 +204,7 @@ const ALL_TABS: {
   { id: "usage", label: "Usage", Icon: UsageIcon },
   { id: "billing", label: "Billing", Icon: BillingIcon },
   { id: "appearance", label: "Appearance", Icon: AppearanceIcon },
-  { id: "model", label: "Model", Icon: ModelIcon },
+  { id: "model", label: "Model & voice", Icon: ModelIcon },
   { id: "speakers", label: "Speakers", Icon: SpeakersIcon },
   { id: "connectors", label: "Connectors", Icon: ConnectorsIcon },
   { id: "trash", label: "Trash", Icon: TrashIcon },
@@ -569,6 +571,8 @@ function AnswerModelSettings() {
   const [preference, setPreference] = useState<AnswerModelPreference | null>(null);
   const [busyModel, setBusyModel] = useState<AskModelId | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const effectiveModel = useAriaStore((state) => state.effectiveModel);
+  const modelFallback = useAriaStore((state) => state.modelFallback);
 
   useEffect(() => {
     let cancelled = false;
@@ -610,6 +614,12 @@ function AnswerModelSettings() {
         Choose which model answers when you ask Kivo a question. Faster models
         respond quicker; slower models tend to answer with more nuance.
       </p>
+      {effectiveModel ? (
+        <p className="mt-2 text-xs text-app-muted">
+          Last voice answer used {effectiveModel}.
+          {modelFallback ? ` ${modelFallback}.` : ""}
+        </p>
+      ) : null}
 
       {error ? <p className="grok-settings-delete-error mt-2 text-xs">{error}</p> : null}
 
@@ -636,6 +646,10 @@ function AnswerModelSettings() {
       </div>
     </section>
   );
+}
+
+function VoiceSettings() {
+  return <VoiceSettingsPanel variant="settings" />;
 }
 
 function SettingsTabContent(props: {
@@ -729,6 +743,7 @@ function SettingsTabContent(props: {
     return (
       <section>
         <AnswerModelSettings />
+        <VoiceSettings />
       </section>
     );
   }

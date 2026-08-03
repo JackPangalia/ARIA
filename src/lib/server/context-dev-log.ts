@@ -39,6 +39,7 @@ export type ContextBundleLog = {
   searchHits: number;
   searchTerms: string[];
   recentTurns: number;
+  historyTurns: number;
   seqFirst: number | null;
   seqLast: number | null;
   budgetTrim: boolean;
@@ -95,7 +96,7 @@ export function logContextBundleReady(bundle: ContextBundleLog): void {
       : "none";
 
   console.log(
-    `${PREFIX} context │ ${sid} │ build ${formatMs(bundle.buildMs)} │ ~${bundle.tokens} tok │ ${bundle.recentTurns} recent (seq ${seqRange(bundle.seqFirst, bundle.seqLast)}) │ search ${search} │ summary ${summary} │ project ${bundle.project ? "yes" : "no"}`
+    `${PREFIX} context │ ${sid} │ build ${formatMs(bundle.buildMs)} │ ~${bundle.tokens} tok │ ${bundle.recentTurns} recent / ${bundle.historyTurns} history (seq ${seqRange(bundle.seqFirst, bundle.seqLast)}) │ search ${search} │ summary ${summary} │ project ${bundle.project ? "yes" : "no"}`
   );
   console.log(`${PREFIX}   Q: ${truncate(bundle.question, 120)}`);
 
@@ -167,6 +168,7 @@ export function logContextVerboseBlock(title: string, body: string): void {
 export function logRawPrompt(input: {
   system: string;
   user: string;
+  history?: Array<{ role: "user" | "assistant"; text: string }>;
   model?: string;
   approxTokens?: number;
 }): void {
@@ -174,9 +176,11 @@ export function logRawPrompt(input: {
   if (process.env.ARIA_PROMPT_DEBUG === "0") return;
 
   const bar = "━".repeat(64);
+  const history = input.history ?? [];
   const meta = [
     input.model ? `model ${input.model}` : null,
     input.approxTokens != null ? `~${input.approxTokens} tok` : null,
+    history.length ? `${history.length} history turns` : null,
     `${input.system.length + input.user.length}c`,
   ]
     .filter(Boolean)
@@ -187,6 +191,12 @@ export function logRawPrompt(input: {
   console.log(`${PREFIX} ${bar}`);
   console.log(`${PREFIX} ───── SYSTEM ─────`);
   console.log(input.system);
+  for (const turn of history) {
+    console.log(
+      `${PREFIX} ───── ${turn.role === "user" ? "HISTORY USER" : "HISTORY KIVO"} ─────`
+    );
+    console.log(turn.text);
+  }
   console.log(`${PREFIX} ───── USER ─────`);
   console.log(input.user);
   console.log(`${PREFIX} ${bar}\n`);

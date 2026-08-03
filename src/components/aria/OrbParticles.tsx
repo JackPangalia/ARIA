@@ -129,16 +129,6 @@ export function OrbParticles({
     const points = new THREE.Points(geo, mat);
     scene.add(points);
 
-    const coreGeo = new THREE.SphereGeometry(1.55, 32, 32);
-    const coreMat = new THREE.MeshBasicMaterial({
-      transparent: true,
-      opacity: isLight ? 0.12 : 0.35,
-      blending: isLight ? THREE.NormalBlending : THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const core = new THREE.Mesh(coreGeo, coreMat);
-    scene.add(core);
-
     const current = new THREE.Color(colorRef.current);
     const target = new THREE.Color(colorRef.current);
     const white = new THREE.Color(1, 1, 1);
@@ -150,6 +140,14 @@ export function OrbParticles({
     const pos = geo.attributes.position.array as Float32Array;
     let raf = 0;
     let smoothEnergy = 0;
+    // A slow follower of the energy envelope. The gap between the snappy
+    // `smoothEnergy` and this lagging average is the transient — it spikes on
+    // audio onsets (a new word, a loud syllable) and decays back to zero. This
+    // is what makes the orb read as *reactive to sound* rather than merely
+    // breathing: the punch lands on the attack, not the sustain.
+    let slowEnergy = 0;
+
+    const BASE_SIZE = mat.size;
 
     function animate(timestamp = 0) {
       raf = requestAnimationFrame(animate);
@@ -160,17 +158,39 @@ export function OrbParticles({
       target.set(colorRef.current);
       current.lerp(target, 0.05);
       // Snappy attack, gentler release so the orb leaps on input but settles softly.
-      const reactive = energyRef.current > smoothEnergy ? 0.35 : 0.12;
+      const reactive = energyRef.current > smoothEnergy ? 0.45 : 0.1;
       smoothEnergy += (energyRef.current - smoothEnergy) * reactive;
+      slowEnergy += (smoothEnergy - slowEnergy) * 0.05;
       const E = smoothEnergy;
+      // Transient: how far the live level has jumped above its recent average.
+      const flash = Math.max(0, E - slowEnergy);
 
-      const breathe =
-        1 + Math.sin(t * 1.4) * (0.03 + E * 0.09) * motion + E * 0.12;
+      // Baseline breathing gets a firmer swell with level, and the transient
+      // adds a sharp bloom on top so onsets visibly "pop." Every growth term
+      // is capped so the worst-case particle radius (~2.08 × 1.18 × 1.15 ×
+      // 1.15 ≈ 3.25 world units) stays inside the camera's ~3.49-unit visible
+      // half-height — uncapped, loud transients pushed past 4.5 and the sphere
+      // got hard-sliced at the canvas edge. The canvas's radial mask fades the
+      // last stretch as a guarantee.
+      const breathe = Math.min(
+        1 +
+          Math.sin(t * 1.4) * (0.02 + E * 0.06) * motion +
+          E * 0.16 +
+          flash * 0.24,
+        1.18,
+      );
       points.scale.setScalar(breathe);
-      core.scale.setScalar(breathe);
 
-      const expand = 1 + E * 0.16;
-      const wob = (0.012 + E * 0.1) * motion;
+      // Particles swell and brighten on transients — a glow-punch that tracks
+      // the audio, not just the sphere's size.
+      mat.size = BASE_SIZE * (1 + E * 0.25 + flash * 0.35);
+
+      const expand = Math.min(1 + E * 0.2 + flash * 0.15, 1.15);
+      const wob = (0.01 + E * 0.14 + flash * 0.1) * motion;
+      // High-frequency surface agitation, scaled by level: the sphere's skin
+      // roughens into a shimmering, waveform-like texture when it's loud and
+      // goes glassy-smooth in silence.
+      const ripple = (E * 0.06 + flash * 0.12) * motion;
 
       for (let i = 0; i < N; i++) {
         const ix = i * 3;
@@ -189,8 +209,10 @@ export function OrbParticles({
         colArr[iy] = tmp.g;
         colArr[iz] = tmp.b;
 
-        const wobble = Math.sin(t * 1.8 + seeds[i]!) * wob;
-        const k = expand * (1 + wobble);
+        const wobble =
+          Math.sin(t * 1.8 + seeds[i]!) * wob +
+          Math.sin(t * 7.0 + seeds[i]! * 3.1) * ripple;
+        const k = expand * Math.min(1 + wobble, 1.15);
         const ox = original[ix]! * k;
         const oy = original[iy]! * k;
         const oz = original[iz]! * k;
@@ -207,11 +229,8 @@ export function OrbParticles({
       geo.attributes.color.needsUpdate = true;
       geo.attributes.position.needsUpdate = true;
 
-      coreMat.color.copy(current).multiplyScalar(isLight ? 0.5 : 0.35);
-
-      points.rotation.y += dt * (0.08 + E * 0.95) * motion;
+      points.rotation.y += dt * (0.06 + E * 1.05 + flash * 1.4) * motion;
       points.rotation.x = Math.sin(t * 0.2) * 0.12;
-      core.rotation.copy(points.rotation);
 
       renderer.render(scene, camera);
     }
@@ -238,8 +257,6 @@ export function OrbParticles({
       ro.disconnect();
       geo.dispose();
       mat.dispose();
-      coreGeo.dispose();
-      coreMat.dispose();
       sprite.dispose();
       renderer.dispose();
     };
@@ -249,6 +266,14 @@ export function OrbParticles({
     <canvas
       ref={canvasRef}
       className={className}
+      style={{
+        // Fade to transparent well before the canvas edge so the particle
+        // field can never be seen hard-clipped by the canvas rectangle, no
+        // matter how far a loud transient throws it.
+        WebkitMaskImage:
+          "radial-gradient(circle, black 55%, transparent 92%)",
+        maskImage: "radial-gradient(circle, black 55%, transparent 92%)",
+      }}
       aria-hidden="true"
     />
   );

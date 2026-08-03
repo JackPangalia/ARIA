@@ -1,4 +1,4 @@
-import type { Tool } from "@openai/agents";
+import type { ToolSet } from "ai";
 import type { SupportedToolkit } from "@/lib/composio/connections";
 import { CONNECTORS_ENABLED } from "@/lib/features";
 import { logComposioCache } from "@/lib/server/ask-pipeline-log";
@@ -17,7 +17,7 @@ export type ComposioToolsLoadOptions = {
 };
 
 export type ComposioToolsLoadResult = {
-  tools: Tool[];
+  tools: ToolSet;
   cache: ComposioCacheStatus;
   fetchMs: number;
   toolCount: number;
@@ -33,7 +33,7 @@ function resolveTtlMs(): number {
 }
 
 interface CacheEntry {
-  tools: Tool[];
+  tools: ToolSet;
   expiresAt: number;
   toolkitFingerprint: string;
 }
@@ -41,7 +41,7 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<
   string,
-  Promise<{ tools: Tool[]; toolkitFingerprint: string; cache: ComposioCacheStatus }>
+  Promise<{ tools: ToolSet; toolkitFingerprint: string; cache: ComposioCacheStatus }>
 >();
 
 export function invalidateComposioToolsCache(uid: string): void {
@@ -58,7 +58,7 @@ export function resetComposioToolsCacheForTests(): void {
 async function loadFullCatalog(
   uid: string
 ): Promise<{
-  tools: Tool[];
+  tools: ToolSet;
   toolkitFingerprint: string;
   cache: ComposioCacheStatus;
 }> {
@@ -66,7 +66,7 @@ async function loadFullCatalog(
   const result = await fetchComposioAgentTools(uid);
   const fetchMs = performance.now() - fetchStart;
   const cacheStatus: ComposioCacheStatus =
-    result.tools.length === 0 ? "empty" : "miss";
+    toolCount(result.tools) === 0 ? "empty" : "miss";
 
   const entry: CacheEntry = {
     tools: result.tools,
@@ -78,7 +78,7 @@ async function loadFullCatalog(
   logComposioCache(uid, {
     cache: cacheStatus,
     fetchMs,
-    toolCount: result.tools.length,
+    toolCount: toolCount(result.tools),
     toolkitFingerprint: result.toolkitFingerprint,
   });
 
@@ -89,11 +89,15 @@ async function loadFullCatalog(
   };
 }
 
+function toolCount(tools: ToolSet): number {
+  return Object.keys(tools).length;
+}
+
 function applyToolkitFilter(
-  tools: Tool[],
+  tools: ToolSet,
   toolkits: SupportedToolkit[]
-): Tool[] {
-  if (toolkits.length === 0) return [];
+): ToolSet {
+  if (toolkits.length === 0) return {};
   return filterToolsByToolkits(tools, toolkits);
 }
 
@@ -105,7 +109,7 @@ export async function loadComposioAgentTools(
 
   if (!CONNECTORS_ENABLED) {
     return {
-      tools: [],
+      tools: {},
       cache: "skip",
       fetchMs: 0,
       toolCount: 0,
@@ -116,7 +120,7 @@ export async function loadComposioAgentTools(
 
   if (!uid) {
     return {
-      tools: [],
+      tools: {},
       cache: "skip",
       fetchMs: 0,
       toolCount: 0,
@@ -127,7 +131,7 @@ export async function loadComposioAgentTools(
 
   if (options.toolkits.length === 0) {
     return {
-      tools: [],
+      tools: {},
       cache: "skip",
       fetchMs: 0,
       toolCount: 0,
@@ -146,14 +150,14 @@ export async function loadComposioAgentTools(
     logComposioCache(uid, {
       cache: "hit",
       fetchMs,
-      toolCount: filtered.length,
+      toolCount: toolCount(filtered),
       toolkitFingerprint: options.toolkits.join(","),
     });
     return {
       tools: filtered,
       cache: "hit",
       fetchMs,
-      toolCount: filtered.length,
+      toolCount: toolCount(filtered),
       toolkitFingerprint: options.toolkits.join(","),
       intentToolkits: intentLabel,
     };
@@ -179,7 +183,7 @@ export async function loadComposioAgentTools(
     tools: filtered,
     cache: cacheStatus,
     fetchMs,
-    toolCount: filtered.length,
+    toolCount: toolCount(filtered),
     toolkitFingerprint: options.toolkits.join(","),
     intentToolkits: intentLabel,
   };
@@ -188,7 +192,7 @@ export async function loadComposioAgentTools(
 export async function getCachedComposioAgentTools(
   uid: string | undefined,
   options: ComposioToolsLoadOptions
-): Promise<Tool[]> {
+): Promise<ToolSet> {
   return (await loadComposioAgentTools(uid, options)).tools;
 }
 

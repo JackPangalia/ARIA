@@ -54,7 +54,7 @@ describe("shouldCompactSession", () => {
   });
 
   it("returns true when eligible turn count exceeds recent window", () => {
-    const rows = Array.from({ length: 21 }, (_, i) =>
+    const rows = Array.from({ length: 41 }, (_, i) =>
       turn({
         id: `t${i}`,
         role: "speaker",
@@ -74,20 +74,22 @@ describe("shouldCompactSession", () => {
           role: "assistant",
           text: "x",
           sequence: 1,
-          tokenEstimate: 5000,
+          tokenEstimate: 9000,
         }),
         turn({
           id: "2",
           role: "speaker",
           text: "y",
           sequence: 2,
-          tokenEstimate: 3000,
+          tokenEstimate: 8000,
         }),
       ])
     ).toBe(true);
   });
 
-  it("ignores user_question turns for compaction eligibility", () => {
+  it("counts user_question turns toward compaction eligibility", () => {
+    // Questions are part of the conversation the model must remember, so
+    // they count as eligible turns like speaker and assistant lines.
     const rows = [
       ...Array.from({ length: 20 }, (_, i) =>
         turn({
@@ -98,7 +100,7 @@ describe("shouldCompactSession", () => {
           tokenEstimate: 50,
         })
       ),
-      ...Array.from({ length: 10 }, (_, i) =>
+      ...Array.from({ length: 21 }, (_, i) =>
         turn({
           id: `q${i}`,
           role: "user_question",
@@ -108,12 +110,12 @@ describe("shouldCompactSession", () => {
         })
       ),
     ];
-    expect(shouldCompactSession(rows)).toBe(false);
+    expect(shouldCompactSession(rows)).toBe(true);
   });
 });
 
 describe("filterContextEligibleTurns", () => {
-  it("keeps speaker and assistant only", () => {
+  it("keeps speaker, user_question, and assistant turns", () => {
     const rows = [
       turn({ id: "1", role: "speaker", text: "a", sequence: 1 }),
       turn({ id: "2", role: "user_question", text: "b", sequence: 2 }),
@@ -121,6 +123,7 @@ describe("filterContextEligibleTurns", () => {
     ];
     expect(filterContextEligibleTurns(rows).map((t) => t.role)).toEqual([
       "speaker",
+      "user_question",
       "assistant",
     ]);
   });
@@ -277,6 +280,7 @@ describe("exportSessionMarkdown", () => {
         lastCoveredTurnId: "t1",
         updatedAt: "2026-05-24T00:20:00.000Z",
       },
+      meetingSummary: null,
       facts: [
         {
           id: "f1",

@@ -1,9 +1,9 @@
-export type GeminiQuotaError = {
+export type ModelRateLimitError = {
   message: string;
   retryAfterSeconds?: number;
 };
 
-const QUOTA_PATTERN = /quota|RESOURCE_EXHAUSTED|rate.?limit/i;
+const QUOTA_PATTERN = /quota|RESOURCE_EXHAUSTED|rate.?limit|overloaded/i;
 const RETRY_PATTERN = /retry in ([\d.]+)s/i;
 
 function readRetrySeconds(message: string): number | undefined {
@@ -12,20 +12,18 @@ function readRetrySeconds(message: string): number | undefined {
   return Math.ceil(parseFloat(match[1]));
 }
 
-function quotaMessage(retryAfterSeconds?: number): string {
+function rateLimitMessage(retryAfterSeconds?: number): string {
   const wait =
     retryAfterSeconds != null && retryAfterSeconds > 0
       ? ` Try again in about ${retryAfterSeconds} seconds.`
       : " Try again in a minute.";
-  return (
-    "Gemini API quota reached for this model." +
-    wait +
-    " You can switch to Pro in Settings, enable billing at ai.google.dev, or wait for the daily free-tier limit to reset."
-  );
+  return `Kivo is hitting the model provider's rate limit right now.${wait}`;
 }
 
-/** Detect Gemini / AI SDK quota (429) errors from thrown values or nested causes. */
-export function parseGeminiQuotaError(err: unknown): GeminiQuotaError | null {
+/** Detect model-provider rate limit (429) errors from thrown values or nested causes. */
+export function parseModelRateLimitError(
+  err: unknown
+): ModelRateLimitError | null {
   const seen = new Set<unknown>();
   let cur: unknown = err;
 
@@ -54,7 +52,7 @@ export function parseGeminiQuotaError(err: unknown): GeminiQuotaError | null {
     if (statusCode === 429 || QUOTA_PATTERN.test(message)) {
       const retryAfterSeconds = readRetrySeconds(message);
       return {
-        message: quotaMessage(retryAfterSeconds),
+        message: rateLimitMessage(retryAfterSeconds),
         retryAfterSeconds,
       };
     }

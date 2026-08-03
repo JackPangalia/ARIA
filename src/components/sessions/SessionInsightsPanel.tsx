@@ -244,14 +244,19 @@ function SpeakerLabelMenu(props: {
 export function TranscriptLines(props: {
   lines: TranscriptLine[];
   gutter?: boolean;
+  large?: boolean;
   speakerCorrection?: SpeakerCorrectionProps;
 }) {
   const [openMenuLineId, setOpenMenuLineId] = useState<string | null>(null);
+  const bodyTextClass = props.large
+    ? "text-[15px] leading-[1.7]"
+    : "text-sm leading-[1.65]";
+  const labelTextClass = props.large ? "text-[13px]" : "text-xs";
 
   if (props.lines.length === 0) {
     return (
       <p
-        className={`py-6 text-sm font-normal leading-relaxed text-app-muted ${
+        className={`py-6 font-normal leading-relaxed text-app-muted ${bodyTextClass} ${
           props.gutter ? "px-1 lg:ml-[calc(5.25rem+0.75rem)] lg:w-[17rem] lg:px-0" : "px-1"
         }`}
       >
@@ -283,7 +288,7 @@ export function TranscriptLines(props: {
           }
         >
           <span
-            className={`flex max-w-full items-center gap-1.5 text-xs font-medium leading-[1.5] ${
+            className={`flex max-w-full items-center gap-1.5 font-medium leading-[1.5] ${labelTextClass} ${
               line.role === "assistant" ? "text-app-secondary" : "text-app-muted"
             } ${
               props.gutter
@@ -311,7 +316,7 @@ export function TranscriptLines(props: {
             )}
           </span>
           <p
-            className={`w-full min-w-0 text-sm font-normal leading-[1.65] break-words ${
+            className={`w-full min-w-0 font-normal break-words ${bodyTextClass} ${
               line.role === "assistant"
                 ? "text-app"
                 : line.isPartial

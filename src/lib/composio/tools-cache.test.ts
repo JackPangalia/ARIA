@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Tool } from "@openai/agents";
+import type { Tool, ToolSet } from "ai";
 import * as fetchTools from "./fetch-tools";
 import {
   getCachedComposioAgentTools,
@@ -10,8 +10,10 @@ import {
 
 vi.mock("@/lib/features", () => ({ CONNECTORS_ENABLED: true }));
 
-const mockTool = { name: "NOTION_CREATE_PAGE" } as unknown as Tool;
-const mockGmailTool = { name: "GMAIL_SEND_EMAIL" } as unknown as Tool;
+const mockTool = { description: "Create a Notion page" } as unknown as Tool;
+const mockGmailTool = { description: "Send an email" } as unknown as Tool;
+const notionTools: ToolSet = { NOTION_CREATE_PAGE: mockTool };
+const gmailTools: ToolSet = { GMAIL_SEND_EMAIL: mockGmailTool };
 
 const emptyOptions = { toolkits: [] as import("./connections").SupportedToolkit[] };
 
@@ -29,7 +31,7 @@ describe("loadComposioAgentTools", () => {
   it("returns empty array when uid is missing", async () => {
     const fetchSpy = vi.spyOn(fetchTools, "fetchComposioAgentTools");
     await expect(loadComposioAgentTools(undefined, emptyOptions)).resolves.toMatchObject({
-      tools: [],
+      tools: {},
       cache: "skip",
     });
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -38,14 +40,13 @@ describe("loadComposioAgentTools", () => {
   it("returns empty without fetch when no connector intent", async () => {
     const fetchSpy = vi.spyOn(fetchTools, "fetchComposioAgentTools");
     const result = await loadComposioAgentTools("user-1", { toolkits: [] });
-    expect(result.tools).toEqual([]);
+    expect(result.tools).toEqual({});
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("returns cached tools on second call within TTL", async () => {
-    const tools = [mockTool];
     const fetchSpy = vi.spyOn(fetchTools, "fetchComposioAgentTools").mockResolvedValue({
-      tools,
+      tools: notionTools,
       toolkitFingerprint: "notion",
     });
 
@@ -58,7 +59,7 @@ describe("loadComposioAgentTools", () => {
 
   it("filters cached catalog by toolkit intent", async () => {
     vi.spyOn(fetchTools, "fetchComposioAgentTools").mockResolvedValue({
-      tools: [mockTool, mockGmailTool],
+      tools: { ...notionTools, ...gmailTools },
       toolkitFingerprint: "gmail,notion",
     });
 
@@ -66,18 +67,18 @@ describe("loadComposioAgentTools", () => {
       toolkits: ["notion"],
     });
     expect(notionOnly.toolCount).toBe(1);
-    expect((notionOnly.tools[0] as { name?: string }).name).toContain("NOTION");
+    expect(Object.keys(notionOnly.tools)).toEqual(["NOTION_CREATE_PAGE"]);
   });
 
   it("refetches after invalidate", async () => {
     const fetchSpy = vi
       .spyOn(fetchTools, "fetchComposioAgentTools")
       .mockResolvedValueOnce({
-        tools: [mockTool],
+        tools: notionTools,
         toolkitFingerprint: "notion",
       })
       .mockResolvedValueOnce({
-        tools: [],
+        tools: {},
         toolkitFingerprint: "",
       });
 
@@ -105,7 +106,7 @@ describe("loadComposioAgentTools", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
-    resolveFetch({ tools: [mockTool], toolkitFingerprint: "slack" });
+    resolveFetch({ tools: notionTools, toolkitFingerprint: "slack" });
 
     const [a, b] = await Promise.all([pendingA, pendingB]);
     expect(a.tools).toEqual(b.tools);

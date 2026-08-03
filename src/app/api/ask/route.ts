@@ -4,8 +4,13 @@ import {
   isAbortError,
   runAnswerPipeline,
 } from "@/lib/aria/answer-pipeline";
+import {
+  CARTESIA_PCM_ENCODING,
+  CARTESIA_PCM_SAMPLE_RATE,
+  normalizeCartesiaSampleRate,
+} from "@/lib/audio/cartesia-ws";
 import { startAskPipeline } from "@/lib/server/ask-pipeline-log";
-import { parseGeminiQuotaError } from "@/lib/aria/llm/gemini-errors";
+import { parseModelRateLimitError } from "@/lib/aria/llm/rate-limit-errors";
 import { getServerEnv, type ServerEnv } from "@/lib/env";
 import { AskBodySchema } from "@/lib/sessions/types";
 import { authErrorResponse, verifyRequestAuth } from "@/lib/firebase/verify-auth";
@@ -58,6 +63,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // A speculative ask is fired before the endpoint is confirmed to pre-warm the
+  // LLM/TTS; it plays only if the client later adopts it, and is otherwise
+  // discarded. It must not persist a phantom question turn or burn rate-limit
+  // budget on a pre-warm that never becomes an answer.
+  const speculative = req.headers.get("x-kivo-speculative") === "1";
+
   // The three pre-ask reads (rate limit, session ownership, entitlements) hit
   // independent documents — run them concurrently; every ms here is dead air
   // between the user going silent and Kivo starting to speak. Outcomes are
@@ -65,7 +76,13 @@ export async function POST(req: NextRequest) {
   const [rate, sessionResult, entitlements] = await Promise.all([
     // Asks drive the LLM + TTS spend — the ask-token quota is a soft, fail-open
     // backstop, so this hard per-minute cap is what bounds a runaway client.
-    checkRateLimit(uid, { name: "ask", limit: 20, windowSeconds: 60 }),
+    // Speculative asks check the ceiling but don't consume it (see below).
+    checkRateLimit(uid, {
+      name: "ask",
+      limit: 20,
+      windowSeconds: 60,
+      consume: !speculative,
+    }),
     assertSessionOwner(uid, body.sessionId).then(
       (session) => ({ session, error: false as const }),
       () => ({ session: null, error: true as const })
@@ -95,6 +112,7 @@ export async function POST(req: NextRequest) {
 
   // Asks are a soft backstop: only blocked once fully over the generous budget.
   let askModel: AskModelId | undefined;
+  let voice: { voiceId: string | null } | undefined;
   if (entitlements) {
     const { tier, limits, usage, plan } = entitlements;
     if (askTokensExhausted(limits, usage)) {
@@ -107,22 +125,53 @@ export async function POST(req: NextRequest) {
       );
     }
     askModel = plan.answerModel ?? undefined;
+    voice = { voiceId: plan.voiceId ?? null };
   }
 
-  const pipeline = startAskPipeline(body.sessionId, body.question);
+  const pipeline = startAskPipeline(
+    body.sessionId,
+    body.question,
+    body.turnId ?? null
+  );
   pipeline.stage("session.ok", {
     status: session.status,
     setupMs: Math.round(performance.now() - requestStart),
   });
 
   // Native clients (iOS) ask for length-prefixed MP3 segments so they can play
-  // each sentence with AVAudioPlayer as it arrives. The browser sends no such
-  // header and keeps the raw `audio/mpeg` MediaSource stream unchanged.
+  // each sentence with AVAudioPlayer as it arrives. Browsers that can schedule
+  // raw PCM through Web Audio advertise it with `x-kivo-audio: pcm` and get the
+  // single-context WebSocket synthesis (seamless prosody); everyone else keeps
+  // the `audio/mpeg` MediaSource stream unchanged.
   const framed = req.headers.get("x-kivo-stream") === "framed";
+  const pcmAudio = req.headers.get("x-kivo-audio") === "pcm";
+  // PCM clients may additionally ask for the answer text muxed into the
+  // stream (echo discrimination + live captions in the browser engine).
+  const muxText = req.headers.get("x-kivo-mux") === "text";
+  const requestedSampleRate = Number(req.headers.get("x-kivo-sample-rate"));
+  const pcmSampleRate = normalizeCartesiaSampleRate(requestedSampleRate);
 
   let audioStream: ReadableStream<Uint8Array>;
+  let audioFormat: "mp3" | "pcm";
+  let muxed: boolean;
+  let responseSampleRate: number | null;
+  let pcmEncoding: typeof CARTESIA_PCM_ENCODING | null;
+  let ttsTransport: "cartesia-ws" | "cartesia-http";
+  let ttsFallbackReason: string | null;
+  let requestedModel: string;
+  let effectiveModel: string;
   try {
-    ({ audioStream } = await runAnswerPipeline({
+    ({
+      audioStream,
+      audioFormat,
+      muxed,
+      pcmSampleRate: responseSampleRate,
+      pcmEncoding,
+      ttsTransport,
+      ttsFallbackReason,
+      requestedModel,
+      effectiveModel,
+    } = await runAnswerPipeline({
       uid,
       session,
       question: body.question,
@@ -133,8 +182,14 @@ export async function POST(req: NextRequest) {
       signal: req.signal,
       pipeline,
       authSessionMs: performance.now() - requestStart,
+      speculative,
       framed,
+      pcmAudio,
+      muxText,
+      pcmSampleRate,
+      turnId: body.turnId ?? null,
       askModel,
+      voice,
     }));
   } catch (err) {
     if (isAbortError(err, req.signal)) {
@@ -145,9 +200,28 @@ export async function POST(req: NextRequest) {
 
   return new Response(audioStream, {
     headers: {
-      "Content-Type": framed
-        ? "application/x-kivo-audio-frames"
-        : "audio/mpeg",
+      "Content-Type":
+        audioFormat === "pcm"
+          ? muxed
+            ? "application/x-kivo-pcm-mux"
+            : "application/x-kivo-pcm"
+          : framed
+            ? "application/x-kivo-audio-frames"
+            : "audio/mpeg",
+      ...(audioFormat === "pcm"
+        ? {
+            "X-Kivo-Sample-Rate": String(
+              responseSampleRate ?? CARTESIA_PCM_SAMPLE_RATE
+            ),
+            "X-Kivo-Encoding": pcmEncoding ?? CARTESIA_PCM_ENCODING,
+          }
+        : {}),
+      "X-Kivo-Model": effectiveModel,
+      "X-Kivo-Requested-Model": requestedModel,
+      "X-Kivo-TTS-Transport": ttsTransport,
+      ...(ttsFallbackReason
+        ? { "X-Kivo-TTS-Fallback": encodeURIComponent(ttsFallbackReason) }
+        : {}),
       "Cache-Control": "no-store",
       "X-Accel-Buffering": "no",
     },
@@ -163,12 +237,12 @@ function jsonError(err: unknown, status: number) {
 }
 
 function askErrorResponse(err: unknown): Response {
-  const quota = parseGeminiQuotaError(err);
+  const quota = parseModelRateLimitError(err);
   if (quota) {
     return new Response(
       JSON.stringify({
         error: quota.message,
-        code: "gemini_quota_exceeded",
+        code: "model_rate_limited",
         retryAfterSeconds: quota.retryAfterSeconds ?? null,
       }),
       {

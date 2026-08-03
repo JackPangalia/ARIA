@@ -27,6 +27,10 @@ export interface UserPlanDoc {
   defaultTranscriptionMode?: TranscriptionMode | null;
   /** Preferred LLM for Kivo's live spoken answers. `null`/unset falls back to the default. */
   answerModel?: AskModelId | null;
+  /** Preferred Kivo voice (curated Cartesia preset). `null`/unset = env default. */
+  voiceId?: string | null;
+  /** ISO timestamp when the user finished first-run onboarding. */
+  onboardingCompletedAt?: string | null;
 }
 
 /**

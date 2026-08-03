@@ -1,46 +1,58 @@
-# ARIA — AI Interactive Real-Time Assistant
+# Kivo
 
-Real-time AI voice participant for live, multi-person conversations.
-This repo is the MVP described in `docs/mvp` (concept docs in chat history):
+Real-time AI voice participant for live, in-person conversations.
 
-> Listen to a multi-person dialogue, produce a running speaker-attributed
-> transcript, and — when prompted with a question — return a spoken response
-> grounded in the conversation.
+> Listen to a multi-person conversation in the room, keep a running
+> speaker-attributed transcript, and — when someone says "Hey Kivo" — answer
+> out loud, grounded in what was actually said.
 
-## Architecture (MVP)
+Kivo V1 is **in-person only**: one microphone in a room, one assistant that
+talks back. There is no meeting bot, no system-audio capture, and no Zoom/Meet
+integration. See [Scope](#scope) below.
+
+## Architecture
 
 All heavy lifting is outsourced to APIs. The audio hot path runs
-**browser ↔ provider** so Vercel's serverless model is sufficient.
+**browser ↔ provider**, so Vercel's serverless model is sufficient.
 
 ```
 Browser mic
    │
    ▼
-Browser Web Audio (16 kHz mono int16)
+Web Audio (16 kHz mono int16)
    │
    ▼
 Speechmatics Realtime WS (diarization + speaker identification)
-                                      │
-                                      ▼
-                         Speaker-attributed transcript
-                                      │
-                          (detect "Hey Kivo" in interim/final text)
-                                      │
-                                      ▼
-            Next.js /api/ask  ──►  Gemini 2.5 (Agents SDK)
-                                  ──►  Cartesia Sonic TTS (mp3)
-                                      │
-                                      ▼
-                              Browser plays audio
+   │
+   ▼
+Speaker-attributed transcript
+   │
+   │  (wake phrase detected in interim/final text)
+   ▼
+/api/ask ──► Claude (server-side web search) ──► Cartesia Sonic TTS (streaming PCM)
+   │
+   ▼
+Browser plays the answer out loud
 ```
+
+After a session stops, the same transcript feeds two post-hoc surfaces:
+
+- **Overview summary** — a human-readable recap (overview, key points,
+  decisions, action items) generated once on stop.
+- **Chat** — text Q&A over the finished conversation via `/api/chat`. Same
+  context builder as the live voice path, different output modality.
 
 ## Stack
 
 - **Next.js 16** (App Router, TypeScript, Tailwind 4)
-- **Speechmatics Realtime** — streaming transcription, diarization, and enrolled speaker identification for single-mic meetings
-- **Google Gemini 2.5** — Kivo agent (flash / pro), Google Search grounding, streaming
-- **Cartesia Sonic** — low-latency text-to-speech
-- **Zustand** — client state, **Zod** — env validation
+- **Speechmatics Realtime** — streaming transcription, diarization, and
+  enrolled speaker identification for single-mic meetings
+- **Anthropic Claude** — every model call: live answers (Haiku 4.5 / Sonnet 5),
+  server-side web search, and background summaries. Called directly through the
+  AI SDK (`ai` + `@ai-sdk/anthropic`), no agent framework in between
+- **Cartesia Sonic** — low-latency streaming text-to-speech
+- **Firebase** — auth and Firestore persistence
+- **Zustand** — client state, **Zod** — schema and env validation
 
 ## Setup
 
@@ -53,8 +65,9 @@ npm run dev
 
 ### Required keys
 
-- OpenAI API key — https://platform.openai.com/api-keys
+- Anthropic API key — https://console.anthropic.com/settings/keys
 - Speechmatics API key — https://portal.speechmatics.com/
+- Cartesia API key — https://play.cartesia.ai/keys
 - Firebase web app config — [Firebase Console](https://console.firebase.google.com/) → **aria-moserun-0512** → Project settings → Your apps → Web app → copy into `NEXT_PUBLIC_FIREBASE_*` in `.env.local`
 
   Or after `npx -y firebase-tools@latest login`:
@@ -65,31 +78,60 @@ npm run dev
 
   Map the SDK fields to the `NEXT_PUBLIC_FIREBASE_*` names in `.env.example`.
 
-### Wake phrase
+## Commands
 
-ARIA no longer uses a separate wake-word SDK. The browser streams mic audio to
-Speechmatics, and the app watches interim/final transcript text for wake phrases
-like "Hey Kivo", "Hey Keevo", or "Hey Keyvo". If the phrase includes a question,
-Kivo answers that immediately; if you only say "Hey Kivo", it waits for the next
-utterance as the question.
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Next.js dev server |
+| `npm test` | Vitest suite |
+| `npm run lint` | ESLint |
+| `npm run build` | Production build |
+| `npm run voice:benchmark` | Voice latency benchmark |
 
-### Speaker memory
+## Wake phrase
 
-Speechmatics speaker identifiers can be enrolled from Settings or during a live
-session with phrases like "Hey Kivo, I'm Bob". ARIA stores the identifier strings
-in Firestore under the signed-in user and passes them to future realtime sessions
-so known speakers appear by name in transcripts and context.
+There is no separate wake-word SDK. The browser streams mic audio to
+Speechmatics and the app watches interim/final transcript text for wake phrases
+like "Hey Kivo", "Hey Keevo", or "Hey Keyvo". If the phrase already contains a
+question, Kivo answers immediately; if you only say "Hey Kivo", it treats the
+next utterance as the question. Follow-ups within a short window need no wake
+phrase.
 
-### Terminal transcript (local dev)
+## Speaker memory
 
-With `npm run dev`, final transcript lines and ARIA events are printed in that
-terminal (via `/api/dev-log`, development only).
+Speechmatics speaker identifiers can be enrolled from Settings or mid-session
+with phrases like "Hey Kivo, I'm Bob". Identifier strings are stored in
+Firestore under the signed-in user and passed to future realtime sessions, so
+known speakers appear by name in transcripts and context.
 
-## What's NOT in the MVP
+## Terminal transcript (local dev)
 
-- Auto-interjection (Kivo decides when to speak on its own)
+With `npm run dev`, final transcript lines and Kivo events print to that
+terminal via `/api/dev-log` (development only).
+
+## Desktop app
+
+[`desktop/`](desktop/README.md) is an optional Electron menu-bar shell around
+the same web app — tray icon, `Cmd+Shift+K` to open, and browser-to-app auth
+hand-off. It is a convenience wrapper, not a separate product surface, and it
+uses the same browser microphone path as the web app.
+
+## Scope
+
+Not in V1, and gated off in [`src/lib/features.ts`](src/lib/features.ts):
+
+- **Meeting bot** (`MEETING_BOT_ENABLED`) — a bot that joins Zoom/Meet and
+  speaks into the call. Built and verified, parked for V2.
+- **App connectors** (`CONNECTORS_ENABLED`) — Composio OAuth into Notion,
+  Gmail, Calendar, Slack. Built, parked for post-beta.
+
+Removed outright:
+
+- **Virtual meeting notes** — desktop system-audio capture of Zoom/Meet calls
+  (a Granola-style notes product). Cut before launch to focus on the in-person
+  experience. See [`AGENTS.md`](AGENTS.md).
+
+Never built:
+
+- Auto-interjection (Kivo deciding on its own when to speak)
 - Use-case profiles / pre-briefing
-- Persistent storage / accounts
-- Meeting bot (server-side audio capture from Zoom/Meet/Teams)
-
-These are v2+ work and require a dedicated Node worker alongside Next.js.

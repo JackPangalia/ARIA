@@ -11,6 +11,7 @@ import {
 import { auth, db } from "@/lib/firebase/client";
 import type {
   CreateSessionSchema,
+  MeetingSummaryDoc,
   PatchSessionSchema,
   SessionDetailResponse,
   SessionDoc,
@@ -19,7 +20,7 @@ import type {
 } from "@/lib/sessions/types";
 import type { z } from "zod";
 
-async function getAuthHeader(): Promise<HeadersInit> {
+async function getAuthHeader(): Promise<Record<string, string>> {
   const user = auth.currentUser;
   if (!user) {
     throw new Error("You must be signed in.");
@@ -50,7 +51,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function createSession(
-  input: z.infer<typeof CreateSessionSchema>
+  input: z.input<typeof CreateSessionSchema>
 ): Promise<SessionDoc> {
   return apiFetch<SessionDoc>("/api/sessions", {
     method: "POST",
@@ -135,6 +136,19 @@ export async function summarizeSession(sessionId: string): Promise<{
     `/api/sessions/${sessionId}/summarize`,
     { method: "POST" }
   );
+}
+
+/**
+ * Generates the Overview tab's human-readable meeting summary from the full
+ * transcript. Awaited (unlike `finalizeSessionTitle`) so the caller can
+ * refresh session detail right after and show the finished summary.
+ */
+export async function generateMeetingSummary(
+  sessionId: string
+): Promise<{ summary: MeetingSummaryDoc | null }> {
+  return apiFetch(`/api/sessions/${sessionId}/meeting-summary`, {
+    method: "POST",
+  });
 }
 
 /**
@@ -254,6 +268,8 @@ function mapTurnDoc(id: string, data: DocumentData): TurnDoc {
     tokenEstimate: Number(data.tokenEstimate ?? 0),
     summarized: Boolean(data.summarized),
     createdAt: toIso(data.createdAt),
+    interrupted: Boolean(data.interrupted),
+    heardChars: data.heardChars == null ? null : Number(data.heardChars),
   };
 }
 
@@ -284,20 +300,56 @@ export function subscribeSessionTurns(
   );
 }
 
+/** Fire-and-forget: tell the server how much of the answer was heard before a stop. */
+export async function reportAnswerInterrupted(
+  sessionId: string,
+  playedSeconds: number,
+  totalSeconds: number | null
+): Promise<void> {
+  const headers = await getAuthHeader();
+  await fetch(`/api/sessions/${sessionId}/answer-interrupted`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ playedSeconds, totalSeconds }),
+  });
+}
+
 export async function askSessionQuestion(
   sessionId: string,
   question: string,
   speaker?: number | null,
   speakerName?: string | null,
   signal?: AbortSignal,
-  sourceUtteranceIds?: string[]
+  sourceUtteranceIds?: string[],
+  options?: {
+    acceptPcm?: boolean;
+    /** Ask for answer text muxed into the PCM stream (echo discrimination). */
+    acceptMuxText?: boolean;
+    pcmSampleRate?: number;
+    turnId?: string;
+    /**
+     * Eager pre-warm fired before the endpoint is confirmed. The server defers
+     * the question-turn persistence to the first audio byte and doesn't consume
+     * rate-limit budget, so a discarded speculation leaves no trace.
+     */
+    speculative?: boolean;
+  }
 ): Promise<Response> {
-  const headers = await getAuthHeader();
+  const headers: Record<string, string> = await getAuthHeader();
+  if (options?.acceptPcm) {
+    headers["X-Kivo-Audio"] = "pcm";
+    if (options.acceptMuxText) headers["X-Kivo-Mux"] = "text";
+    if (options.pcmSampleRate) {
+      headers["X-Kivo-Sample-Rate"] = String(options.pcmSampleRate);
+    }
+  }
+  if (options?.speculative) headers["X-Kivo-Speculative"] = "1";
   return fetch("/api/ask", {
     method: "POST",
     headers,
     body: JSON.stringify({
       sessionId,
+      turnId: options?.turnId,
       question,
       speaker,
       speakerName,

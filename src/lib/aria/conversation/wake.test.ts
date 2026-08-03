@@ -5,7 +5,10 @@ import {
   detectCloseWord,
   END_OF_UTTERANCE_GRACE_MS,
   extractQuestionAfterWake,
+  extractQuestionAfterWakeInPerson,
   extractQuestionAfterWakeMeeting,
+  INCOMPLETE_TAIL_GRACE_MS,
+  looksIncompleteQuestion,
   QUESTION_SETTLE_MS,
   SPEECH_FINAL_SETTLE_MS,
 } from "./wake";
@@ -143,7 +146,81 @@ describe("voice-mode timing constants", () => {
   it("uses fast turn-taking defaults", () => {
     expect(QUESTION_SETTLE_MS).toBe(1500);
     expect(SPEECH_FINAL_SETTLE_MS).toBe(1500);
-    expect(END_OF_UTTERANCE_GRACE_MS).toBe(250);
+    expect(END_OF_UTTERANCE_GRACE_MS).toBe(550);
+  });
+});
+
+describe("looksIncompleteQuestion", () => {
+  it("flags tails that read mid-thought", () => {
+    for (const draft of [
+      "what do you think about the",
+      "should we use React or",
+      "so the pricing is fine but",
+      "can you compare it to",
+      "I want to know if we should",
+      "what about, um",
+      "walk me through the plan,",
+      "the main thing is...",
+      "how does it work with",
+      "is it better than his",
+    ]) {
+      expect(looksIncompleteQuestion(draft), draft).toBe(true);
+    }
+  });
+
+  it("keeps finished questions on the fast path", () => {
+    for (const draft of [
+      "what do you think",
+      "should we ship this week?",
+      "how do we fix that",
+      "summarize the meeting so far",
+      "what's the weather in Vancouver",
+      "compare React and Vue for this",
+      "did you find any",
+      "who should own the launch",
+    ]) {
+      expect(looksIncompleteQuestion(draft), draft).toBe(false);
+    }
+  });
+
+  it("uses a meaningfully longer grace for unfinished tails", () => {
+    expect(INCOMPLETE_TAIL_GRACE_MS).toBeGreaterThan(
+      END_OF_UTTERANCE_GRACE_MS * 2
+    );
+  });
+});
+
+describe("extractQuestionAfterWakeInPerson", () => {
+  it("matches everything the strict patterns match", () => {
+    expect(extractQuestionAfterWakeInPerson("hey kivo, what's up")).toEqual({
+      detected: true,
+      question: "what's up",
+    });
+  });
+
+  it("rescues near-miss spellings at utterance start", () => {
+    expect(extractQuestionAfterWakeInPerson("kivos summarize this")).toEqual({
+      detected: true,
+      question: "summarize this",
+    });
+    expect(extractQuestionAfterWakeInPerson("hey kivor what's next")).toEqual({
+      detected: true,
+      question: "what's next",
+    });
+  });
+
+  it("ignores kivo-ish words mid-utterance and loose matches", () => {
+    // "kind" is edit distance 2 — too loose for the vocab-biased in-person path.
+    expect(extractQuestionAfterWakeInPerson("kind of what I meant")).toEqual({
+      detected: false,
+      question: "",
+    });
+    expect(
+      extractQuestionAfterWakeInPerson("I think kivo answered already")
+    ).toEqual({
+      detected: false,
+      question: "",
+    });
   });
 });
 

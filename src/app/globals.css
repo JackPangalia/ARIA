@@ -134,6 +134,13 @@ body {
   color: var(--app-fg-subtle);
 }
 
+/* Speaker enrollment inside onboarding — maps orb/progress tokens to app palette. */
+.onboarding-enroll-active {
+  --grok-border: var(--app-border);
+  --grok-fg: var(--app-fg);
+  --grok-danger-fg: var(--app-danger-fg);
+}
+
 .bg-surface {
   background-color: var(--app-surface);
 }
@@ -148,6 +155,38 @@ body {
 
 .bg-surface-selected {
   background-color: var(--app-surface-selected);
+}
+
+/* Floating chat dock — elevated solid layer, distinct from page bg.
+   Light: grey card + white chips (mirrors dark panel + lifted chips). */
+.bg-chat-panel {
+  background-color: #e4e4e7;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 18px 50px -22px rgba(0, 0, 0, 0.22);
+}
+.dark .bg-chat-panel {
+  background-color: var(--app-surface-hover);
+  box-shadow: 0 22px 56px -22px rgba(0, 0, 0, 0.7);
+}
+
+.bg-chat-well {
+  background-color: #f7f7f8;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 8px 24px -14px rgba(0, 0, 0, 0.28);
+}
+.dark .bg-chat-well {
+  background-color: var(--app-surface-hover);
+  box-shadow: none;
+}
+
+/* Chips on top of the dock — user bubbles, expanded input, header controls. */
+.bg-chat-bubble {
+  background-color: #f7f7f8;
+}
+.dark .bg-chat-bubble {
+  background-color: #323236;
 }
 
 .border-app {
@@ -537,3 +576,132 @@ body {
   }
 }
 
+/* Electron dashboard: hiddenInset title bar — traffic lights + sidebar toggle.
+   Traffic lights sit at a fixed OS position, so this fixed inset keeps the
+   toggle + KIVO mark the same distance right of the third (green) dot at every
+   window size. Gated on .kivo-desktop so mobile/browser layouts are untouched. */
+html.kivo-desktop {
+  --kivo-titlebar-inset: 5.5rem;
+  --kivo-glass-base: rgba(244, 246, 250, 0.88);
+  --kivo-glass-surface: rgba(255, 255, 255, 0.92);
+  --kivo-glass-elevated: rgba(255, 255, 255, 0.97);
+  background: transparent;
+}
+
+html.kivo-desktop.dark {
+  --kivo-glass-base: rgba(9, 9, 11, 0.34);
+  --kivo-glass-surface: rgba(24, 24, 27, 0.32);
+  --kivo-glass-elevated: rgba(24, 24, 27, 0.5);
+}
+
+html.kivo-desktop body {
+  background: transparent;
+}
+
+/* One shared base spans title bar, sidebar, and workspace. Content layers add
+   contrast without becoming opaque or producing panel seams. */
+html.kivo-desktop .kivo-desktop-shell {
+  background-color: var(--kivo-glass-base);
+  backdrop-filter: blur(40px) saturate(150%);
+  -webkit-backdrop-filter: blur(40px) saturate(150%);
+}
+
+html.kivo-desktop .kivo-desktop-sidebar,
+html.kivo-desktop .kivo-desktop-content-glass {
+  background-color: transparent;
+}
+
+html.kivo-desktop .kivo-overview-root {
+  background-color: transparent;
+}
+
+html.kivo-desktop .kivo-overview-surface {
+  background-color: transparent;
+}
+
+/* Chat dock stays a fully solid layer even on desktop: when expanded it
+   overlaps summary/transcript content, and translucent glass here let that
+   content bleed through the message list unreadably. */
+html.kivo-desktop .bg-chat-panel {
+  background-color: #e4e4e7;
+}
+
+html.kivo-desktop .bg-chat-well,
+html.kivo-desktop .bg-chat-bubble {
+  background-color: #f7f7f8;
+}
+
+html.kivo-desktop.dark .bg-chat-panel,
+html.kivo-desktop.dark .bg-chat-well {
+  background-color: var(--app-surface-hover);
+}
+
+html.kivo-desktop.dark .bg-chat-bubble {
+  background-color: #323236;
+}
+
+html.kivo-desktop .kivo-session-topbar,
+html.kivo-desktop .kivo-sidebar-topbar {
+  -webkit-app-region: drag;
+}
+
+html.kivo-desktop .kivo-sidebar-topbar,
+html.kivo-desktop .kivo-session-topbar {
+  min-height: 2.75rem;
+  padding-top: 3px;
+  padding-bottom: 0;
+  padding-right: 0.75rem;
+}
+
+/* Traffic lights sit over the sidebar when it is open. Only the sidebar
+   topbar needs the inset then; the session topbar needs it when collapsed. */
+html.kivo-desktop .kivo-sidebar-topbar {
+  padding-left: var(--kivo-titlebar-inset);
+}
+
+html.kivo-desktop .kivo-session-topbar {
+  padding-left: 0.75rem;
+}
+
+html.kivo-desktop
+  .kivo-desktop-shell[data-sidebar-collapsed="true"]
+  .kivo-session-topbar {
+  padding-left: var(--kivo-titlebar-inset);
+}
+
+/* Electron windows can shrink below the lg breakpoint (min 900px). Keep the
+   in-flow desktop sidebar + titlebar toggle at every window size instead of
+   flipping into the mobile hamburger layout. */
+html.kivo-desktop .kivo-desktop-sidebar {
+  display: flex;
+}
+
+html.kivo-desktop .kivo-mobile-open-sidebar {
+  display: none;
+}
+
+html.kivo-desktop .kivo-session-topbar button,
+html.kivo-desktop .kivo-session-topbar input,
+html.kivo-desktop .kivo-session-topbar textarea,
+html.kivo-desktop .kivo-session-topbar select,
+html.kivo-desktop .kivo-session-topbar a,
+html.kivo-desktop .kivo-session-topbar [role="button"],
+html.kivo-desktop .kivo-sidebar-topbar button,
+html.kivo-desktop .kivo-sidebar-topbar a,
+html.kivo-desktop .kivo-sidebar-topbar [role="button"],
+html.kivo-desktop .kivo-titlebar-sidebar-toggle {
+  -webkit-app-region: no-drag;
+}
+
+/* Chromium disables -webkit-app-region hit-testing for descendants of any
+   element carrying a CSS transform — even an identity one pinned by fill-mode
+   `both`, or a live one mid-animation. That silently breaks the no-drag toggle
+   inside the drag region (the button drags the window instead of clicking).
+   Drop transforms on the titlebars and the sidebar container entirely in
+   desktop mode so the collapse control stays clickable. */
+html.kivo-desktop .kivo-sidebar-topbar,
+html.kivo-desktop .kivo-session-topbar,
+html.kivo-desktop .kivo-desktop-sidebar {
+  animation: none !important;
+  transform: none !important;
+}

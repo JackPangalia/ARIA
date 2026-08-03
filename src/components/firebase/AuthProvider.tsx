@@ -4,6 +4,7 @@ import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -19,6 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import { auth } from "@/lib/firebase/client";
+import { getKivoDesktop } from "@/lib/desktop/bridge";
 import { upsertUserProfile } from "@/lib/firebase/profile";
 import { track } from "@/lib/analytics/client";
 
@@ -61,6 +63,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(errorMessage(profileError));
       }
     });
+  }, []);
+
+  useEffect(() => {
+    const desktop = getKivoDesktop();
+    if (!desktop) return;
+
+    const signInFromDesktop = async (token: string) => {
+      setError(null);
+      try {
+        await signInWithCustomToken(auth, token);
+      } catch (authError) {
+        setError(errorMessage(authError));
+      }
+    };
+
+    const unsubscribe = desktop.onAuthToken((token) => {
+      void signInFromDesktop(token);
+    });
+
+    void desktop.getPendingAuthToken().then((token) => {
+      if (token) void signInFromDesktop(token);
+    });
+
+    return unsubscribe;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {

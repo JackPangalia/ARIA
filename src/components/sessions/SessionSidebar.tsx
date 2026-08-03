@@ -42,19 +42,25 @@ function CloseIcon({ className }: { className?: string }) {
   );
 }
 
-function ChevronLeftDouble({ className }: { className?: string }) {
+function SidebarPanelToggleIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M11 17l-5-5 5-5M18 17l-5-5 5-5"
+    <svg className={className} width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect
+        x="1.75"
+        y="2.75"
+        width="12.5"
+        height="10.5"
+        rx="1.5"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        strokeWidth="1.25"
       />
+      <path d="M5.75 2.75v10.5" stroke="currentColor" strokeWidth="1.25" />
     </svg>
   );
 }
+
+const titlebarSidebarToggleClass =
+  "kivo-titlebar-sidebar-toggle inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary";
 
 function ChevronDown({ className }: { className?: string }) {
   return (
@@ -658,8 +664,17 @@ export function SessionSidebar(props: {
 
   return (
     <aside className="kivo-stagger flex h-full min-h-0 w-full flex-col bg-transparent pl-[env(safe-area-inset-left)]">
-      <header className="flex shrink-0 items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        {props.onClose ? (
+      <header className="kivo-sidebar-topbar flex shrink-0 items-center gap-2 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        {props.onCollapse ? (
+          <button
+            type="button"
+            onClick={props.onCollapse}
+            aria-label="Collapse sidebar"
+            className={titlebarSidebarToggleClass}
+          >
+            <SidebarPanelToggleIcon />
+          </button>
+        ) : props.onClose ? (
           <button
             type="button"
             onClick={props.onClose}
@@ -668,26 +683,14 @@ export function SessionSidebar(props: {
           >
             <CloseIcon />
           </button>
-        ) : (
+        ) : null}
+        {!props.onClose ? (
           <span
-            className="flex select-none items-baseline gap-1.5 pl-[0.65em] text-[10px] font-normal tracking-[0.65em] text-app-subtle"
-            aria-label="Kivo, beta"
+            className="flex select-none pl-[0.65em] text-[10px] font-normal tracking-[0.65em] text-app-subtle"
+            aria-label="Kivo"
           >
             KIVO
-            <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1 py-0.5 text-[7px] font-medium tracking-[0.2em]">
-              BETA
-            </span>
           </span>
-        )}
-        {props.onCollapse ? (
-          <button
-            type="button"
-            onClick={props.onCollapse}
-            aria-label="Collapse sidebar"
-            className="rounded-md p-1.5 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
-          >
-            <ChevronLeftDouble />
-          </button>
         ) : null}
       </header>
 
@@ -763,24 +766,15 @@ export function SessionSidebar(props: {
   );
 }
 
-function ExpandIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect x="3" y="4" width="8" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
-      <path d="M13 8h5M13 12h5M13 16h5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 export function SidebarExpandButton(props: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={props.onClick}
       aria-label="Expand sidebar"
-      className="rounded-lg p-2 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
+      className={titlebarSidebarToggleClass}
     >
-      <ExpandIcon />
+      <SidebarPanelToggleIcon />
     </button>
   );
 }

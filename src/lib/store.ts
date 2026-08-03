@@ -10,13 +10,19 @@ interface AriaState {
   /** Transient status note (e.g. "Reconnecting…") shown without entering error state. */
   notice: string | null;
   micLevel: number;
+  effectiveModel: string | null;
+  modelFallback: string | null;
 
   setStatus: (s: AriaStatus) => void;
   setError: (msg: string | null) => void;
   setNotice: (msg: string | null) => void;
   setMicLevel: (n: number) => void;
+  setEffectiveModel: (model: string | null, fallback: string | null) => void;
   upsertUtterance: (u: TranscriptUtterance) => void;
   patchUtterance: (id: string, patch: Partial<TranscriptUtterance>) => void;
+  /** Drop live utterances by id — used to clear wake/command words and
+   * abandoned question-capture fragments that never became a persisted turn. */
+  removeUtterances: (ids: string[]) => void;
   /** Renames every live utterance carrying a provider label (speaker correction). */
   relabelUtterances: (
     providerSpeakerLabel: string,
@@ -31,6 +37,8 @@ export const useAriaStore = create<AriaState>((set) => ({
   errorMessage: null,
   notice: null,
   micLevel: 0,
+  effectiveModel: null,
+  modelFallback: null,
 
   setStatus: (s) => set({ status: s }),
   setError: (msg) =>
@@ -38,6 +46,8 @@ export const useAriaStore = create<AriaState>((set) => ({
   setNotice: (msg) => set({ notice: msg }),
 
   setMicLevel: (n) => set({ micLevel: n }),
+  setEffectiveModel: (effectiveModel, modelFallback) =>
+    set({ effectiveModel, modelFallback }),
 
   upsertUtterance: (u) =>
     set((state) => {
@@ -54,6 +64,15 @@ export const useAriaStore = create<AriaState>((set) => ({
       if (idx === -1) return state;
       const next = state.utterances.slice();
       next[idx] = { ...next[idx]!, ...patch };
+      return { utterances: next };
+    }),
+
+  removeUtterances: (ids) =>
+    set((state) => {
+      if (ids.length === 0) return state;
+      const drop = new Set(ids);
+      const next = state.utterances.filter((u) => !drop.has(u.id));
+      if (next.length === state.utterances.length) return state;
       return { utterances: next };
     }),
 

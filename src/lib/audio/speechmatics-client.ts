@@ -9,6 +9,7 @@ import {
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import type { TranscriptionMode } from "@/lib/sessions/types";
 import type { TranscriptUtterance } from "@/lib/types";
+import { VOICE_ENGINE_V2_TIMING } from "./voice-engine-config";
 
 type SpeechmaticsTranscriptResult = {
   type: "word" | "punctuation" | "entity";
@@ -93,6 +94,7 @@ export type SpeechmaticsClientOptions = {
   enrollment?: boolean;
   /** Basic mode keeps transcription live but disables speaker diarization. */
   transcriptionMode?: TranscriptionMode;
+  voiceEngineV2?: boolean;
 };
 
 type SpeakerGroup = {
@@ -333,6 +335,21 @@ export class SpeechmaticsLiveClient {
   }
 
   /**
+   * Semantic fast-path endpoint: tell Speechmatics the turn is over *now*
+   * instead of waiting out `end_of_utterance_silence_trigger`. The server
+   * replies with the punctuated final AddTranscript followed by
+   * EndOfUtterance. Used by the engine when its own VAD hears the voice stop
+   * and the draft already reads like a completed ask.
+   */
+  forceEndOfUtterance() {
+    if (!this.recognitionStarted) return;
+    this.sendJson({
+      message: "ForceEndOfUtterance",
+      timestamp: this.audioSecondsSent,
+    });
+  }
+
+  /**
    * Immediate reconnect (backoff reset) — used when the tab returns to the
    * foreground and the socket died while the page was hidden.
    */
@@ -455,7 +472,9 @@ export class SpeechmaticsLiveClient {
         // Silence gap (s) before EndOfUtterance fires — the main knob for how
         // quickly Kivo reacts when a speaker stops. Speechmatics requires this
         // to be LESS than max_delay (0.7 above) or end-of-turn turns unreliable.
-        end_of_utterance_silence_trigger: 0.6,
+        end_of_utterance_silence_trigger: this.options.voiceEngineV2
+          ? VOICE_ENGINE_V2_TIMING.endOfUtteranceSilenceSeconds
+          : 0.6,
       },
     };
 
@@ -688,13 +707,27 @@ export class SpeechmaticsLiveClient {
     this.assistantSpeechIntervals.push({ start, end: null });
   }
 
-  /** Marks the end of assistant TTS playback (plus a short echo tail). */
-  markAssistantSpeechEnd() {
+  /**
+   * Marks the end of assistant TTS playback.
+   *
+   * Normal end (playback finished naturally): the interval extends a short
+   * echo tail past "now" to cover room/speaker echo still decaying on the mic.
+   *
+   * Barge-in end (`onsetBackoffSeconds` given): the user cut Kivo off, so the
+   * interval is instead *rewound* to the start of their interruption
+   * (`now - onsetBackoffSeconds`). This un-flags the user's interrupting words
+   * — which were spoken while the interval was still open — so they transcribe
+   * as real speech instead of being discarded as Kivo's echo.
+   */
+  markAssistantSpeechEnd(options: { onsetBackoffSeconds?: number } = {}) {
     const open = this.assistantSpeechIntervals.find(
       (interval) => interval.end === null
     );
     if (!open) return;
-    open.end = this.audioSecondsSent + ASSISTANT_SPEECH_ECHO_TAIL_SECONDS;
+    open.end =
+      options.onsetBackoffSeconds != null
+        ? Math.max(open.start, this.audioSecondsSent - options.onsetBackoffSeconds)
+        : this.audioSecondsSent + ASSISTANT_SPEECH_ECHO_TAIL_SECONDS;
     this.pruneAssistantSpeechIntervals();
   }
 

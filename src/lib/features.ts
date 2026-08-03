@@ -13,3 +13,10 @@ export const MEETING_BOT_ENABLED = false;
  * read docs/connectors.md.
  */
 export const CONNECTORS_ENABLED = false;
+
+/**
+ * The voice engine (AudioWorklet PCM playback, adaptive barge-in, fast
+ * endpointing) is the only path — the pre-V2 loop is dead code kept solely as
+ * inline fallbacks that never run.
+ */
+export const VOICE_ENGINE_V2_ENABLED = true;

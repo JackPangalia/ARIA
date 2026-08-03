@@ -1,20 +1,11 @@
 import { z } from "zod";
 
 const ServerEnvSchema = z.object({
-  GOOGLE_GENERATIVE_AI_API_KEY: z.string().min(1).optional(),
-  GEMINI_API_KEY: z.string().min(1).optional(),
-  GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
-  GEMINI_SUMMARY_MODEL: z.string().optional(),
   /**
-   * Only required if a user selects a Claude ask model; Gemini-only deployments
-   * can omit it. `.min(1)` is intentionally absent — an empty string (e.g. an
-   * unfilled `ANTHROPIC_API_KEY=` line copied from .env.example) must be treated
-   * as "unset", not as a validation failure that crashes the whole server.
+   * Required: every ask model is Anthropic. Failing at boot beats silently
+   * answering with the wrong model — or no model — mid-turn.
    */
-  ANTHROPIC_API_KEY: z
-    .string()
-    .optional()
-    .transform((v) => (v ? v : undefined)),
+  ANTHROPIC_API_KEY: z.string().min(1),
   CARTESIA_API_KEY: z.string().min(1),
   CARTESIA_MODEL_ID: z.string().default("sonic-3"),
   CARTESIA_VOICE_ID: z.string().min(1),
@@ -41,20 +32,9 @@ const ServerEnvSchema = z.object({
   RECALL_TRANSCRIPT_MODE: z.enum(["accuracy", "low_latency"]).default("low_latency"),
 });
 
-export type ServerEnv = z.infer<typeof ServerEnvSchema> & {
-  /** Resolved Gemini API key. */
-  geminiApiKey: string;
-  /** Default Kivo model id. */
-  GEMINI_MODEL: string;
-};
+export type ServerEnv = z.infer<typeof ServerEnvSchema>;
 
 let cached: ServerEnv | null = null;
-
-function resolveGeminiApiKey(
-  parsed: z.infer<typeof ServerEnvSchema>
-): string | null {
-  return parsed.GOOGLE_GENERATIVE_AI_API_KEY ?? parsed.GEMINI_API_KEY ?? null;
-}
 
 export function getServerEnv(): ServerEnv {
   if (cached) return cached;
@@ -66,20 +46,6 @@ export function getServerEnv(): ServerEnv {
         .join(", ")}`
     );
   }
-  const geminiApiKey = resolveGeminiApiKey(parsed.data);
-  if (!geminiApiKey) {
-    throw new Error(
-      "Missing GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY for Gemini."
-    );
-  }
-  cached = {
-    ...parsed.data,
-    geminiApiKey,
-    GEMINI_MODEL: parsed.data.GEMINI_MODEL,
-  };
+  cached = parsed.data;
   return cached;
-}
-
-export function getSummaryModelId(env: ServerEnv): string {
-  return env.GEMINI_SUMMARY_MODEL ?? env.GEMINI_MODEL;
 }

@@ -20,8 +20,10 @@ import { getProject } from "@/lib/projects/repository";
 import { listSourcesForContext } from "@/lib/projects/sources-repository";
 import {
   formatTurnForContext,
+  getMeetingSummary,
   getRecentContextTurns,
   getSummary,
+  heardTurnText,
   listFacts,
   listPins,
   searchContextTurns,
@@ -30,12 +32,43 @@ import type {
   ProjectDoc,
   ProjectSourceDoc,
 } from "@/lib/projects/types";
-import type { ContextBundle, SessionDoc } from "@/lib/sessions/types";
+import type {
+  ContextBundle,
+  ContextHistoryTurn,
+  SessionDoc,
+  TurnDoc,
+} from "@/lib/sessions/types";
 
 const PROJECT_CONTEXT_TOKEN_BUDGET = 1600;
 
 function speakerLabel(id: number | null): string {
   return id == null ? "Speaker" : `Speaker ${id + 1}`;
+}
+
+/**
+ * Prior Q/A exchanges become real chat turns instead of transcript lines —
+ * the model tracks a conversation it actually had, not one it reads about.
+ * Multi-party sessions keep the asker's name inside the user turn so answers
+ * to different people stay attributable.
+ */
+export function buildHistoryTurns(turns: TurnDoc[]): ContextHistoryTurn[] {
+  return turns
+    .filter((turn) => turn.role === "user_question" || turn.role === "assistant")
+    .map((turn) =>
+      turn.role === "assistant"
+        ? {
+            role: "assistant" as const,
+            text: turn.interrupted
+              ? `${heardTurnText(turn)}\n\n[The user cut this answer off here.]`
+              : turn.text,
+          }
+        : {
+            role: "user" as const,
+            text: turn.speakerName
+              ? `${turn.speakerName}: ${turn.text}`
+              : turn.text,
+          }
+    );
 }
 
 function buildSessionHeader(session: SessionDoc): string {
@@ -103,34 +136,64 @@ export async function buildContextBundle(input: {
   uid: string;
   session: SessionDoc;
   question: string;
+  /** Include the final human-readable recap only for post-meeting written chat. */
+  includeMeetingSummary?: boolean;
 }): Promise<ContextBundle & { log: ContextBundleLog }> {
   const buildStart = performance.now();
   const question = sanitizeQuestionText(input.question);
 
   const projectId = input.session.projectId;
-  const [project, projectSources, summary, facts, pins, recentTurnsRaw] = await Promise.all([
-    input.session.projectId ? getProject(input.uid, input.session.projectId) : null,
+  const [
+    project,
+    projectSources,
+    summary,
+    meetingSummary,
+    facts,
+    pins,
+    recentTurnsRaw,
+    searchHits,
+  ] = await Promise.all([
+    input.session.projectId
+      ? getProject(input.uid, input.session.projectId)
+      : null,
     projectId
       ? listSourcesForContext(input.uid, projectId).catch(() => [])
       : Promise.resolve([]),
     getSummary(input.uid, input.session.id),
+    input.includeMeetingSummary && input.session.status === "ended"
+      ? getMeetingSummary(input.uid, input.session.id)
+      : Promise.resolve(null),
     listFacts(input.uid, input.session.id),
     listPins(input.uid, input.session.id),
     getRecentContextTurns(input.uid, input.session.id, RECENT_TURN_COUNT),
+    searchContextTurns(
+      input.uid,
+      input.session.id,
+      question,
+      MAX_SEARCH_HITS,
+      { preferEarlySession: hasEarlySessionSearchIntent(question) }
+    ),
   ]);
+  const rollingSummary = meetingSummary ? null : summary?.rollingSummary;
 
-  const recentTurns = dedupeAdjacentContextTurns(recentTurnsRaw);
+  // The ask pipeline persists the current question fire-and-forget while this
+  // context build runs, so the question may or may not already be in the
+  // recent-turn window. It's passed separately as the live question — a copy
+  // here would make the model see it twice.
+  const withoutCurrentQuestion =
+    recentTurnsRaw.length > 0 &&
+    recentTurnsRaw[recentTurnsRaw.length - 1].role === "user_question" &&
+    sanitizeQuestionText(recentTurnsRaw[recentTurnsRaw.length - 1].text) ===
+      question
+      ? recentTurnsRaw.slice(0, -1)
+      : recentTurnsRaw;
 
-  const searchHits = await searchContextTurns(
-    input.uid,
-    input.session.id,
-    question,
-    MAX_SEARCH_HITS,
-    {
-      preferEarlySession: hasEarlySessionSearchIntent(question),
-      excludeTurnIds: new Set(recentTurns.map((turn) => turn.id)),
-    }
-  );
+  const recentTurns = dedupeAdjacentContextTurns(withoutCurrentQuestion);
+
+  // Q/A exchanges leave the transcript blob and become real chat history;
+  // only ambient room speech stays as reference text.
+  const history = buildHistoryTurns(recentTurns);
+  const roomTurns = recentTurns.filter((turn) => turn.role === "speaker");
 
   const recentIds = new Set(recentTurns.map((turn) => turn.id));
   const supplementalHits = searchHits.filter((turn) => !recentIds.has(turn.id));
@@ -141,8 +204,24 @@ export async function buildContextBundle(input: {
   });
   const dynamicSections: string[] = [buildSessionHeader(input.session)];
 
-  if (summary?.rollingSummary) {
-    dynamicSections.push(`# Rolling summary\n\n${summary.rollingSummary}`);
+  if (rollingSummary) {
+    dynamicSections.push(`# Rolling summary\n\n${rollingSummary}`);
+  }
+
+  if (meetingSummary) {
+    const sections = [
+      meetingSummary.overview,
+      meetingSummary.decisions.length > 0
+        ? `Decisions:\n${meetingSummary.decisions.map((item) => `- ${item}`).join("\n")}`
+        : null,
+      meetingSummary.keyPoints.length > 0
+        ? `Key points:\n${meetingSummary.keyPoints.map((item) => `- ${item}`).join("\n")}`
+        : null,
+      meetingSummary.actionItems.length > 0
+        ? `Action items:\n${meetingSummary.actionItems.map((item) => `- ${item}`).join("\n")}`
+        : null,
+    ].filter(Boolean);
+    dynamicSections.push(`# Final meeting summary\n\n${sections.join("\n\n")}`);
   }
 
   if (summary && summary.keyDecisions.length > 0) {
@@ -184,29 +263,42 @@ export async function buildContextBundle(input: {
     );
   }
 
-  if (recentTurns.length > 0) {
+  if (roomTurns.length > 0) {
     dynamicSections.push(
-      `# Recent turns\n\n${recentTurns
+      `# Recent room transcript\n\n${roomTurns
         .map((turn) => formatTurnForContext(turn))
         .join("\n")}`
     );
   }
 
+  let historyTurns = history;
+  const historyTexts = () => historyTurns.map((turn) => turn.text);
   let dynamicMessages = dynamicSections.join("\n\n");
   let messages = [projectSection, dynamicMessages].filter(Boolean).join("\n\n");
-  let tokenEstimate = estimateTokensForTexts([messages, question]);
+  let tokenEstimate = estimateTokensForTexts([
+    messages,
+    ...historyTexts(),
+    question,
+  ]);
   let budgetTrimApplied = false;
 
-  if (estimateTokensForTexts([dynamicMessages, question]) > CONTEXT_BUDGET_TOKENS) {
+  if (
+    estimateTokensForTexts([dynamicMessages, ...historyTexts(), question]) >
+    CONTEXT_BUDGET_TOKENS
+  ) {
     budgetTrimApplied = true;
-    const trimmedRecent = recentTurns.slice(-10);
+    historyTurns = history.slice(-12);
+    const trimmedRoom = roomTurns.slice(-10);
     const compactSections = [
       buildSessionHeader(input.session),
-      summary?.rollingSummary
-        ? `# Rolling summary\n\n${summary.rollingSummary}`
+      rollingSummary
+        ? `# Rolling summary\n\n${rollingSummary}`
         : null,
-      trimmedRecent.length
-        ? `# Recent turns\n\n${trimmedRecent
+      meetingSummary
+        ? `# Final meeting summary\n\n${meetingSummary.overview}`
+        : null,
+      trimmedRoom.length
+        ? `# Recent room transcript\n\n${trimmedRoom
             .map((turn) => formatTurnForContext(turn))
             .join("\n")}`
         : null,
@@ -214,7 +306,11 @@ export async function buildContextBundle(input: {
 
     dynamicMessages = compactSections.join("\n\n");
     messages = [projectSection, dynamicMessages].filter(Boolean).join("\n\n");
-    tokenEstimate = estimateTokensForTexts([messages, question]);
+    tokenEstimate = estimateTokensForTexts([
+      messages,
+      ...historyTexts(),
+      question,
+    ]);
   }
 
   const buildMs = performance.now() - buildStart;
@@ -226,8 +322,8 @@ export async function buildContextBundle(input: {
     buildMs,
     tokens: tokenEstimate,
     promptChars: messages.length + question.length + 32,
-    summary: Boolean(summary?.rollingSummary),
-    summaryChars: summary?.rollingSummary?.length ?? 0,
+    summary: Boolean(rollingSummary),
+    summaryChars: rollingSummary?.length ?? 0,
     decisions: summary?.keyDecisions?.length ?? 0,
     openQuestions: summary?.openQuestions?.length ?? 0,
     facts: pinnedFacts.length + generatedFacts.length,
@@ -237,6 +333,7 @@ export async function buildContextBundle(input: {
     searchHits: supplementalHits.length,
     searchTerms,
     recentTurns: recentTurns.length,
+    historyTurns: historyTurns.length,
     seqFirst: recentTurns[0]?.sequence ?? null,
     seqLast: recentTurns[recentTurns.length - 1]?.sequence ?? null,
     budgetTrim: budgetTrimApplied,
@@ -244,8 +341,8 @@ export async function buildContextBundle(input: {
 
   logContextBundleReady(log);
 
-  if (summary?.rollingSummary) {
-    logContextVerboseBlock("rolling summary", summary.rollingSummary);
+  if (rollingSummary) {
+    logContextVerboseBlock("rolling summary", rollingSummary);
   }
   if (projectSection) {
     logContextVerboseBlock("project context", projectSection);
@@ -253,7 +350,7 @@ export async function buildContextBundle(input: {
   // Full context is now printed verbatim by logRawPrompt() at agent run time,
   // so we no longer duplicate the assembled messages block here.
 
-  return { messages, tokenEstimate, question, log };
+  return { messages, history: historyTurns, tokenEstimate, question, log };
 }
 
 export { shouldCompactSession } from "@/lib/aria/context/turn-selection";

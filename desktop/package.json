@@ -1,0 +1,57 @@
+{
+  "name": "kivo-desktop",
+  "version": "0.1.0",
+  "description": "Kivo desktop — menu-bar shell and dashboard",
+  "main": "dist/main.js",
+  "author": "Kivo",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && cross-env KIVO_APP_URL=http://localhost:3000 electron .",
+    "dist": "npm run build && electron-builder --mac",
+    "dist:dir": "npm run build && electron-builder --mac --dir"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.0.0",
+    "typescript": "^5.5.0"
+  },
+  "build": {
+    "appId": "ai.kivo.desktop",
+    "productName": "Kivo",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "notarize": true,
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Kivo records microphone audio for in-person meetings."
+      },
+      "icon": "../public/og.png"
+    },
+    "protocols": [
+      {
+        "name": "Kivo",
+        "schemes": [
+          "kivo"
+        ]
+      }
+    ]
+  }
+}

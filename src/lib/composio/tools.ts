@@ -1,5 +1,4 @@
-import type { Tool } from "@openai/agents";
-import type { SupportedToolkit } from "@/lib/composio/connections";
+import type { ToolSet } from "ai";
 import {
   getCachedComposioAgentTools,
   loadComposioAgentTools,
@@ -13,7 +12,7 @@ export type { ComposioAgentToolsFetch } from "./fetch-tools";
 export async function buildComposioAgentTools(
   uid: string | undefined,
   options: ComposioToolsLoadOptions
-): Promise<Tool[]> {
+): Promise<ToolSet> {
   return getCachedComposioAgentTools(uid, options);
 }
 

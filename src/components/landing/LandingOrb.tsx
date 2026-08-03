@@ -3,12 +3,15 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-// Same accent family as the in-app orb (listen / think / wake).
+// Marketing hero palette — forest-green core with mint / teal / silver halo.
 const ORB_PALETTE = [
-  new THREE.Color("#34d399"),
-  new THREE.Color("#8b5cf6"),
-  new THREE.Color("#fef08a"),
+  new THREE.Color("#ecfdf5"),
+  new THREE.Color("#a7f3d0"),
+  new THREE.Color("#6ee7b7"),
+  new THREE.Color("#2dd4bf"),
+  new THREE.Color("#134e4a"),
 ];
+const ORB_CORE = new THREE.Color("#14532d");
 
 const GREY_ORB_ACCENT = new THREE.Color("#a1a1aa");
 
@@ -90,7 +93,6 @@ export function LandingOrb({
     const mix = new Float32Array(N);
     const seeds = new Float32Array(N);
     const colorTmp = new THREE.Color();
-    const coreColor = new THREE.Color();
 
     const golden = Math.PI * (3 - Math.sqrt(5));
     for (let i = 0; i < N; i++) {
@@ -130,9 +132,9 @@ export function LandingOrb({
 
     const coreGeo = new THREE.SphereGeometry(1.55, 32, 32);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: isGrey ? GREY_ORB_ACCENT.clone() : ORB_PALETTE[0]!.clone(),
+      color: isGrey ? GREY_ORB_ACCENT.clone() : ORB_CORE.clone(),
       transparent: true,
-      opacity: 0.045,
+      opacity: isGrey ? 0.045 : 0.22,
       blending: THREE.NormalBlending,
       depthWrite: false,
     });
@@ -214,14 +216,11 @@ export function LandingOrb({
 
       updateMouseWorld();
 
-      // Slowly drift the palette around the sphere so green / purple / yellow
-      // stay visible at once, matching the in-app orb accent family.
-      const colorDrift = t * 0.045;
+      const colorDrift = t * 0.018;
       if (isGrey) {
         coreMat.color.copy(GREY_ORB_ACCENT).multiplyScalar(0.55);
       } else {
-        samplePalette(colorDrift, coreColor);
-        coreMat.color.copy(coreColor).multiplyScalar(0.55);
+        coreMat.color.copy(ORB_CORE);
       }
 
       invQuat.copy(points.quaternion).invert();
@@ -257,9 +256,10 @@ export function LandingOrb({
             colorDrift;
           samplePalette(paletteT, colorTmp);
         }
-        colArr[ix] = colorTmp.r * (1 - m * 0.55);
-        colArr[iy] = colorTmp.g * (1 - m * 0.55);
-        colArr[iz] = colorTmp.b * (1 - m * 0.55);
+        const dim = 1 - m * (isGrey ? 0.55 : 0.35);
+        colArr[ix] = colorTmp.r * dim;
+        colArr[iy] = colorTmp.g * dim;
+        colArr[iz] = colorTmp.b * dim;
 
         tmpA.set(pos[ix]!, pos[iy]!, pos[iz]!);
 

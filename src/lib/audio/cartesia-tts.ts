@@ -1,6 +1,12 @@
-const CARTESIA_API_VERSION = "2025-04-16";
+import { stripMarkdownForSpeech } from "@/lib/aria/tts-phrase-buffer";
+
+// Bumped from 2025-04-16 alongside the WS path; current documented version.
+const CARTESIA_API_VERSION = "2026-03-01";
 const TTS_RETRY_ATTEMPTS = 3;
 const TTS_RETRY_BASE_MS = 400;
+const TRANSIENT_TTS_STATUS_CODES = new Set([
+  408, 425, 429, 500, 502, 503, 504,
+]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,9 +24,10 @@ export async function createCartesiaSpeechStream(
   transcript: string,
   signal?: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> {
+  const cleanTranscript = stripMarkdownForSpeech(transcript);
   const body = JSON.stringify({
     model_id: config.modelId,
-    transcript,
+    transcript: cleanTranscript || transcript,
     voice: { mode: "id", id: config.voiceId },
     output_format: {
       container: "mp3",
@@ -38,13 +45,13 @@ export async function createCartesiaSpeechStream(
       method: "POST",
       headers: {
         "Cartesia-Version": CARTESIA_API_VERSION,
-        Authorization: `Bearer ${config.apiKey}`,
+        "X-API-Key": config.apiKey,
         "Content-Type": "application/json",
       },
       body,
       signal,
     });
-    if (response.ok || response.status !== 429) break;
+    if (response.ok || !TRANSIENT_TTS_STATUS_CODES.has(response.status)) break;
     if (attempt < TTS_RETRY_ATTEMPTS - 1) {
       await sleep(TTS_RETRY_BASE_MS * (attempt + 1));
     }

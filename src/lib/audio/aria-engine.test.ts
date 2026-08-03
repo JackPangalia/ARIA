@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AriaStatus, TranscriptUtterance } from "@/lib/types";
 
 const mockStore = vi.hoisted(() => {
@@ -9,6 +9,7 @@ const mockStore = vi.hoisted(() => {
     setStatus: ReturnType<typeof vi.fn>;
     setMicLevel: ReturnType<typeof vi.fn>;
     upsertUtterance: ReturnType<typeof vi.fn>;
+    removeUtterances: ReturnType<typeof vi.fn>;
   } = {
     status: "listening",
     clearTranscript: vi.fn(),
@@ -18,6 +19,7 @@ const mockStore = vi.hoisted(() => {
     }),
     setMicLevel: vi.fn(),
     upsertUtterance: vi.fn(),
+    removeUtterances: vi.fn(),
   };
   return store;
 });
@@ -28,8 +30,10 @@ const mockCueMethods = vi.hoisted(() => ({
   playWake: vi.fn(),
   playClose: vi.fn(),
   playFollowUp: vi.fn(),
+  playSearch: vi.fn(),
   startThinkingLoop: vi.fn(),
-  stopThinkingLoop: vi.fn(),
+  startSearchingLoop: vi.fn(),
+  stopWorkCue: vi.fn(),
   dispose: vi.fn(),
   playClip: vi.fn(),
 }));
@@ -137,13 +141,71 @@ function capturedQuestion(engine: AriaEngine): string {
   ).getCapturedQuestion().question;
 }
 
+describe("AriaEngine follow-up lifecycle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.status = "listening";
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns to passive listening after three seconds of silence", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    expect(mockStore.status).toBe("follow-up-listening");
+    vi.advanceTimersByTime(2_999);
+    expect(mockStore.status).toBe("follow-up-listening");
+    vi.advanceTimersByTime(1);
+    expect(mockStore.status).toBe("listening");
+
+  });
+
+  it("abandons a follow-up capture that never settles", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as {
+        handleFollowUp: (
+          id: string,
+          speaker: number,
+          speakerName: string | null,
+          providerSpeakerLabel: string | null
+        ) => void;
+      }
+    ).handleFollowUp("u1", 0, null, null);
+
+    expect(mockStore.status).toBe("capturing-question");
+    vi.advanceTimersByTime(5_999);
+    expect(mockStore.status).toBe("capturing-question");
+    vi.advanceTimersByTime(1);
+    expect(mockStore.status).toBe("listening");
+    expect(
+      (engine as unknown as { capturingQuestion: boolean }).capturingQuestion
+    ).toBe(false);
+
+  });
+});
+
 describe("AriaEngine assistant command path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStore.status = "listening";
   });
 
-  it("drops non-command speech while Kivo is speaking", () => {
+  it("treats real (non-echo) speech while Kivo is speaking as a barge-in and captures it", () => {
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
@@ -152,10 +214,32 @@ describe("AriaEngine assistant command path", () => {
 
     emit(
       engine,
-      utterance("That is the answer I was giving out loud from the speakers.")
+      utterance("actually wait can you compare it to the other option")
     );
 
+    // Claude-style: the user just starts talking — the answer stops and their
+    // words become the next question.
     expect(mockStore.upsertUtterance).not.toHaveBeenCalled();
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+    expect(mockCueMethods.stopWorkCue).toHaveBeenCalled();
+    expect(capturedQuestion(engine)).toBe(
+      "actually wait can you compare it to the other option"
+    );
+  });
+
+  it("does not barge in on a short partial while speaking (needs three words)", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "speaking";
+
+    emit(
+      engine,
+      utterance("well the", "p1", { isFinal: false, speechFinal: false })
+    );
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
     expect(mockStore.status).toBe("speaking");
   });
 
@@ -170,7 +254,40 @@ describe("AriaEngine assistant command path", () => {
 
     expect(mockStore.upsertUtterance).not.toHaveBeenCalled();
     expect(mockStore.setStatus).toHaveBeenCalledWith("listening");
-    expect(mockCueMethods.stopThinkingLoop).toHaveBeenCalled();
+    expect(mockCueMethods.stopWorkCue).toHaveBeenCalled();
+  });
+
+  it("accepts an unambiguous partial stop in Voice Engine V2", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    (
+      engine as unknown as { voiceEngineV2: boolean }
+    ).voiceEngineV2 = true;
+    mockStore.status = "speaking";
+
+    emit(
+      engine,
+      utterance("stop", "partial-stop", {
+        isFinal: false,
+        speechFinal: false,
+      })
+    );
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("listening");
+  });
+
+  it("stops generation synchronously from the local control", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "thinking";
+
+    expect(engine.stopSpeaking()).toBe(true);
+    expect(mockStore.status).toBe("listening");
+    expect(mockCueMethods.stopWorkCue).toHaveBeenCalled();
   });
 
   it("uses Kivo as a word-gated barge-in while speaking", () => {
@@ -215,20 +332,59 @@ describe("AriaEngine assistant command path", () => {
     expect(mockStore.status).toBe("listening");
   });
 
-  it("silences Kivo when a flagged echo utterance contains a stop word", () => {
+  it("drops flagged echo outright, even a stop word (Kivo never interrupts itself)", () => {
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "speaker",
     });
-    mockStore.status = "listening";
+    mockStore.status = "speaking";
 
+    // "shut up" spoken by Kivo itself (flagged as echo by the STT client).
+    // The old design let this silence Kivo; now flagged echo is dropped.
     emit(
       engine,
       utterance("shut up", "u1", { overlapsAssistantSpeech: true })
     );
 
     expect(mockStore.upsertUtterance).not.toHaveBeenCalled();
-    expect(mockStore.setStatus).toHaveBeenCalledWith("listening");
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("listening");
+    expect(mockStore.status).toBe("speaking");
+  });
+
+  it("stops the answer and opens capture on a confirmed acoustic barge-in", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "speaking";
+    (engine as unknown as { isAssistantSpeaking: boolean }).isAssistantSpeaking =
+      true;
+
+    (
+      engine as unknown as {
+        handleAcousticBargeIn: (info: { onsetSecondsAgo: number }) => void;
+      }
+    ).handleAcousticBargeIn({ onsetSecondsAgo: 0.3 });
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("follow-up-listening");
+    expect(mockCueMethods.stopWorkCue).toHaveBeenCalled();
+  });
+
+  it("interrupts an answer while it is still generating", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "thinking";
+
+    (
+      engine as unknown as {
+        handleAcousticBargeIn: (info: { onsetSecondsAgo: number }) => void;
+      }
+    ).handleAcousticBargeIn({ onsetSecondsAgo: 0.2 });
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("follow-up-listening");
+    expect(mockCueMethods.stopWorkCue).toHaveBeenCalled();
   });
 
   it("catches a trailing-clause stop word when echo merges with real speech into one final", () => {
@@ -298,7 +454,8 @@ describe("AriaEngine question-capture persistence", () => {
       expect.anything(),
       expect.anything(),
       expect.anything(),
-      ["u1"]
+      ["u1"],
+      expect.objectContaining({ acceptPcm: expect.any(Boolean) })
     );
   });
 
@@ -343,5 +500,230 @@ describe("AriaEngine partial wake handling", () => {
     emit(engine, utterance("Kivo what do you think?", "u1"));
 
     expect(capturedQuestion(engine)).toBe("what do you think?");
+  });
+});
+
+describe("AriaEngine semantic fast-path endpointing", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.status = "listening";
+  });
+
+  function armCaptureWithPartial(engine: AriaEngine, partialText: string) {
+    // Wake on a partial, then stream the question as a partial — the state
+    // maybeForceEndpoint sees when the local VAD hears the voice stop.
+    emit(engine, {
+      ...utterance(partialText, "u1"),
+      isFinal: false,
+      speechFinal: false,
+    });
+  }
+
+  function forceEndpoint(engine: AriaEngine) {
+    (engine as unknown as { maybeForceEndpoint: () => void }).maybeForceEndpoint();
+  }
+
+  function withFakeStt(engine: AriaEngine) {
+    const stt = { forceEndOfUtterance: vi.fn() };
+    (engine as unknown as { stt: unknown }).stt = stt;
+    return stt;
+  }
+
+  it("forces the endpoint when the voice stops on a question-shaped draft", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    armCaptureWithPartial(engine, "Kivo what should we charge for the pro tier");
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+    // One force per voiced segment — a second silence must not re-fire.
+    forceEndpoint(engine);
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not force the endpoint on a rambling statement", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    armCaptureWithPartial(
+      engine,
+      "Kivo so I've been looking at the landing page numbers"
+    );
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+  });
+
+  it("does not force outside question capture", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+  });
+
+  it("speculatively dispatches a clear-ask the moment the voice stops", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    withFakeStt(engine);
+
+    // A directive ("tell me…") is a clear ask even without a "?" — complete
+    // enough to answer before the endpoint is confirmed.
+    armCaptureWithPartial(engine, "Kivo tell me what to charge for the pro tier");
+    forceEndpoint(engine);
+
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.stringContaining("tell me what to charge"),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
+  });
+
+  it("does not speculate on a likely-ask (only forces transcription)", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    // Question-shaped but unpunctuated: force finalization, but too uncertain to
+    // pre-warm the answer.
+    armCaptureWithPartial(engine, "Kivo what should we charge for the pro tier");
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).not.toHaveBeenCalled();
+  });
+});
+
+describe("AriaEngine speculative adopt / discard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.status = "listening";
+    // askAria consumes the response; a not-ok stub lets it unwind cleanly while
+    // we assert on call counts / flags.
+    vi.mocked(askSessionQuestion).mockResolvedValue({
+      ok: false,
+      status: 500,
+      body: null,
+      headers: { get: () => null },
+      text: async () => "",
+    } as unknown as Response);
+  });
+
+  const speculate = (engine: AriaEngine, draft: string) =>
+    (
+      engine as unknown as { startSpeculativeAsk: (d: string) => void }
+    ).startSpeculativeAsk(draft);
+
+  const askAndReset = (engine: AriaEngine, question: string) =>
+    (
+      engine as unknown as {
+        askAndReset: (
+          q: string,
+          s: number | null,
+          n: string | null,
+          ids: string[]
+        ) => Promise<void>;
+      }
+    ).askAndReset(question, null, null, []);
+
+  it("adopts a matching speculation instead of issuing a second request", async () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    speculate(engine, "tell me the pro tier price?");
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      "tell me the pro tier price?",
+      null,
+      null,
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
+
+    await askAndReset(engine, "tell me the pro tier price?");
+
+    // Adopted — the in-flight speculative request is reused, no fresh fetch.
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a mismatched speculation and issues a fresh, non-speculative request", async () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    speculate(engine, "tell me the pro tier price?");
+    await askAndReset(engine, "what is the enterprise price?");
+
+    // One speculative + one real request.
+    expect(askSessionQuestion).toHaveBeenCalledTimes(2);
+    const secondCallOptions = vi.mocked(askSessionQuestion).mock.calls[1]?.[6] as
+      | { speculative?: boolean }
+      | undefined;
+    expect(secondCallOptions?.speculative).toBeUndefined();
+  });
+});
+
+describe("AriaEngine barge-in evidence fusion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.status = "listening";
+  });
+
+  it("confirms on the first non-echo word when the acoustic detector is already suspicious", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "speaking";
+    // The detector heard sustained voiced energy and ducked the answer.
+    (engine as unknown as { ducked: boolean }).ducked = true;
+
+    emit(
+      engine,
+      utterance("wait", "p1", { isFinal: false, speechFinal: false })
+    );
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+  });
+
+  it("still requires three partial words without acoustic corroboration", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "speaking";
+
+    emit(
+      engine,
+      utterance("wait so", "p1", { isFinal: false, speechFinal: false })
+    );
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+    expect(mockStore.status).toBe("speaking");
   });
 });

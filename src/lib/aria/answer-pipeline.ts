@@ -1,4 +1,7 @@
-import { runAriaAgentStream } from "@/lib/aria/agent";
+import {
+  resolveEffectiveAskModelOption,
+  runAriaAgentStream,
+} from "@/lib/aria/agent";
 import { DEFAULT_ASK_MODEL_ID, getAskModelOption, type AskModelId } from "@/lib/aria/models";
 import { buildContextBundle } from "@/lib/aria/context/build-context";
 import { maybeCompactSession } from "@/lib/aria/context/summarize";
@@ -7,6 +10,11 @@ import {
   createCartesiaSpeechStream,
   type CartesiaTtsConfig,
 } from "@/lib/audio/cartesia-tts";
+import {
+  CARTESIA_PCM_ENCODING,
+  cartesiaPcmBytesPerSecond,
+  createCartesiaContextStream,
+} from "@/lib/audio/cartesia-ws";
 import { resolveConnectorToolkits } from "@/lib/composio/intent";
 import { loadComposioAgentTools } from "@/lib/composio/tools-cache";
 import { logAskComplete } from "@/lib/server/context-dev-log";
@@ -24,11 +32,26 @@ import { type ServerEnv } from "@/lib/env";
 import { appendTurn } from "@/lib/sessions/repository";
 import { recordAsk } from "@/lib/plan/repository";
 import type { SessionDoc } from "@/lib/sessions/types";
+import {
+  VoicePhraseBuffer,
+  WordStreamBuffer,
+} from "@/lib/aria/tts-phrase-buffer";
+import { WEB_SEARCH_TOOL_NAME } from "@/lib/aria/tools";
+import { encodeMuxAudio, encodeMuxEvent, encodeMuxText } from "@/lib/audio/answer-mux";
 
-const SENTENCE_BOUNDARY = /[.!?]+["')\]]*\s+|\n+/;
-const FIRST_CHUNK_BOUNDARY = /[,;]+[\s]+|[.!?]+["')\]]*\s+|\n+/;
-const FIRST_CHUNK_MIN_CHARS = 10;
-const NEXT_CHUNK_MIN_CHARS = 60;
+/**
+ * Spoken hand-off for the seconds Anthropic spends searching. A voice that goes
+ * silent through a tool call reads as frozen, so Kivo says one short line while
+ * the lookup runs — the same thing a person does when they reach for a phone.
+ * Kept deliberately brief and varied so a searched answer doesn't open the same
+ * way every time.
+ */
+export const SEARCH_FILLER_PHRASES = [
+  "Let me look that up.",
+  "One second, checking.",
+  "Let me check on that.",
+  "Give me a second to check.",
+] as const;
 
 export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) return true;
@@ -50,11 +73,14 @@ function closeStreamOnAbort(
   return true;
 }
 
-function cartesiaConfig(env: ServerEnv): CartesiaTtsConfig {
+function cartesiaConfig(
+  env: ServerEnv,
+  voice?: AnswerPipelineInput["voice"]
+): CartesiaTtsConfig {
   return {
     apiKey: env.CARTESIA_API_KEY,
     modelId: env.CARTESIA_MODEL_ID,
-    voiceId: env.CARTESIA_VOICE_ID,
+    voiceId: voice?.voiceId || env.CARTESIA_VOICE_ID,
   };
 }
 
@@ -79,12 +105,21 @@ export interface AnswerPipelineInput {
   sourceUtteranceIds?: string[];
   env: ServerEnv;
   signal: AbortSignal;
-  /** User's chosen ask model; defaults to Gemini 2.5 Flash when omitted. */
+  /** User's chosen ask model; defaults to Claude Sonnet 5 when omitted. */
   askModel?: AskModelId;
   /** Reuse an existing pipeline handle (route); one is created if omitted (worker). */
   pipeline?: AskPipelineHandle;
   /** Auth+session setup time for the timing summary; defaults to 0. */
   authSessionMs?: number;
+  /**
+   * Speculative (eager) dispatch: this answer was requested before the
+   * speaker's endpoint was confirmed, to pre-warm the LLM/TTS. It may be
+   * discarded (client aborts before adopting). The `user_question` turn is
+   * written only when the first audio byte is produced, so a discarded
+   * speculative request and a failed TTS attempt both leave no phantom
+   * question in the transcript. Defaults to false.
+   */
+  speculative?: boolean;
   /**
    * Meeting-bot worker: called after each TTS segment is fully synthesized so audio
    * can play into the call immediately instead of waiting for the full answer MP3.
@@ -98,11 +133,41 @@ export interface AnswerPipelineInput {
    * and worker keep the raw, MediaSource-friendly stream byte-for-byte.
    */
   framed?: boolean;
+  /** Per-user voice preference (curated Cartesia preset). */
+  voice?: { voiceId?: string | null };
+  /**
+   * Client can play raw PCM (Web Audio path). When set, the answer is
+   * synthesized through one Cartesia WebSocket context — prosody carries
+   * across sentences instead of resetting per chunk — and the stream is
+   * s16le mono PCM rather than MP3. Falls back to the HTTP MP3 path if the
+   * WS can't be established, reflected in the result's `audioFormat`.
+   */
+  pcmAudio?: boolean;
+  /** Browser AudioContext rate; Cartesia emits matching PCM when supported. */
+  pcmSampleRate?: number;
+  /**
+   * Interleave the answer's text tokens with the PCM audio as framed messages
+   * (see src/lib/audio/answer-mux.ts). Only takes effect on the WS PCM path;
+   * the client uses the live text for echo discrimination and captions.
+   */
+  muxText?: boolean;
+  /** Browser/server correlation id for end-to-end voice timing. */
+  turnId?: string | null;
 }
 
 export interface AnswerPipelineResult {
-  /** MP3 bytes for Kivo's answer. */
+  /** Audio bytes for Kivo's answer (format per `audioFormat`). */
   audioStream: ReadableStream<Uint8Array>;
+  /** "pcm" = raw mono PCM; otherwise MP3. */
+  audioFormat: "mp3" | "pcm";
+  /** True when the stream is the framed text+audio mux (PCM WS path only). */
+  muxed: boolean;
+  pcmSampleRate: number | null;
+  pcmEncoding: typeof CARTESIA_PCM_ENCODING | null;
+  ttsTransport: "cartesia-ws" | "cartesia-http";
+  ttsFallbackReason: string | null;
+  requestedModel: string;
+  effectiveModel: string;
   /** Resolves after streaming + persistence; never rejects (errors surface via the stream). */
   done: Promise<{ answerText: string }>;
 }
@@ -125,31 +190,84 @@ export async function runAnswerPipeline(
   const framed = input.framed ?? false;
   const sessionId = session.id;
 
-  const pipeline = input.pipeline ?? startAskPipeline(sessionId, question);
+  const pipeline =
+    input.pipeline ?? startAskPipeline(sessionId, question, input.turnId ?? null);
   const speakerLabel = speakerName ?? speaker ?? null;
   const askModel = input.askModel ?? DEFAULT_ASK_MODEL_ID;
-  const modelUsed = getAskModelOption(askModel).apiModelId;
+  const requestedModel = getAskModelOption(askModel).apiModelId;
+  const effectiveModel = resolveEffectiveAskModelOption(env, askModel);
+  const modelUsed = effectiveModel.apiModelId;
   const intentToolkits = resolveConnectorToolkits(question);
 
   pipeline.stage("composio.intent", {
     toolkits: intentToolkits.join(",") || "none",
+    requestedModel,
+    effectiveModel: modelUsed,
   });
+
+  // PCM-capable clients get one WS context per answer (prosody continuity).
+  // Connect in parallel with the pre-LLM work; a failure quietly falls back
+  // to the per-chunk HTTP MP3 path before response headers are decided.
+  const wantPcm = (input.pcmAudio ?? false) && !framed && !input.onTtsSegment;
+  const wsContextPromise = wantPcm
+    ? createCartesiaContextStream(
+        {
+          apiKey: env.CARTESIA_API_KEY,
+          modelId: env.CARTESIA_MODEL_ID,
+          voiceId: input.voice?.voiceId || env.CARTESIA_VOICE_ID,
+          sampleRate: input.pcmSampleRate,
+        },
+        signal
+      )
+        .then((ctx) => ({ ctx, fallbackReason: null as string | null }))
+        .catch((err) => {
+          const reason = err instanceof Error ? err.message : "connect_failed";
+          console.warn(
+            "[Ask] Cartesia WS unavailable — falling back to HTTP TTS:",
+            err
+          );
+          pipeline.stage("tts.ws_fallback", { reason });
+          return { ctx: null, fallbackReason: reason };
+        })
+    : Promise.resolve({ ctx: null, fallbackReason: null as string | null });
 
   const askStartedAt = performance.now();
   const authSessionMs = input.authSessionMs ?? 0;
+  const speculative = input.speculative ?? false;
 
-  void appendTurn(uid, sessionId, {
-    role: "user_question",
-    text: question,
-    speaker,
-    speakerName,
-    sourceUtteranceIds: input.sourceUtteranceIds ?? [],
-  })
-    .then(() => pipeline.stage("persist.question", { ok: true }))
-    .catch((err) => {
-      console.error("[Ask] Failed to persist user question turn:", err);
-      pipeline.stage("persist.question", { ok: false });
-    });
+  // Persist the asked question exactly once, when audio is actually ready to
+  // reach the client. That keeps failed LLM/TTS attempts out of the transcript,
+  // so a client retry after a transient provider error cannot accumulate
+  // duplicate user-question turns.
+  let questionPersisted = false;
+  const persistQuestionOnce = () => {
+    if (questionPersisted) return;
+    questionPersisted = true;
+    void appendTurn(uid, sessionId, {
+      role: "user_question",
+      text: question,
+      speaker,
+      speakerName,
+      sourceUtteranceIds: input.sourceUtteranceIds ?? [],
+    })
+      .then(() => pipeline.stage("persist.question", { ok: true }))
+      .catch((err) => {
+        console.error("[Ask] Failed to persist user question turn:", err);
+        pipeline.stage("persist.question", { ok: false });
+      });
+  };
+  if (speculative) pipeline.stage("speculative", { persist: "deferred" });
+
+  // Tool-call events (e.g. web search starting) can fire before the audio
+  // stream's controller exists — queue them and flush once it's ready, so the
+  // client's "searching" signal never gets dropped on a timing race.
+  type ToolEvent = { tool: string; phase: "started" | "completed" };
+  const pendingToolEvents: ToolEvent[] = [];
+  let onToolEventSink: ((event: ToolEvent) => void) | null = null;
+  const handleToolEvent = (event: ToolEvent) => {
+    if (onToolEventSink) onToolEventSink(event);
+    else pendingToolEvents.push(event);
+  };
 
   let textStream: ReadableStream<string>;
   let context: PrefetchedContextBundle;
@@ -196,7 +314,7 @@ export async function runAnswerPipeline(
         console.error("[Composio] Failed to load tools:", err);
         pipeline.stage("composio.done", { cache: "error", tools: 0 });
         return {
-          tools: [] as Awaited<ReturnType<typeof loadComposioAgentTools>>["tools"],
+          tools: {} as Awaited<ReturnType<typeof loadComposioAgentTools>>["tools"],
           cache: "empty" as const,
           fetchMs: 0,
           toolCount: 0,
@@ -224,6 +342,7 @@ export async function runAnswerPipeline(
     agentStart = performance.now();
     textStream = await runAriaAgentStream({
       messages: context.messages,
+      history: context.history,
       question: context.question,
       env,
       uid,
@@ -235,13 +354,20 @@ export async function runAnswerPipeline(
       // get the no-attribution variant of the system prompt.
       askerName: speakerName,
       speakerAware: session.transcriptionMode !== "basic",
+      onToolEvent: handleToolEvent,
     });
     agentReadyMs = performance.now() - agentStart;
     pipeline.stage("agent.ready", { ms: Math.round(agentReadyMs) });
   } catch (err) {
     setAskPipelineForComposio(undefined);
+    void wsContextPromise.then(({ ctx }) => ctx?.abort());
     throw err;
   }
+
+  const { ctx: wsCtx, fallbackReason: ttsFallbackReason } =
+    await wsContextPromise;
+  const audioFormat: "mp3" | "pcm" = wsCtx ? "pcm" : "mp3";
+  const muxed = Boolean(wsCtx) && (input.muxText ?? false);
 
   let resolveDone!: (value: { answerText: string }) => void;
   const done = new Promise<{ answerText: string }>((resolve) => {
@@ -253,9 +379,80 @@ export async function runAnswerPipeline(
       setAskPipelineForComposio(pipeline);
       let assistantText = "";
 
+      // Search can start before TTS is wired up (the agent stream is already
+      // running by then), so a hand-off requested that early is held and spoken
+      // as soon as the chunk queue exists.
+      let speakSearchFiller: (() => void) | null = null;
+      let searchStartedBeforeTts = false;
+
+      // Only the muxed WS-PCM path has a channel for out-of-band signals; on
+      // every other path these are silently dropped and the client falls back
+      // to the generic "thinking" state.
+      onToolEventSink = (event) => {
+        if (event.tool === WEB_SEARCH_TOOL_NAME && event.phase === "started") {
+          if (speakSearchFiller) speakSearchFiller();
+          else searchStartedBeforeTts = true;
+        }
+        if (!muxed || signal.aborted) return;
+        try {
+          controller.enqueue(
+            encodeMuxEvent({
+              type: event.phase === "started" ? "tool_started" : "tool_completed",
+              tool: event.tool,
+            })
+          );
+        } catch {
+          // Stream already closed (client gone) — audio drain handles it.
+        }
+      };
+      for (const event of pendingToolEvents.splice(0)) onToolEventSink(event);
+
+      // Chunk texts whose audio fully reached the client — the best server-side
+      // estimate of what was heard when an abort cuts the answer short.
+      const spokenSegments: string[] = [];
+      let pcmBytesStreamed = 0;
+
+      // WS path streams one continuous PCM answer, so "what was spoken" maps
+      // from streamed audio seconds back onto the text (~150 wpm ≈ 15 chars/s),
+      // snapped to a word boundary.
+      const estimatePcmSpokenText = () => {
+        const seconds =
+          pcmBytesStreamed /
+          cartesiaPcmBytesPerSecond(wsCtx?.sampleRate ?? 24000);
+        if (seconds < 0.4) return "";
+        const full = assistantText.trim();
+        const chars = Math.round(seconds * 15);
+        if (chars >= full.length) return full;
+        const cut = full.lastIndexOf(" ", chars);
+        return (cut > 0 ? full.slice(0, cut) : full.slice(0, chars)).trim();
+      };
+
+      // A stopped answer must still exist in the transcript, holding only what
+      // was actually spoken — otherwise the next ask sees a question Kivo
+      // apparently never answered (or an answer nobody heard).
+      const persistInterruptedAnswer = async () => {
+        const spoken = wsCtx
+          ? estimatePcmSpokenText()
+          : spokenSegments.join(" ").trim();
+        if (!spoken) return;
+        try {
+          await appendTurn(uid, sessionId, {
+            role: "assistant",
+            text: spoken,
+            interrupted: true,
+          });
+          pipeline.stage("persist.interrupted", { chars: spoken.length });
+        } catch (persistErr) {
+          console.error(
+            "[Ask] Failed to persist interrupted answer:",
+            persistErr
+          );
+        }
+      };
+
       try {
         const streamStartedAt = performance.now();
-        const ttsConfig = cartesiaConfig(env);
+        const ttsConfig = cartesiaConfig(env, input.voice);
         let llmFirstTokenMs: number | null = null;
         let llmTextDoneMs: number | null = null;
         let firstTtsEnqueueMs: number | null = null;
@@ -264,6 +461,7 @@ export async function runAnswerPipeline(
         const ttsChunks: { text: string; index: number }[] = [];
         let chunkCount = 0;
         let textStreamDone = false;
+        let searchFillerText: string | null = null;
 
         const enqueueChunk = (text: string) => {
           const t = text.trim();
@@ -280,11 +478,79 @@ export async function runAnswerPipeline(
           ttsChunks.push({ text: t, index: chunkCount });
         };
 
+        // Riding the same Cartesia context as the answer is what makes this
+        // read as one continuous thought rather than a canned clip: same voice,
+        // and prosody carries straight from the hand-off into the first
+        // sentence. It is never spoken over an answer already in progress.
+        speakSearchFiller = () => {
+          if (searchFillerText || chunkCount > 0) return;
+          searchFillerText =
+            SEARCH_FILLER_PHRASES[
+              Math.floor(Math.random() * SEARCH_FILLER_PHRASES.length)
+            ];
+          enqueueChunk(searchFillerText);
+          // The mic hears this line come back through the speakers. Without it
+          // on the text channel, echo discrimination reads Kivo's own hand-off
+          // as someone interrupting and kills the answer before it starts.
+          if (muxed && !signal.aborted) {
+            try {
+              controller.enqueue(encodeMuxText(`${searchFillerText} `));
+            } catch {
+              // Stream already closed (client gone) — audio drain handles it.
+            }
+          }
+          pipeline.stage("search.filler", { chars: searchFillerText.length });
+        };
+        if (searchStartedBeforeTts) speakSearchFiller();
+
+        // WS mode: one Cartesia context per answer. Text chunks are forwarded
+        // as they land and audio comes back as a single continuous PCM stream —
+        // prosody carries across sentences instead of resetting per chunk.
+        const wsDrain = async () => {
+          if (!wsCtx) return;
+          const sender = (async () => {
+            let sent = 0;
+            while (true) {
+              if (signal.aborted) {
+                wsCtx.abort();
+                return;
+              }
+              if (sent >= ttsChunks.length) {
+                if (textStreamDone) break;
+                await new Promise((r) => setTimeout(r, 10));
+                continue;
+              }
+              wsCtx.sendText(ttsChunks[sent++].text);
+            }
+            wsCtx.finish();
+          })();
+
+          const reader = wsCtx.audio.getReader();
+          while (true) {
+            if (signal.aborted) return;
+            const { done: rDone, value } = await reader.read();
+            if (rDone) break;
+            if (!value || value.length === 0) continue;
+            pcmBytesStreamed += value.length;
+            if (firstAudioByteMs == null) {
+              firstAudioByteMs = performance.now() - askStartedAt;
+              pipeline.stage("audio.first_byte", {
+                ms: Math.round(firstAudioByteMs),
+              });
+              // Answer is now committed to being heard — safe to record the
+              // question a deferred (speculative) ask held back. No-op otherwise.
+              persistQuestionOnce();
+            }
+            controller.enqueue(muxed ? encodeMuxAudio(value) : value);
+          }
+          await sender;
+        };
+
         // Cartesia free tier allows low concurrency (2). Playback consumes chunks
         // strictly in order, but synthesis of chunk n+1 starts while chunk n is
         // still streaming (lookahead of 1) so sentences butt up against each
         // other instead of leaving a synth-latency gap between them.
-        const drain = (async () => {
+        const httpDrain = async () => {
           let drainPos = 0;
           let lookahead: Promise<ReadableStream<Uint8Array>> | null = null;
           const startSynth = (text: string) =>
@@ -331,6 +597,7 @@ export async function runAnswerPipeline(
                   pipeline.stage("audio.first_byte", {
                     ms: Math.round(firstAudioByteMs),
                   });
+                  persistQuestionOnce();
                 }
                 // Default (browser/worker): stream raw MP3 bytes as they arrive so
                 // MediaSource playback starts immediately. Framed mode (iOS) emits
@@ -338,6 +605,10 @@ export async function runAnswerPipeline(
                 if (!framed) controller.enqueue(value);
               }
             }
+            // The search hand-off was spoken, but it isn't part of the answer —
+            // keeping it out means an interrupted turn persists what Kivo
+            // actually said rather than opening with "let me look that up".
+            if (text !== searchFillerText) spokenSegments.push(text);
             const merged =
               segmentBytes.length > 0 ? concatChunks(segmentBytes) : null;
             if (framed && merged) {
@@ -351,30 +622,18 @@ export async function runAnswerPipeline(
               await input.onTtsSegment(merged);
             }
           }
-        })();
-
-        const reader = textStream.getReader();
-        let buffer = "";
-        let pending = "";
-
-        const flushPending = () => {
-          if (!pending.trim()) {
-            pending = "";
-            return;
-          }
-          enqueueChunk(pending);
-          pending = "";
         };
 
-        const minCharsForNext = () =>
-          chunkCount === 0 && !pending
-            ? FIRST_CHUNK_MIN_CHARS
-            : NEXT_CHUNK_MIN_CHARS;
+        const drain = wsCtx ? wsDrain() : httpDrain();
 
-        const boundaryForChunk = () =>
-          chunkCount === 0 && !pending
-            ? FIRST_CHUNK_BOUNDARY
-            : SENTENCE_BOUNDARY;
+        const reader = textStream.getReader();
+        // Single-context WS synthesis keeps prosody across fragments, so it can
+        // take word-level chunks for the lowest first-audio latency. The HTTP
+        // path synthesizes each chunk as an isolated utterance and needs whole
+        // sentences to sound acceptable.
+        const phraseBuffer = wsCtx
+          ? new WordStreamBuffer()
+          : new VoicePhraseBuffer();
 
         while (true) {
           const { done: rDone, value } = await reader.read();
@@ -387,23 +646,28 @@ export async function runAnswerPipeline(
             });
           }
           assistantText += value;
-          buffer += value;
-
-          const boundary = boundaryForChunk();
-          while (true) {
-            const match = boundary.exec(buffer);
-            if (!match) break;
-            const end = match.index + match[0].length;
-            pending += buffer.slice(0, end);
-            buffer = buffer.slice(end);
-            if (pending.trim().length >= minCharsForNext()) flushPending();
+          if (muxed && !signal.aborted) {
+            // Text rides ahead of its audio; the client uses it for echo
+            // discrimination and live captions.
+            try {
+              controller.enqueue(encodeMuxText(value));
+            } catch {
+              // Stream already closed (client gone) — audio drain handles it.
+            }
+          }
+          for (const phrase of phraseBuffer.push(value)) {
+            enqueueChunk(phrase);
           }
         }
 
-        pending += buffer;
-        flushPending();
+        for (const phrase of phraseBuffer.finish()) {
+          enqueueChunk(phrase);
+        }
 
-        if (chunkCount === 0) {
+        // Checked against the answer text, not the chunk count: a search
+        // hand-off alone would otherwise pass for output and leave the room
+        // with "let me look that up" and then silence.
+        if (!assistantText.trim()) {
           throw new Error("Kivo produced no output");
         }
 
@@ -419,6 +683,7 @@ export async function runAnswerPipeline(
 
         if (signal.aborted) {
           closeStreamOnAbort(controller, signal);
+          await persistInterruptedAnswer();
           resolveDone({ answerText: assistantText.trim() });
           return;
         }
@@ -486,6 +751,8 @@ export async function runAnswerPipeline(
           answerTokens: estimateTokens(answer),
           composioCache: composioResult.cache,
           composioToolCount: composioResult.toolCount,
+          ttsTransport: wsCtx ? "cartesia-ws" : "cartesia-http",
+          ttsFallbackReason,
         });
 
         logAskComplete({
@@ -517,14 +784,19 @@ export async function runAnswerPipeline(
         resolveDone({ answerText: answer });
       } catch (err) {
         if (closeStreamOnAbort(controller, signal)) {
+          await persistInterruptedAnswer();
           resolveDone({ answerText: assistantText.trim() });
           return;
         }
         if (isAbortError(err, signal)) {
           closeStreamOnAbort(controller, signal);
+          await persistInterruptedAnswer();
           resolveDone({ answerText: assistantText.trim() });
           return;
         }
+        // Mid-stream failure (TTS/LLM died): whatever already played is still
+        // part of the conversation — keep the transcript truthful about it.
+        await persistInterruptedAnswer();
         controller.error(err);
         resolveDone({ answerText: assistantText.trim() });
       } finally {
@@ -533,5 +805,16 @@ export async function runAnswerPipeline(
     },
   });
 
-  return { audioStream, done };
+  return {
+    audioStream,
+    audioFormat,
+    muxed,
+    pcmSampleRate: wsCtx?.sampleRate ?? null,
+    pcmEncoding: wsCtx?.encoding ?? null,
+    ttsTransport: wsCtx ? "cartesia-ws" : "cartesia-http",
+    ttsFallbackReason,
+    requestedModel,
+    effectiveModel: modelUsed,
+    done,
+  };
 }

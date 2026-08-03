@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { isKivoDesktop } from "@/lib/desktop/bridge";
 import { installClientErrorReporter } from "@/lib/errors/client-reporter";
 import { track } from "@/lib/analytics/client";
 import type { EventName } from "@/lib/analytics/events";
@@ -10,6 +11,13 @@ export function ClientBoot() {
   useEffect(() => {
     installClientErrorReporter();
   }, []);
+
+  useEffect(() => {
+    if (!isKivoDesktop()) return;
+    document.documentElement.classList.add("kivo-desktop");
+    document.title = "Kivo";
+  }, []);
+
   return null;
 }
 

@@ -347,9 +347,8 @@ body.menu-locked { overflow: hidden; }
   position: absolute; left: 50%; top: 46%; transform: translate(-50%,-50%);
   width: min(1100px, 120vw); aspect-ratio: 1;
   background:
-    radial-gradient(circle at 42% 44%, rgba(52, 211, 153, 0.22) 0%, transparent 42%),
-    radial-gradient(circle at 58% 52%, rgba(139, 92, 246, 0.18) 0%, transparent 46%),
-    radial-gradient(circle at 50% 50%, rgba(254, 240, 138, 0.1) 0%, transparent 58%);
+    radial-gradient(circle at 50% 50%, rgba(20, 83, 45, 0.28) 0%, transparent 52%),
+    radial-gradient(circle at 48% 46%, rgba(45, 212, 191, 0.12) 0%, transparent 44%);
   z-index: 0; pointer-events: none;
   filter: blur(10px);
   animation: auraPulse 7s ease-in-out infinite;
@@ -852,6 +851,10 @@ section { position: relative; }
 
 .helps-timer {
   margin-top: 32px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
   text-align: left;
 }
 
@@ -864,46 +867,95 @@ section { position: relative; }
   color: var(--ink);
 }
 
-.helps-transcript {
-  flex: 1;
-  margin-top: 28px;
-  padding-top: 22px;
-  border-top: 1px solid var(--hair);
+/* "who's talking" indicator — cycles through tracked speakers */
+.helps-speakers {
   display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-height: 0;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
 }
 
-@media (min-width: 1081px) {
-  .helps-transcript {
-    justify-content: space-between;
-    gap: 0;
+.helps-speaker {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--hair);
+  animation: speakerPulse 4.2s ease-in-out infinite;
+}
+
+@keyframes speakerPulse {
+  0%, 26%, 100% {
+    transform: scale(1);
+    color: var(--muted);
+    border-color: var(--hair);
+    box-shadow: none;
+  }
+  8% {
+    transform: scale(1.1);
+    color: var(--ink);
+    border-color: rgba(52, 211, 153, 0.55);
+    box-shadow: 0 0 0 5px rgba(52, 211, 153, 0.14);
   }
 }
 
-.helps-turn-group {
-  margin: 0;
+@media (prefers-reduced-motion: reduce) {
+  .helps-speaker { animation: none; }
 }
 
-.helps-turn-group.dim {
-  opacity: 0.45;
+.helps-captions {
+  flex: 1;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hair);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
 }
 
-.helps-turn-label {
-  margin: 0;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--faint);
+.helps-caption-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.helps-turn-text {
-  margin: 8px 0 0;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: var(--ink-soft);
+.helps-caption-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.helps-caption-dot.tone-a { background: var(--green); box-shadow: 0 0 10px 1px rgba(52, 211, 153, 0.4); }
+.helps-caption-dot.tone-b { background: #60a5fa; box-shadow: 0 0 10px 1px rgba(96, 165, 250, 0.35); }
+.helps-caption-dot.tone-c { background: #a1a1aa; }
+
+.helps-caption-bar {
+  --tw: 60%;
+  display: block;
+  height: 9px;
+  width: var(--tw);
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--ink-soft), var(--muted));
+  opacity: 0.55;
+  animation: captionType 8s ease-in-out infinite;
+}
+
+@keyframes captionType {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .helps-caption-bar { animation: none; width: var(--tw); opacity: 0.8; }
 }
 
 .helps-quote {
@@ -943,46 +995,14 @@ section { position: relative; }
   pointer-events: none;
 }
 
-.helps-response-box {
+.helps-kivo-line {
   margin-top: auto;
   padding-top: 8px;
-}
-
-.helps-kivo-label {
-  display: block;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.42em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  padding-left: 0.42em;
-  margin-bottom: 12px;
-}
-
-.helps-kivo-line {
-  margin: 0;
-  font-size: 0.94rem;
-  line-height: 1.55;
-  letter-spacing: -0.01em;
+  font-size: clamp(1.1rem, 1.6vw, 1.35rem);
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.02em;
   color: var(--ink);
-}
-
-.helps-wave-mini {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 40px;
-  margin-top: 24px;
-}
-
-.helps-wave-mini i {
-  display: block;
-  width: 3px;
-  border-radius: 1.5px;
-  background: linear-gradient(180deg, var(--ink) 0%, var(--muted) 100%);
-  opacity: 0.55;
-  animation: wavePulse 1.3s ease-in-out infinite;
 }
 
 /* ============================================================
@@ -1151,18 +1171,8 @@ section { position: relative; }
   .bento-tile:hover,
   .price-card:hover { transform: none; }
 
-  /* hide lower transcript turns — keeps the story without the scroll cliff */
-  .helps-transcript .helps-turn-group:nth-child(n + 4) { display: none; }
-  .helps-transcript {
-    max-height: none;
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-
   .helps-orb-stage { min-height: 150px; margin-top: 12px; }
   .helps-orb-wrap { width: min(100%, 180px); }
-  .helps-kivo-line { font-size: 0.9rem; }
-
   .bento { gap: 12px; margin-top: 36px; }
   .bento-tile { min-height: 0; }
   .bento-tile h3 { font-size: 1.18rem; }

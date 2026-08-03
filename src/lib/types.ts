@@ -35,6 +35,7 @@ export type AriaStatus =
   | "wake-detected"
   | "capturing-question"
   | "thinking"
+  | "searching"
   | "speaking"
   | "follow-up-listening"
   | "error";

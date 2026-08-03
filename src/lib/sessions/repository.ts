@@ -16,16 +16,19 @@ import {
 import { getAdminDb } from "@/lib/firebase/admin";
 import { assertActiveProjectOwner } from "@/lib/projects/repository";
 import type {
+  MeetingSummaryDoc,
   SessionDetailResponse,
   SessionDoc,
   SessionFactDoc,
   SessionPinDoc,
+  SessionMode,
   SessionStatus,
   SessionSummaryDoc,
   TranscriptionMode,
   TurnDoc,
   TurnRole,
 } from "@/lib/sessions/types";
+import { parseSessionMode } from "@/lib/sessions/types";
 
 function sessionsCol(db: Firestore, uid: string) {
   return db.collection("users").doc(uid).collection("sessions");
@@ -41,6 +44,12 @@ function turnsCol(db: Firestore, uid: string, sessionId: string) {
 
 function summaryRef(db: Firestore, uid: string, sessionId: string) {
   return sessionRef(db, uid, sessionId).collection("context").doc("summary");
+}
+
+function meetingSummaryRef(db: Firestore, uid: string, sessionId: string) {
+  return sessionRef(db, uid, sessionId)
+    .collection("context")
+    .doc("meetingSummary");
 }
 
 function factsCol(db: Firestore, uid: string, sessionId: string) {
@@ -85,7 +94,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
     searchableTextPreview: String(data.searchableTextPreview ?? ""),
     turnCount: Number(data.turnCount ?? 0),
     pinned: Boolean(data.pinned),
-    mode: data.mode === "bot" ? "bot" : "in_person",
+    mode: parseSessionMode(data.mode),
     transcriptionMode,
     botId: data.botId ? String(data.botId) : null,
     meetingPlatform: data.meetingPlatform
@@ -115,6 +124,8 @@ function mapTurn(id: string, data: DocumentData): TurnDoc {
     tokenEstimate: Number(data.tokenEstimate ?? 0),
     summarized: Boolean(data.summarized),
     createdAt: toIso(data.createdAt),
+    interrupted: Boolean(data.interrupted),
+    heardChars: data.heardChars == null ? null : Number(data.heardChars),
   };
 }
 
@@ -132,6 +143,19 @@ function mapSummary(data: DocumentData): SessionSummaryDoc {
       ? String(data.lastCoveredTurnId)
       : null,
     updatedAt: toIso(data.updatedAt),
+  };
+}
+
+function mapMeetingSummary(data: DocumentData): MeetingSummaryDoc {
+  return {
+    overview: String(data.overview ?? ""),
+    keyPoints: Array.isArray(data.keyPoints) ? data.keyPoints.map(String) : [],
+    decisions: Array.isArray(data.decisions) ? data.decisions.map(String) : [],
+    actionItems: Array.isArray(data.actionItems)
+      ? data.actionItems.map(String)
+      : [],
+    generatedAt: toIso(data.generatedAt),
+    turnCountAtGeneration: Number(data.turnCountAtGeneration ?? 0),
   };
 }
 
@@ -178,6 +202,7 @@ export async function createSession(
     speakerCount: number;
     projectId?: string | null;
     transcriptionMode: TranscriptionMode;
+    mode?: SessionMode;
   }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
@@ -197,6 +222,7 @@ export async function createSession(
     status: "active",
     speakerCount: input.speakerCount,
     transcriptionMode: input.transcriptionMode,
+    mode: input.mode ?? "in_person",
     createdAt: now,
     updatedAt: now,
     endedAt: null,
@@ -274,6 +300,13 @@ export async function listSessions(
   return sessions.slice(0, input.limit);
 }
 
+/** True when the user has at least one session doc (any status). */
+export async function userHasAnySession(uid: string): Promise<boolean> {
+  const db = getAdminDb();
+  const snap = await sessionsCol(db, uid).limit(1).get();
+  return !snap.empty;
+}
+
 export async function getSession(
   uid: string,
   sessionId: string
@@ -302,6 +335,7 @@ export async function patchSession(
     pinned?: boolean;
     autoTitled?: boolean;
     projectId?: string | null;
+    mode?: SessionMode;
   }
 ): Promise<SessionDoc> {
   const db = getAdminDb();
@@ -324,6 +358,7 @@ export async function patchSession(
   if (patch.autoTitled !== undefined) updates.autoTitled = patch.autoTitled;
   if (patch.pinned !== undefined) updates.pinned = patch.pinned;
   if (patch.speakerCount !== undefined) updates.speakerCount = patch.speakerCount;
+  if (patch.mode !== undefined) updates.mode = patch.mode;
   if (patch.projectId !== undefined) {
     const projectId = patch.projectId?.trim() || null;
     if (projectId) {
@@ -419,6 +454,7 @@ export async function appendTurn(
     speakerName?: string | null;
     providerSpeakerLabel?: string | null;
     sourceUtteranceIds?: string[];
+    interrupted?: boolean;
   }
 ): Promise<TurnDoc> {
   const db = getAdminDb();
@@ -438,6 +474,7 @@ export async function appendTurn(
     tokenEstimate,
     summarized: false,
     createdAt: FieldValue.serverTimestamp(),
+    ...(input.interrupted ? { interrupted: true } : {}),
   });
 
   await sessionRef(db, uid, sessionId).update({
@@ -606,6 +643,33 @@ export async function upsertSummary(
   return mapSummary(snap.data() ?? {});
 }
 
+export async function getMeetingSummary(
+  uid: string,
+  sessionId: string
+): Promise<MeetingSummaryDoc | null> {
+  const db = getAdminDb();
+  const snap = await meetingSummaryRef(db, uid, sessionId).get();
+  if (!snap.exists) return null;
+  return mapMeetingSummary(snap.data() ?? {});
+}
+
+export async function upsertMeetingSummary(
+  uid: string,
+  sessionId: string,
+  summary: Omit<MeetingSummaryDoc, "generatedAt">
+): Promise<MeetingSummaryDoc> {
+  const db = getAdminDb();
+  const ref = meetingSummaryRef(db, uid, sessionId);
+
+  await ref.set({
+    ...summary,
+    generatedAt: FieldValue.serverTimestamp(),
+  });
+
+  const snap = await ref.get();
+  return mapMeetingSummary(snap.data() ?? {});
+}
+
 export async function listFacts(
   uid: string,
   sessionId: string
@@ -701,14 +765,15 @@ export async function getSessionDetail(
   const session = await getSession(uid, sessionId);
   if (!session) return null;
 
-  const [turns, summary, facts, pins] = await Promise.all([
+  const [turns, summary, meetingSummary, facts, pins] = await Promise.all([
     listTurns(uid, sessionId, turnLimit),
     getSummary(uid, sessionId),
+    getMeetingSummary(uid, sessionId),
     listFacts(uid, sessionId),
     listPins(uid, sessionId),
   ]);
 
-  return { session, turns, summary, facts, pins };
+  return { session, turns, summary, meetingSummary, facts, pins };
 }
 
 export async function searchTurnsInSession(
@@ -777,12 +842,74 @@ export async function searchContextTurns(
   return picked.sort((a, b) => a.sequence - b.sequence);
 }
 
+/** Speaking rate used to map a playback position to answer text when the
+ * client couldn't report a total duration (~150 wpm ≈ 15 chars/sec). */
+const HEARD_CHARS_PER_SECOND = 15;
+
+function snapToWordBoundary(text: string, chars: number): number {
+  if (chars >= text.length) return text.length;
+  const cut = text.lastIndexOf(" ", chars);
+  return cut > 0 ? cut : chars;
+}
+
+/**
+ * "Stop" arrived while the answer was playing. The turn was already persisted
+ * with the full synthesized text, so record how far playback actually got —
+ * context rendering truncates to what was heard. Targets the most recent
+ * assistant turn; refines rather than overwrites an earlier server-side
+ * estimate (abort-persisted turns keep their spoken-chunk text).
+ */
+export async function markLatestAssistantInterrupted(
+  uid: string,
+  sessionId: string,
+  input: { playedSeconds: number; totalSeconds?: number | null }
+): Promise<{ turnId: string; heardChars: number } | null> {
+  await assertSessionOwner(uid, sessionId);
+  const recent = await getRecentTurns(uid, sessionId, 6);
+  const turn = [...recent].reverse().find((t) => t.role === "assistant");
+  if (!turn) return null;
+  // Abort-persisted turns already hold only the spoken text; a stale or
+  // duplicate report must not truncate them further.
+  if (turn.interrupted && turn.heardChars != null) return null;
+
+  const total =
+    input.totalSeconds && input.totalSeconds > 0 ? input.totalSeconds : null;
+  const rawChars = total
+    ? Math.round((input.playedSeconds / total) * turn.text.length)
+    : Math.round(input.playedSeconds * HEARD_CHARS_PER_SECOND);
+  const heardChars = snapToWordBoundary(
+    turn.text,
+    Math.max(0, Math.min(turn.text.length, rawChars))
+  );
+  // Heard essentially everything — not an interruption worth recording.
+  if (heardChars >= turn.text.length) return null;
+
+  const db = getAdminDb();
+  await turnsCol(db, uid, sessionId).doc(turn.id).update({
+    interrupted: true,
+    heardChars,
+  });
+  return { turnId: turn.id, heardChars };
+}
+
+/** The part of an assistant turn the user actually heard before cutting it off. */
+export function heardTurnText(turn: TurnDoc): string {
+  if (!turn.interrupted) return turn.text;
+  const heard =
+    turn.heardChars != null && turn.heardChars < turn.text.length
+      ? turn.text.slice(0, turn.heardChars).trimEnd()
+      : turn.text;
+  return heard;
+}
+
 export function formatTurnForContext(
   turn: TurnDoc,
   options?: { unregisteredLabel?: string }
 ): string {
   if (turn.role === "assistant") {
-    return `Kivo: ${turn.text}`;
+    return turn.interrupted
+      ? `Kivo: ${heardTurnText(turn)} [the user cut this answer off here]`
+      : `Kivo: ${turn.text}`;
   }
   const unregistered = options?.unregisteredLabel ?? "Unregistered speaker";
   if (turn.role === "user_question") {

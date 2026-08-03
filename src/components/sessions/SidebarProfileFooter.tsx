@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/firebase/AuthProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
+import { isKivoDesktop } from "@/lib/desktop/bridge";
 
 function SettingsIcon({ className }: { className?: string }) {
   return (
@@ -62,10 +63,14 @@ function ThemeModeIcon({ dark }: { dark: boolean }) {
 function useIsDesktopSidebar() {
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 1024px)").matches;
+    return isKivoDesktop() || window.matchMedia("(min-width: 1024px)").matches;
   });
 
   useEffect(() => {
+    if (isKivoDesktop()) {
+      setIsDesktop(true);
+      return;
+    }
     const mq = window.matchMedia("(min-width: 1024px)");
     const onChange = () => setIsDesktop(mq.matches);
     mq.addEventListener("change", onChange);

@@ -5,6 +5,7 @@ import type { UsageSummary } from "@/lib/plan/types";
 import type { Tier } from "@/lib/plan/tiers";
 import type { TranscriptionMode } from "@/lib/sessions/types";
 import type { AskModelId, AskModelOption } from "@/lib/aria/models";
+import type { KivoVoiceOption } from "@/lib/audio/voices";
 
 async function getAuthHeader(): Promise<HeadersInit> {
   const user = auth.currentUser;
@@ -76,6 +77,40 @@ export async function updateAnswerModelPreference(
     method: "PATCH",
     body: JSON.stringify({ answerModel }),
   });
+}
+
+export interface VoiceSettingsPreference {
+  current: { voiceId: string };
+  voices: readonly KivoVoiceOption[];
+}
+
+export async function getVoiceSettings(): Promise<VoiceSettingsPreference> {
+  return apiFetch<VoiceSettingsPreference>("/api/voice-settings");
+}
+
+export async function updateVoiceSettings(settings: {
+  voiceId?: string | null;
+}): Promise<VoiceSettingsPreference> {
+  return apiFetch<VoiceSettingsPreference>("/api/voice-settings", {
+    method: "PATCH",
+    body: JSON.stringify(settings),
+  });
+}
+
+/** MP3 sample of a voice for the settings preview button. */
+export async function fetchVoicePreview(settings: {
+  voiceId: string;
+}): Promise<ArrayBuffer> {
+  const headers = await getAuthHeader();
+  const res = await fetch("/api/voice-settings/preview", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    throw new Error("Could not load the voice preview.");
+  }
+  return res.arrayBuffer();
 }
 
 export interface HeartbeatResult {

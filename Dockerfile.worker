@@ -4,7 +4,7 @@
 # Build:  docker build -f Dockerfile.worker -t kivo-worker .
 # Run:    docker run --env-file .env.local -p 8787:8787 kivo-worker
 #
-# All server env vars must be present (Gemini, Cartesia, Firebase admin, RECALL_*,
+# All server env vars must be present (Anthropic, Cartesia, Firebase admin, RECALL_*,
 # BOT_WORKER_PUBLIC_URL). Recall connects inbound to ws(s)://$BOT_WORKER_PUBLIC_URL/recall.
 
 FROM node:20-slim

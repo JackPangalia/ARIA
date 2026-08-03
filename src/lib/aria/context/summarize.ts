@@ -20,8 +20,8 @@ import {
   type CompactLog,
 } from "@/lib/server/context-dev-log";
 import type { SessionFactDoc } from "@/lib/sessions/types";
-import { geminiGenerateSummary } from "@/lib/aria/llm/gemini-client";
-import { getServerEnv, getSummaryModelId } from "@/lib/env";
+import { llmGenerateSummary } from "@/lib/aria/llm/anthropic-client";
+import { KIVO_MODEL_ID } from "@/lib/aria/models";
 
 type SummarizeResult = {
   summarizedTurnCount: number;
@@ -55,9 +55,8 @@ export async function summarizeSession(
     .map((turn) => formatTurnForContext(turn))
     .join("\n");
 
-  const env = getServerEnv();
-  const parsed = await geminiGenerateSummary({
-    model: getSummaryModelId(env),
+  const parsed = await llmGenerateSummary({
+    model: KIVO_MODEL_ID,
     system: `You compress live meeting transcripts for a voice assistant named Kivo.
 Return structured output with:
 - rollingSummary: dense paragraph preserving names, decisions, disagreements, tasks, and speaker intent

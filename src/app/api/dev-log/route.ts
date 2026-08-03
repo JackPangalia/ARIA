@@ -19,26 +19,38 @@ export async function POST(req: NextRequest) {
     return new NextResponse(null, { status: 204 });
   }
 
-  let body: LogBody;
+  let body: LogBody | { entries?: LogBody[] };
   try {
-    body = (await req.json()) as LogBody;
+    body = (await req.json()) as LogBody | { entries?: LogBody[] };
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  const entries =
+    "entries" in body && Array.isArray(body.entries)
+      ? body.entries
+      : [body as LogBody];
+  for (const entry of entries) {
+    printEntry(entry);
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+function printEntry(body: LogBody): void {
   const type = body.type ?? "log";
   const msg = body.message ?? "";
 
   // Partial/final STT lines flood the terminal; enable with ARIA_DEV_VERBOSE=1.
   if (type === "utterance" && !isVerboseDevLogging()) {
-    return NextResponse.json({ ok: true });
+    return;
   }
 
   if (type === "ask" && body.data && "messages" in body.data) {
     const question =
       typeof body.data.question === "string" ? body.data.question : msg;
     console.log(`[ARIA] mic ask │ ${truncate(question, 100)}`);
-    return NextResponse.json({ ok: true });
+    return;
   }
 
   if (type === "pipeline" && body.data) {
@@ -51,7 +63,18 @@ export async function POST(req: NextRequest) {
     console.log(
       `[ARIA] client │ ${ms.padStart(6, " ")} │ ${msg}${extra ? ` │ ${extra}` : ""}`
     );
-    return NextResponse.json({ ok: true });
+    return;
+  }
+
+  if ((type === "voice-turn" || type === "voice-summary") && body.data) {
+    console.log(
+      `[VOICE_METRIC] ${JSON.stringify({
+        type,
+        message: msg,
+        ...body.data,
+      })}`
+    );
+    return;
   }
 
   const line = body.data && Object.keys(body.data).length > 0
@@ -59,6 +82,4 @@ export async function POST(req: NextRequest) {
     : msg;
 
   console.log(`[ARIA] ${type} │ ${truncate(line, 140)}`);
-
-  return NextResponse.json({ ok: true });
 }

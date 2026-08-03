@@ -25,6 +25,7 @@ import {
 import { emptyUsage, type UsageDoc, type UserPlanDoc } from "@/lib/plan/types";
 import type { TranscriptionMode } from "@/lib/sessions/types";
 import { isAskModelId, type AskModelId } from "@/lib/aria/models";
+import { isKivoVoiceId } from "@/lib/audio/voices";
 
 // Plan + usage live under server-write-only paths (see firestore.rules).
 function planRef(db: Firestore, uid: string) {
@@ -65,6 +66,10 @@ function mapPlan(data: DocumentData): UserPlanDoc {
     currentPeriodEnd: data.currentPeriodEnd ? toIso(data.currentPeriodEnd) : null,
     defaultTranscriptionMode,
     answerModel: isAskModelId(data.answerModel) ? data.answerModel : null,
+    voiceId: isKivoVoiceId(data.voiceId) ? data.voiceId : null,
+    onboardingCompletedAt: data.onboardingCompletedAt
+      ? toIso(data.onboardingCompletedAt)
+      : null,
   };
 }
 
@@ -170,6 +175,20 @@ export async function setAnswerModel(
     },
     { merge: true }
   );
+  return getOrCreatePlan(uid);
+}
+
+/** Voice preference — open to every tier, like the answer model. */
+export async function setVoiceSettings(
+  uid: string,
+  settings: { voiceId?: string | null }
+): Promise<UserPlanDoc> {
+  const db = getAdminDb();
+  const update: Record<string, unknown> = {
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (settings.voiceId !== undefined) update.voiceId = settings.voiceId;
+  await planRef(db, uid).set(update, { merge: true });
   return getOrCreatePlan(uid);
 }
 
@@ -395,6 +414,25 @@ export async function recordAsk(uid: string, tokens: number): Promise<void> {
     },
     { merge: true }
   );
+}
+
+/** Marks first-run onboarding complete. Idempotent if already set. */
+export async function completeOnboarding(uid: string): Promise<UserPlanDoc> {
+  const db = getAdminDb();
+  const ref = planRef(db, uid);
+  const snap = await ref.get();
+  if (snap.exists && snap.data()?.onboardingCompletedAt) {
+    return mapPlan(snap.data() ?? {});
+  }
+  const now = new Date().toISOString();
+  await ref.set(
+    {
+      onboardingCompletedAt: now,
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return getOrCreatePlan(uid);
 }
 
 /** Re-export for callers that want the remaining-seconds calc without a full load. */

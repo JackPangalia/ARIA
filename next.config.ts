@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const securityHeaders = [
   {
@@ -16,6 +17,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Keep Turbopack rooted on this app even if a parent lockfile exists.
+  turbopack: {
+    root: path.join(__dirname),
+  },
   async headers() {
     return [
       {

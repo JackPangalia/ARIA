@@ -1,75 +1,43 @@
-import { tool, type Tool } from "@openai/agents";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { generateText } from "ai";
-import { getGeminiApiKey } from "@/lib/aria/llm/gemini-client";
-import { questionLikelyNeedsSearch } from "@/lib/aria/search-gating";
+import { anthropic } from "@ai-sdk/anthropic";
+import type { ToolSet } from "ai";
 
-const MEETING_SNIPPET_MAX_CHARS = 2000;
+/**
+ * Tool name the model calls; also what agent.ts watches for to fire the
+ * "searching" stream signal. The AI SDK maps Anthropic's provider-side
+ * `web_search` back to whatever key we register here, so this string is what
+ * shows up on the stream parts.
+ */
+export const WEB_SEARCH_TOOL_NAME = "web_search";
 
-function trimMeetingSnippet(messages: string | undefined): string | undefined {
-  if (!messages?.trim()) return undefined;
-  const trimmed = messages.trim();
-  if (trimmed.length <= MEETING_SNIPPET_MAX_CHARS) return trimmed;
-  return `…${trimmed.slice(-MEETING_SNIPPET_MAX_CHARS)}`;
-}
+/**
+ * Anthropic runs query generation, retrieval, result filtering, and any refine
+ * loop inside the same request that writes the answer — nothing comes back to
+ * us in between. Two searches is enough for a follow-up refine while capping
+ * the worst case, which matters because the user is waiting mid-conversation.
+ */
+const MAX_SEARCHES_PER_TURN = 2;
 
-export function getAriaTools(
-  question: string | undefined,
-  modelId: string,
-  options?: { meetingSnippet?: string }
-): Tool[] {
-  if (!question || !questionLikelyNeedsSearch(question)) {
-    return [];
+export function getAriaTools(question: string | undefined): ToolSet {
+  if (!question) {
+    return {};
   }
 
-  const google = createGoogleGenerativeAI({ apiKey: getGeminiApiKey() });
-  const meetingSnippet = trimMeetingSnippet(options?.meetingSnippet);
-
-  return [
-    tool({
-      name: "google_search",
-      description:
-        "Search the web for current, factual, or time-sensitive information when the question needs fresh data beyond the meeting transcript, or when the user asked you to search.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description:
-              "Focused search query (include topic, timeframe, and geography when relevant).",
-          },
-        },
-        required: ["query"],
-      } as never,
-      strict: false,
-      async execute(input: unknown) {
-        const args =
-          typeof input === "object" && input !== null
-            ? (input as { query?: string })
-            : {};
-        const query = args.query?.trim() ?? "";
-        if (!query) return "No search query provided.";
-
-        const userPrompt = meetingSnippet
-          ? `Meeting context (for relevance only):\n${meetingSnippet}\n\nResearch query: ${query}`
-          : `Research query: ${query}`;
-
-        const { text } = await generateText({
-          model: google(modelId),
-          system: `You are a research assistant preparing notes for a live meeting voice assistant.
-Use Google Search to gather current, factual information.
-Return a concise briefing (4-8 sentences) with specific recent developments, names, and dates when available.
-Name publications or sources when useful.
-Do not role-play as the voice assistant or add filler — research notes only.`,
-          prompt: userPrompt,
-          tools: {
-            google_search: google.tools.googleSearch({}),
-          },
-        });
-        return text.trim() || "No search results found.";
-      },
-    }),
-  ];
+  return {
+    // Not the newer webSearch_20260209: that one is only callable through
+    // Anthropic's code-execution sandbox, and the API rejects it outright on
+    // Haiku 4.5 ("does not support programmatic tool calling"). The SDK offers
+    // no way to set `allowed_callers` on a provider tool, so this is the
+    // version that works across every ask model we serve.
+    //
+    // The cast is the SDK's gap, not ours: `ToolSet` can't express a
+    // provider-executed tool's typed input/output, though streamText accepts
+    // one at runtime.
+    //
+    // NOTE: the AI SDK currently mis-pairs `server_tool_use` with a regular
+    // `tool_use` when both land in one assistant turn. Harmless while search is
+    // our only tool; revisit when Composio's client-executed tools come back.
+    [WEB_SEARCH_TOOL_NAME]: anthropic.tools.webSearch_20250305({
+      maxUses: MAX_SEARCHES_PER_TURN,
+    }) as ToolSet[string],
+  };
 }
-
-export { questionLikelyNeedsSearch } from "@/lib/aria/search-gating";

@@ -5,8 +5,8 @@ import {
   listTurns,
   patchSession,
 } from "@/lib/sessions/repository";
-import { geminiGenerateText } from "@/lib/aria/llm/gemini-client";
-import { getServerEnv, getSummaryModelId } from "@/lib/env";
+import { llmGenerateText } from "@/lib/aria/llm/anthropic-client";
+import { KIVO_MODEL_ID } from "@/lib/aria/models";
 import type { SessionDoc, TurnDoc } from "@/lib/sessions/types";
 
 export type AutoTitleSource = "listening" | "qa" | "finalize";
@@ -233,10 +233,9 @@ async function generateTitleFromPrompt(input: {
   user: string;
   fallback: string;
 }): Promise<string | null> {
-  const env = getServerEnv();
   try {
-    const rawTitle = await geminiGenerateText({
-      model: getSummaryModelId(env),
+    const rawTitle = await llmGenerateText({
+      model: KIVO_MODEL_ID,
       system: input.system,
       user: input.user,
       maxOutputTokens: 24,

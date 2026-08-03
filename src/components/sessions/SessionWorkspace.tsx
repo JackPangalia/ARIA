@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Controls } from "@/components/aria/Controls";
-import { MeetingBotControls } from "@/components/aria/MeetingBotControls";
-import { OrbVisualizer } from "@/components/aria/OrbVisualizer";
+import { EditableSessionTitle, OrbVisualizer } from "@/components/aria/OrbVisualizer";
+import { RecordingIsland } from "@/components/aria/RecordingIsland";
+import { SessionViewTabs } from "@/components/aria/SessionViewTabs";
+import { useAriaRecording } from "@/lib/audio/use-aria-recording";
 import {
   SessionSidebar,
   SidebarExpandButton,
@@ -17,22 +18,20 @@ import {
   patchSession,
   subscribeSessionTurns,
 } from "@/lib/sessions/client";
-import { getActiveAriaEngine } from "@/lib/audio/aria-engine";
-import {
-  buildLiveTranscriptLines,
-  type TranscriptLine,
-} from "@/lib/sessions/live-transcript";
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
 import { readSidebarCollapsed, SIDEBAR_WIDTH, storeSidebarCollapsed } from "@/lib/sidebar-layout";
+import { isKivoDesktop } from "@/lib/desktop/bridge";
 import { SettingsModal } from "@/components/firebase/SettingsModal";
+import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import {
-  SessionInsightsPanel,
-  TranscriptExpandButton,
-} from "@/components/sessions/SessionInsightsPanel";
+  getOnboardingStatus,
+  isOnboardingPreview,
+} from "@/lib/onboarding/client";
+import { OverviewView } from "@/components/sessions/OverviewView";
+import { buildLiveTranscriptLines } from "@/lib/sessions/live-transcript";
 import { ProjectHubView } from "@/components/sessions/ProjectHubView";
 import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
-import { MEETING_BOT_ENABLED } from "@/lib/features";
 import {
   archiveProject,
   createProject,
@@ -255,19 +254,10 @@ export function SessionWorkspace() {
   const [projectArchiveId, setProjectArchiveId] = useState<string | null>(null);
   const [moveSessionId, setMoveSessionId] = useState<string | null>(null);
   const [moveTargetProjectId, setMoveTargetProjectId] = useState<string>("unassigned");
-  // false = in-person (mic) mode, true = meeting (bot) mode. One per session so
-  // the two capture paths never run at once. Kept in sync with whatever is live.
-  const [meetingMode, setMeetingMode] = useState(false);
-  const [summaryOpen, setSummaryOpen] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 1024px)").matches;
-  });
-
-  const openSummaryIfDesktop = useCallback(() => {
-    if (window.matchMedia("(min-width: 1024px)").matches) {
-      setSummaryOpen(true);
-    }
-  }, []);
+  // false = voice (orb) modality, true = overview (summary + transcript).
+  // Opens in overview when a session is selected; Start switches to voice.
+  const [overviewMode, setOverviewMode] = useState(true);
+  const [onboardingNeeded, setOnboardingNeeded] = useState<boolean | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -288,7 +278,13 @@ export function SessionWorkspace() {
   }, [setPanelsCollapsed]);
 
   const collapsePanels = useCallback(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    // Electron: skip the slide-out path. Transform animations on the sidebar
+    // ancestor break -webkit-app-region hit-testing, and waiting on
+    // animationend is unreliable with the desktop fill-mode overrides.
+    if (
+      isKivoDesktop() ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
       sidebarExitingRef.current = false;
       setSidebarExiting(false);
       setPanelsCollapsed(true);
@@ -322,6 +318,7 @@ export function SessionWorkspace() {
         "listening",
         "capturing-question",
         "thinking",
+        "searching",
         "speaking",
         "follow-up-listening",
         "wake-detected",
@@ -375,6 +372,11 @@ export function SessionWorkspace() {
     void refreshDetail(selectedSessionId).catch(() => undefined);
   }, [refreshDetail, selectedSessionId]);
 
+  const refreshSelectedChat = useCallback(async () => {
+    if (!selectedSessionId) return [];
+    return (await refreshDetail(selectedSessionId)).turns;
+  }, [refreshDetail, selectedSessionId]);
+
   useEffect(() => {
     if (bootstrappedRef.current) return;
     bootstrappedRef.current = true;
@@ -387,7 +389,6 @@ export function SessionWorkspace() {
         if (existingId) {
           await refreshDetail(existingId);
           expandPanels();
-          openSummaryIfDesktop();
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load sessions.");
@@ -395,14 +396,33 @@ export function SessionWorkspace() {
         setLoading(false);
       }
     })();
-  }, [refreshDetail, refreshProjects, refreshSessions, setError, setLoading, openSummaryIfDesktop, expandPanels]);
+  }, [refreshDetail, refreshProjects, refreshSessions, setError, setLoading, expandPanels]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (isOnboardingPreview()) {
+      setOnboardingNeeded(true);
+      return;
+    }
+    let cancelled = false;
+    void getOnboardingStatus()
+      .then(({ needed }) => {
+        if (!cancelled) setOnboardingNeeded(needed);
+      })
+      .catch(() => {
+        if (!cancelled) setOnboardingNeeded(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loading]);
 
   const goToStartScreen = useCallback(() => {
     setSelectedSessionId(null);
     setDetail(null);
     setError(null);
     setSidebarOpen(false);
-    setSummaryOpen(false);
+    setOverviewMode(false);
   }, [setDetail, setError, setSelectedSessionId, setSidebarOpen]);
 
   const ensureSession = useCallback(async () => {
@@ -417,15 +437,14 @@ export function SessionWorkspace() {
       await refreshSessions(searchQuery);
       setSelectedSessionId(created.id);
       await refreshDetail(created.id);
+      setOverviewMode(true);
       expandPanels();
-      openSummaryIfDesktop();
       return created;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create session.");
       throw err;
     }
   }, [
-    openSummaryIfDesktop,
     refreshDetail,
     refreshSessions,
     searchQuery,
@@ -434,79 +453,59 @@ export function SessionWorkspace() {
     setSelectedSessionId,
   ]);
 
-  const botActive =
-    MEETING_BOT_ENABLED &&
-    (detail?.session.botStatus === "joining" ||
-      detail?.session.botStatus === "live");
-  const micLive = LIVE_ARIA_STATUSES.has(ariaStatus);
+  // Recording lives above the voice/chat views so switching modality never
+  // tears down the mic. One engine, one clock, shared by both.
+  const recording = useAriaRecording({
+    sessionId: selectedSessionId,
+    transcriptionMode: detail?.session.transcriptionMode ?? "speaker",
+    ensureSession,
+    onActivity: handleSessionActivity,
+  });
+  const handleRecordingStart = useCallback(() => {
+    setOverviewMode(false);
+    void recording.requestStart();
+  }, [recording]);
 
-  // The mode actually shown: a running bot forces "meeting", a live mic forces
-  // "in-person", otherwise the user's toggle choice. Switching is disabled while
-  // either is active, so the two modes can never capture simultaneously.
-  const meetingModeActive = botActive ? true : micLive ? false : meetingMode;
-
+  const prevRecordingRef = useRef(false);
   useEffect(() => {
-    if (!selectedSessionId) return;
-    if (!micLive && !botActive) return;
-
-    // Stream committed turns for both bot and mic sessions; polling remains as a
-    // metadata/listener fallback, while mic partials render from local state.
-    let unsubscribeTurns: (() => void) | undefined;
-    if (botActive || micLive) {
-      unsubscribeTurns = subscribeSessionTurns(selectedSessionId, (turns) => {
-        const current = useSessionStore.getState().detail;
-        if (!current || current.session.id !== selectedSessionId) return;
-        setDetail({ ...current, turns });
-      });
+    if (!recording.isRunning && prevRecordingRef.current && selectedSessionId) {
+      setOverviewMode(true);
     }
+    prevRecordingRef.current = recording.isRunning;
+  }, [recording.isRunning, selectedSessionId]);
 
-    const intervalMs = botActive ? 10000 : 8000;
-    const timer = window.setInterval(() => {
-      void refreshDetail(selectedSessionId).catch(() => undefined);
-    }, intervalMs);
-
-    return () => {
-      unsubscribeTurns?.();
-      window.clearInterval(timer);
-    };
-  }, [micLive, botActive, refreshDetail, selectedSessionId, setDetail]);
+  const micLive = LIVE_ARIA_STATUSES.has(ariaStatus);
 
   const transcriptLines = useMemo(
     () =>
       buildLiveTranscriptLines({
         turns: detail?.turns ?? [],
-        utterances: micLive ? liveUtterances : [],
+        utterances: recording.isRunning || micLive ? liveUtterances : [],
       }),
-    [detail?.turns, liveUtterances, micLive]
+    [detail?.turns, liveUtterances, recording.isRunning, micLive]
   );
 
-  // "Wrong speaker?" correction is only meaningful while the mic session that
-  // produced the labels is still running — it relabels this stream's turns and
-  // restarts recognition so the provider re-seeds clean voice clusters.
-  const handleCorrectSpeaker = useCallback(
-    async (line: TranscriptLine, correctedName: string | null) => {
-      const engine = getActiveAriaEngine();
-      if (!engine || !line.providerSpeakerLabel) return;
-      try {
-        await engine.correctSpeakerAttribution({
-          providerSpeakerLabel: line.providerSpeakerLabel,
-          correctedName,
-        });
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to correct the speaker."
-        );
-      }
-    },
-    [setError]
-  );
-  const speakerCorrection =
-    micLive && detail?.session.transcriptionMode !== "basic"
-      ? {
-          enrolledNames: getActiveAriaEngine()?.getEnrolledSpeakerNames() ?? [],
-          onCorrect: handleCorrectSpeaker,
-        }
-      : undefined;
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    if (!micLive) return;
+
+    // Stream committed turns; polling remains as a metadata/listener fallback,
+    // while mic partials render from local state.
+    const unsubscribeTurns = subscribeSessionTurns(selectedSessionId, (turns) => {
+      const current = useSessionStore.getState().detail;
+      if (!current || current.session.id !== selectedSessionId) return;
+      setDetail({ ...current, turns });
+    });
+
+    const timer = window.setInterval(() => {
+      void refreshDetail(selectedSessionId).catch(() => undefined);
+    }, 8000);
+
+    return () => {
+      unsubscribeTurns();
+      window.clearInterval(timer);
+    };
+  }, [micLive, refreshDetail, selectedSessionId, setDetail]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -640,9 +639,9 @@ export function SessionWorkspace() {
     try {
       setSelectedSessionId(sessionId);
       await refreshDetail(sessionId);
+      setOverviewMode(true);
       setSidebarOpen(false);
       expandPanels();
-      openSummaryIfDesktop();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load session.");
     } finally {
@@ -770,6 +769,12 @@ export function SessionWorkspace() {
       ? projects.find((project) => project.id === selectedProjectId) ?? null
       : null;
   const showProjectHub = Boolean(activeProject && !hasSession);
+  const showOverviewPanel =
+    hasSession && overviewMode && !recording.isRunning && !settingsOpen;
+  const showVoicePanel =
+    !settingsOpen &&
+    !showProjectHub &&
+    (!overviewMode || (hasSession && recording.isRunning));
 
   const projectHubSessions = useMemo(
     () =>
@@ -779,9 +784,9 @@ export function SessionWorkspace() {
     [sessions, activeProject]
   );
 
-  if (loading) {
+  if (loading || onboardingNeeded === null) {
     return (
-      <div className="grid h-dvh w-full grid-cols-1 overflow-hidden bg-app">
+      <div className="kivo-desktop-shell grid h-dvh w-full grid-cols-1 overflow-hidden bg-app">
         <div className="flex items-center justify-center">
           <div className="kivo-skeleton h-48 w-48 rounded-full" />
         </div>
@@ -790,37 +795,20 @@ export function SessionWorkspace() {
   }
 
   return (
-    <div className="grid h-dvh w-full grid-cols-1 overflow-hidden bg-app text-app">
-      {showDesktopSidebar ? (
-      <div
-        aria-hidden={panelsCollapsed && !sidebarExiting}
-        className={`fixed inset-y-0 left-0 z-30 hidden h-dvh min-h-0 bg-transparent lg:block${
-          sidebarExiting ? " kivo-slide-out-left" : " kivo-slide-in-left"
-        }`}
-        style={{ width: SIDEBAR_WIDTH }}
-        onAnimationEnd={handleSidebarAnimationEnd}
-      >
-        <SessionSidebar
-          projects={projects}
-          sessions={filteredSessions}
-          selectedSessionId={selectedSessionId}
-          selectedProjectId={selectedProjectId}
-          onOpenSearch={openSearch}
-          onSelectProject={(id) => selectProject(id)}
-          onCreateProject={() => setProjectEditor({ mode: "create" })}
-          onEditProject={(project) => setProjectEditor({ mode: "edit", project })}
-          onSelect={handleSelectSession}
-          onCreate={handleNewSession}
-          onCollapse={collapsePanels}
-          onRename={(id, title) => void handleRename(id, title)}
-          onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
-          onMoveToProject={openMoveSessionDialog}
-          onExportMarkdown={(id) => void handleExport(id, "markdown")}
-          onExportJson={(id) => void handleExport(id, "json")}
-          onTrash={(id) => setTrashConfirmId(id)}
-          onOpenSettings={() => setSettingsOpen(true)}
+    <div
+      className="kivo-desktop-shell relative h-dvh w-full overflow-hidden bg-app text-app"
+      data-sidebar-collapsed={panelsCollapsed && !sidebarExiting ? "true" : "false"}
+    >
+      {onboardingNeeded ? (
+        <OnboardingFlow
+          preview={isOnboardingPreview()}
+          onComplete={() => {
+            setOnboardingNeeded(false);
+            if (isOnboardingPreview()) {
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          }}
         />
-      </div>
       ) : null}
 
       {sidebarOpen ? (
@@ -950,9 +938,43 @@ export function SessionWorkspace() {
         onClose={() => setSearchOpen(false)}
       />
 
-      <section className="relative h-full min-h-0 min-w-0 bg-transparent">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-start px-3 pb-4 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-4">
-          <div className="pointer-events-auto flex items-center gap-1 justify-self-start">
+      {/* In-flow sidebar + main: content cannot underlap the sidebar at any width. */}
+      <div className="flex h-full min-h-0 w-full">
+      {showDesktopSidebar ? (
+      <div
+        aria-hidden={panelsCollapsed && !sidebarExiting}
+        className={`kivo-desktop-sidebar hidden h-full min-h-0 shrink-0 flex-col bg-transparent lg:flex${
+          sidebarExiting ? " kivo-slide-out-left" : " kivo-slide-in-left"
+        }`}
+        style={{ width: SIDEBAR_WIDTH }}
+        onAnimationEnd={handleSidebarAnimationEnd}
+      >
+        <SessionSidebar
+          projects={projects}
+          sessions={filteredSessions}
+          selectedSessionId={selectedSessionId}
+          selectedProjectId={selectedProjectId}
+          onOpenSearch={openSearch}
+          onSelectProject={(id) => selectProject(id)}
+          onCreateProject={() => setProjectEditor({ mode: "create" })}
+          onEditProject={(project) => setProjectEditor({ mode: "edit", project })}
+          onSelect={handleSelectSession}
+          onCreate={handleNewSession}
+          onCollapse={collapsePanels}
+          onRename={(id, title) => void handleRename(id, title)}
+          onTogglePin={(id, pinned) => void handleTogglePin(id, pinned)}
+          onMoveToProject={openMoveSessionDialog}
+          onExportMarkdown={(id) => void handleExport(id, "markdown")}
+          onExportJson={(id) => void handleExport(id, "json")}
+          onTrash={(id) => setTrashConfirmId(id)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      </div>
+      ) : null}
+
+      <section className="kivo-desktop-main relative flex min-h-0 min-w-0 flex-1 flex-col bg-transparent">
+        <header className="kivo-session-topbar pointer-events-auto z-10 flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4">
+          <div className="flex min-w-0 shrink-0 items-center gap-1">
             {panelsCollapsed ? (
               <SidebarExpandButton onClick={() => expandPanels()} />
             ) : null}
@@ -960,47 +982,56 @@ export function SessionWorkspace() {
               type="button"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open sessions"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary active:bg-surface-hover lg:hidden"
+              className="kivo-mobile-open-sidebar inline-flex h-10 w-10 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary active:bg-surface-hover lg:hidden"
             >
               <SidebarToggleIcon />
             </button>
           </div>
 
-          <div className="pointer-events-auto col-start-3 flex items-center gap-1 justify-self-end">
-            {hasSession && !summaryOpen ? (
-              <TranscriptExpandButton onClick={() => setSummaryOpen(true)} />
-            ) : null}
-          </div>
-        </div>
+          {hasSession && detail && selectedSessionId ? (
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-hidden sm:gap-3">
+              <EditableSessionTitle
+                title={detail.session.title}
+                onRenameTitle={(title) => void handleRename(selectedSessionId, title)}
+              />
+              <SessionViewTabs
+                overviewMode={overviewMode}
+                onChange={setOverviewMode}
+                overviewDisabled={recording.isRunning}
+              />
+              {/* Resume/Start lives on the Overview chat dock; keep the island
+                  for Voice idle Start and for live Stop/timer while recording. */}
+              {recording.isRunning || !overviewMode ? (
+                <RecordingIsland
+                  isRunning={recording.isRunning}
+                  busy={recording.busy}
+                  elapsedMs={recording.elapsedMs}
+                  resume={Boolean(detail.session.turnCount > 0)}
+                  disabled={detail.session.status === "archived"}
+                  assistantActive={
+                    ariaStatus === "thinking" ||
+                    ariaStatus === "searching" ||
+                    ariaStatus === "speaking"
+                  }
+                  onStart={handleRecordingStart}
+                  onStop={() => void recording.stop()}
+                  onStopSpeaking={() => {
+                    recording.stopSpeaking();
+                  }}
+                />
+              ) : null}
+            </div>
+          ) : null}
+        </header>
 
         {error ? (
-          <div className="absolute inset-x-4 top-16 z-10 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger">
+          <div className="mx-3 mb-2 shrink-0 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger sm:mx-4">
             {error}
           </div>
         ) : null}
 
-        {hasSession && summaryOpen ? (
-          <div
-            className="fixed inset-0 z-40 flex flex-col bg-app
-              pt-[max(0.75rem,env(safe-area-inset-top))]
-              pb-[max(0.75rem,env(safe-area-inset-bottom))]
-              pl-[max(0.9rem,env(safe-area-inset-left))]
-              pr-[max(0.9rem,env(safe-area-inset-right))]
-              lg:pointer-events-none lg:absolute lg:inset-auto lg:top-0 lg:right-0 lg:bottom-0 lg:z-20
-              lg:max-w-[calc(100%-1rem)] lg:bg-transparent lg:pt-4 lg:pb-4 lg:pr-4 lg:pl-0"
-          >
-            <div className="flex h-full min-h-0 w-full flex-col lg:pointer-events-auto lg:ml-auto lg:w-auto">
-              <SessionInsightsPanel
-                lines={transcriptLines}
-                onCollapse={() => setSummaryOpen(false)}
-                speakerCorrection={speakerCorrection}
-              />
-            </div>
-          </div>
-        ) : null}
-
         {showProjectHub && activeProject ? (
-          <div className="kivo-fade-in pointer-events-none fixed inset-0 z-[5] flex min-h-0 flex-col pt-[max(3.25rem,env(safe-area-inset-top))]">
+          <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
             <ProjectHubView
               project={activeProject}
               sessions={projectHubSessions}
@@ -1014,95 +1045,55 @@ export function SessionWorkspace() {
           </div>
         ) : null}
 
-        {!settingsOpen && !showProjectHub ? (
-          <div className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center">
+        {showOverviewPanel && detail && selectedSessionId ? (
+          <div className="kivo-desktop-content-glass kivo-fade-in min-h-0 flex-1">
+            <OverviewView
+              sessionId={selectedSessionId}
+              summary={detail.meetingSummary ?? null}
+              transcriptLines={transcriptLines}
+              turns={detail.turns}
+              isRunning={recording.isRunning}
+              generating={recording.busy && !recording.isRunning}
+              chatDisabled={detail.session.status === "archived"}
+              onRefreshChat={refreshSelectedChat}
+              resumeLabel={
+                detail.session.turnCount > 0 ? "RESUME" : "START"
+              }
+              resumeBusy={recording.busy}
+              onResume={handleRecordingStart}
+            />
+          </div>
+        ) : null}
+
+        {showVoicePanel ? (
+          <div className="pointer-events-none flex min-h-0 flex-1 items-center justify-center">
             <div className="pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
               <div className="flex flex-col items-center gap-7 sm:gap-10">
                 <div className="relative flex flex-col items-center">
-                  {/* mb must exceed the orb canvas overhang — the particle field
-                      renders at 140% of the 256px orb box, i.e. ~51px past its
-                      top edge — so the pulse never washes over this wordmark. */}
-                  <p className="absolute bottom-full left-1/2 mb-14 flex -translate-x-1/2 select-none items-baseline gap-1.5 whitespace-nowrap pl-[0.65em] text-center text-[10px] font-normal tracking-[0.65em] text-app-subtle">
-                    KIVO
-                    <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1 py-0.5 text-[7px] font-medium tracking-[0.2em]">
-                      BETA
-                    </span>
-                  </p>
-
                   <OrbVisualizer
-                    sessionTitle={detail?.session.title}
-                    onRenameTitle={
-                      selectedSessionId
-                        ? (title) => void handleRename(selectedSessionId, title)
-                        : undefined
+                    onActivate={
+                      detail?.session.status === "archived"
+                        ? undefined
+                        : handleRecordingStart
                     }
                   />
                 </div>
-
-                {MEETING_BOT_ENABLED ? (
-                  <div className="flex flex-col items-center gap-5">
-                    <div className="inline-flex items-center rounded-full border border-app-strong bg-app p-0.5 text-[10px] tracking-[0.18em]">
-                      <button
-                        type="button"
-                        onClick={() => setMeetingMode(false)}
-                        disabled={botActive}
-                        className={`rounded-full px-4 py-1.5 transition-colors disabled:opacity-40 ${
-                          !meetingModeActive
-                            ? "bg-accent text-accent-fg"
-                            : "text-app-subtle hover:text-app-secondary"
-                        }`}
-                      >
-                        IN PERSON
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setMeetingMode(true)}
-                        disabled={micLive}
-                        className={`rounded-full px-4 py-1.5 transition-colors disabled:opacity-40 ${
-                          meetingModeActive
-                            ? "bg-accent text-accent-fg"
-                            : "text-app-subtle hover:text-app-secondary"
-                        }`}
-                      >
-                        MEETING
-                      </button>
-                    </div>
-
-                    {meetingModeActive ? (
-                      <MeetingBotControls
-                        sessionId={selectedSessionId}
-                        botId={detail?.session.botId ?? null}
-                        botStatus={detail?.session.botStatus ?? null}
-                        disabled={detail?.session.status === "archived"}
-                        ensureSession={ensureSession}
-                        onChanged={handleSessionActivity}
-                      />
-                    ) : (
-                      <Controls
-                        sessionId={selectedSessionId}
-                        transcriptionMode={detail?.session.transcriptionMode ?? "speaker"}
-                        disabled={detail?.session.status === "archived"}
-                        resume={Boolean(detail && detail.session.turnCount > 0)}
-                        ensureSession={ensureSession}
-                        onActivity={handleSessionActivity}
-                      />
-                    )}
-                  </div>
-                ) : (
-                  <Controls
-                    sessionId={selectedSessionId}
-                    transcriptionMode={detail?.session.transcriptionMode ?? "speaker"}
-                    disabled={detail?.session.status === "archived"}
-                    resume={Boolean(detail && detail.session.turnCount > 0)}
-                    ensureSession={ensureSession}
-                    onActivity={handleSessionActivity}
-                  />
-                )}
               </div>
             </div>
           </div>
         ) : null}
+
+        <ConfirmDialog
+          open={recording.consentOpen}
+          title="Before Kivo starts listening"
+          description="Kivo transcribes everything your microphone hears, including other people. Make sure everyone present knows the conversation is being transcribed and consents — some places legally require it."
+          confirmLabel="Everyone knows — start"
+          cancelLabel="Not yet"
+          onConfirm={recording.confirmConsent}
+          onCancel={recording.cancelConsent}
+        />
       </section>
+      </div>
     </div>
   );
 }
