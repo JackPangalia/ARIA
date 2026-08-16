@@ -65,7 +65,7 @@ export function SessionActionsMenu(props: {
     <div ref={rootRef} className="relative z-20">
       <button
         type="button"
-        aria-label="Session menu"
+        aria-label="Conversation menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className="rounded-lg p-2 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
@@ -100,7 +100,7 @@ export function SessionActionsMenu(props: {
               setOpen(false);
             }}
           >
-            End session
+            End conversation
           </button>
           <button
             type="button"

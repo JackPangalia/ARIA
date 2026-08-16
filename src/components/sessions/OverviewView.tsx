@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { MeetingChatPanel } from "@/components/sessions/MeetingChatPanel";
 import { TranscriptLines } from "@/components/sessions/SessionInsightsPanel";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
-import type { MeetingSummaryDoc, TurnDoc } from "@/lib/sessions/types";
+import type { MeetingSummaryDoc } from "@/lib/sessions/types";
 
 type OverviewContentMode = "summary" | "transcript";
 
@@ -12,8 +11,9 @@ function ContentModeToggle(props: {
   mode: OverviewContentMode;
   onChange: (mode: OverviewContentMode) => void;
 }) {
+  // Same pill tabs as the hub surfaces.
   const tabClass = (active: boolean) =>
-    `rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
+    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
       active
         ? "bg-surface text-app"
         : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
@@ -23,7 +23,7 @@ function ContentModeToggle(props: {
     <div
       role="tablist"
       aria-label="Overview content"
-      className="mb-3 inline-flex items-center gap-0.5"
+      className="mb-5 flex items-center gap-1"
     >
       <button
         id="overview-tab-summary"
@@ -51,9 +51,37 @@ function ContentModeToggle(props: {
   );
 }
 
+function EmptySessionPrompt(props: {
+  resume: boolean;
+  disabled: boolean;
+  busy: boolean;
+  onStart: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center px-6 text-center">
+      <p className="text-[15px] font-medium text-app">
+        {props.resume ? "Pick up where you left off" : "Ready when you are"}
+      </p>
+      <p className="mt-2 max-w-sm text-sm leading-relaxed text-app-muted">
+        {props.resume
+          ? "No summary or transcript yet. Resume listening and Kivo will pick up from here."
+          : "Start a conversation and Kivo will listen, answer when you ask, and build a summary when you stop."}
+      </p>
+      <button
+        type="button"
+        onClick={props.onStart}
+        disabled={props.busy || props.disabled}
+        className="mt-6 px-1 py-1 text-[13px] font-medium text-app-muted transition-colors hover:text-app-secondary disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {props.disabled ? "Archived" : props.resume ? "Resume" : "Start conversation"}
+      </button>
+    </div>
+  );
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-app-subtle">
+    <p className="px-1 text-xs font-medium uppercase tracking-wider text-app-subtle">
       {children}
     </p>
   );
@@ -62,14 +90,14 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function BulletList({ items }: { items: string[] }) {
   if (items.length === 0) return null;
   return (
-    <ul className="mt-2.5 space-y-2">
+    <ul className="mt-2 space-y-0.5">
       {items.map((item, index) => (
         <li
           key={index}
-          className="flex items-start gap-2.5 text-[15px] leading-relaxed text-app-secondary"
+          className="flex items-start gap-2.5 rounded-xl px-3 py-2.5 text-sm leading-relaxed text-app-secondary transition-colors hover:bg-surface-hover"
         >
-          <span aria-hidden className="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-app-subtle" />
-          <span>{item}</span>
+          <span aria-hidden className="mt-[0.45rem] h-1 w-1 shrink-0 rounded-full bg-app-subtle" />
+          <span className="min-w-0">{item}</span>
         </li>
       ))}
     </ul>
@@ -79,7 +107,7 @@ function BulletList({ items }: { items: string[] }) {
 function SummarySkeleton() {
   return (
     <div
-      className="kivo-fade-in space-y-5"
+      className="kivo-fade-in space-y-5 px-1"
       aria-busy="true"
       aria-label="Generating summary"
     >
@@ -113,8 +141,8 @@ function SummaryCard(props: {
       {props.generating ? (
         <SummarySkeleton />
       ) : props.summary ? (
-        <div className="kivo-fade-in space-y-5">
-          <p className="text-[17px] leading-[1.75] text-app sm:text-lg">
+        <div className="kivo-fade-in space-y-7">
+          <p className="px-1 text-[15px] leading-[1.7] text-app sm:leading-[1.75]">
             {props.summary.overview}
           </p>
 
@@ -140,7 +168,7 @@ function SummaryCard(props: {
           ) : null}
         </div>
       ) : (
-        <p className="text-center text-[15px] leading-relaxed text-app-muted">
+        <p className="px-3 py-3 text-sm font-normal leading-relaxed text-app-subtle">
           {props.isRunning
             ? "The summary appears here once you stop the recording."
             : "Not enough conversation yet to summarize."}
@@ -151,27 +179,47 @@ function SummaryCard(props: {
 }
 
 /**
- * Overview tab — summary and transcript with a floating bottom chat dock.
+ * Overview tab — summary and transcript.
+ * Post-session text chat dock is parked (SESSION_CHAT_ENABLED).
  */
 export function OverviewView(props: {
-  sessionId: string;
   summary: MeetingSummaryDoc | null;
   transcriptLines: TranscriptLine[];
-  turns: TurnDoc[];
   isRunning: boolean;
   generating: boolean;
-  chatDisabled?: boolean;
-  onRefreshChat: () => Promise<TurnDoc[]>;
-  resumeLabel?: "RESUME" | "START";
-  resumeBusy?: boolean;
-  onResume?: () => void;
+  /** True when this session has prior turns (Resume vs Start). */
+  resume: boolean;
+  archived?: boolean;
+  busy?: boolean;
+  onStart: () => void;
 }) {
   const [contentMode, setContentMode] = useState<OverviewContentMode>("summary");
+  const isEmpty =
+    !props.generating &&
+    !props.isRunning &&
+    !props.summary &&
+    props.transcriptLines.length === 0;
+
+  if (isEmpty) {
+    return (
+      <div className="kivo-overview-root flex h-full min-h-0 w-full flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto">
+          <EmptySessionPrompt
+            resume={props.resume}
+            disabled={Boolean(props.archived)}
+            busy={Boolean(props.busy)}
+            onStart={props.onStart}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="kivo-overview-root flex h-full min-h-0 w-full flex-col overflow-hidden">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl px-3 pb-6 sm:max-w-3xl sm:px-4 sm:pb-7">
+        {/* Same column, gutters and top offset as the hub surfaces. */}
+        <div className="mx-auto w-full max-w-3xl px-6 pb-8 pt-6 sm:px-10 sm:pb-10 sm:pt-8">
           <ContentModeToggle mode={contentMode} onChange={setContentMode} />
 
           <div
@@ -192,24 +240,12 @@ export function OverviewView(props: {
             aria-labelledby="overview-tab-transcript"
             hidden={contentMode !== "transcript"}
           >
-            <div className="kivo-overview-surface pb-6 pt-0 sm:pb-7">
+            <div className="kivo-overview-surface px-1 pb-6 pt-0 sm:pb-7">
               <TranscriptLines lines={props.transcriptLines} large />
             </div>
           </div>
         </div>
       </div>
-
-      <MeetingChatPanel
-        key={props.sessionId}
-        sessionId={props.sessionId}
-        turns={props.turns}
-        disabled={props.chatDisabled}
-        onRefresh={props.onRefreshChat}
-        resumeLabel={props.resumeLabel}
-        resumeBusy={props.resumeBusy}
-        resumeDisabled={props.chatDisabled}
-        onResume={props.onResume}
-      />
     </div>
   );
 }

@@ -39,8 +39,9 @@ After a session stops, the same transcript feeds two post-hoc surfaces:
 
 - **Overview summary** — a human-readable recap (overview, key points,
   decisions, action items) generated once on stop.
-- **Chat** — text Q&A over the finished conversation via `/api/chat`. Same
-  context builder as the live voice path, different output modality.
+- **Chat** (parked) — text Q&A over the finished conversation via `/api/chat`
+  is built but disabled (`SESSION_CHAT_ENABLED`). Same context builder as the
+  live voice path; remount `MeetingChatPanel` when ready to ship.
 
 ## Stack
 

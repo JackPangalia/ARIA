@@ -37,7 +37,7 @@ export function SignInForm() {
           ENTER
         </h1>
         <p className="mt-3 text-[11px] leading-relaxed text-app-subtle">
-          Sign in to open the session.
+          Sign in to open the conversation.
         </p>
       </div>
 

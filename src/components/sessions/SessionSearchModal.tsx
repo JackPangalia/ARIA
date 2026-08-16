@@ -272,7 +272,7 @@ function SessionSearchPanel(props: {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Search sessions"
+      aria-label="Search conversations"
       className="grok-settings-modal grok-palette-modal relative z-10 flex min-h-0 flex-col overflow-hidden"
     >
       <div className="grok-palette-search">
@@ -282,7 +282,7 @@ function SessionSearchPanel(props: {
           onChange={(event) => props.onQueryChange(event.target.value)}
           placeholder="Search"
           className="grok-palette-search-input"
-          aria-label="Search sessions"
+          aria-label="Search conversations"
         />
         <SearchIcon className="grok-palette-search-icon" />
       </div>
@@ -299,15 +299,15 @@ function SessionSearchPanel(props: {
             }}
           >
             <ComposeIcon className="shrink-0 opacity-80" />
-            <span>Create New Chat</span>
+            <span>New conversation</span>
           </button>
         </div>
 
         {flatSessions.length === 0 ? (
           <p className="grok-palette-empty">
             {props.query.trim()
-              ? "No sessions match your search."
-              : "No sessions yet."}
+              ? "No conversations match your search."
+              : "No conversations yet."}
           </p>
         ) : (
           groups.map((group) => (

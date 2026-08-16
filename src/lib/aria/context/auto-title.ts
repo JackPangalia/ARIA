@@ -98,8 +98,8 @@ Transcript planning a NYC trip -> NYC trip planning`;
 
 export function isGenericSessionTitle(title: string): boolean {
   const trimmed = title.trim();
-  if (trimmed === "Untitled session") return true;
-  if (trimmed.startsWith("Session ")) return true;
+  if (trimmed === "Untitled session" || trimmed === "Untitled conversation") return true;
+  if (trimmed.startsWith("Session ") || trimmed.startsWith("Conversation ")) return true;
   return false;
 }
 

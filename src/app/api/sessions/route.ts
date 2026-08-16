@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     const parsed = CreateSessionSchema.safeParse(body);
     if (!parsed.success) {
-      return jsonError("Invalid session payload.", 400);
+      return jsonError("Invalid conversation payload.", 400);
     }
 
     const { plan, limits, usage } = await loadEntitlements(uid);

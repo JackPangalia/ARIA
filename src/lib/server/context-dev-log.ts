@@ -168,6 +168,7 @@ export function logContextVerboseBlock(title: string, body: string): void {
 export function logRawPrompt(input: {
   system: string;
   user: string;
+  stable?: string;
   history?: Array<{ role: "user" | "assistant"; text: string }>;
   model?: string;
   approxTokens?: number;
@@ -177,11 +178,12 @@ export function logRawPrompt(input: {
 
   const bar = "━".repeat(64);
   const history = input.history ?? [];
+  const stable = input.stable?.trim() ?? "";
   const meta = [
     input.model ? `model ${input.model}` : null,
     input.approxTokens != null ? `~${input.approxTokens} tok` : null,
     history.length ? `${history.length} history turns` : null,
-    `${input.system.length + input.user.length}c`,
+    `${input.system.length + stable.length + input.user.length}c`,
   ]
     .filter(Boolean)
     .join(" │ ");
@@ -191,6 +193,10 @@ export function logRawPrompt(input: {
   console.log(`${PREFIX} ${bar}`);
   console.log(`${PREFIX} ───── SYSTEM ─────`);
   console.log(input.system);
+  if (stable) {
+    console.log(`${PREFIX} ───── STABLE CONTEXT (cached) ─────`);
+    console.log(stable);
+  }
   for (const turn of history) {
     console.log(
       `${PREFIX} ───── ${turn.role === "user" ? "HISTORY USER" : "HISTORY KIVO"} ─────`

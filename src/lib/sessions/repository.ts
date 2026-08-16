@@ -80,7 +80,7 @@ function mapSession(id: string, data: DocumentData): SessionDoc {
     data.transcriptionMode === "basic" ? "basic" : "speaker";
   return {
     id,
-    title: String(data.title ?? "Untitled session"),
+    title: String(data.title ?? "Untitled conversation"),
     projectId: data.projectId ? String(data.projectId) : null,
     autoTitled: Boolean(data.autoTitled),
     status: (data.status ?? "active") as SessionStatus,
@@ -183,7 +183,7 @@ function mapPin(id: string, data: DocumentData): SessionPinDoc {
 
 function defaultTitle(): string {
   const now = new Date();
-  return `Session ${now.toLocaleDateString()} ${now.toLocaleTimeString([], {
+  return `Conversation ${now.toLocaleDateString()} ${now.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   })}`;
@@ -320,7 +320,7 @@ export async function getSession(
 export async function assertSessionOwner(uid: string, sessionId: string) {
   const session = await getSession(uid, sessionId);
   if (!session) {
-    throw new Error("Session not found.");
+    throw new Error("Conversation not found.");
   }
   return session;
 }
@@ -342,7 +342,7 @@ export async function patchSession(
   const ref = sessionRef(db, uid, sessionId);
   const snap = await ref.get();
   if (!snap.exists) {
-    throw new Error("Session not found.");
+    throw new Error("Conversation not found.");
   }
 
   const updates: Record<string, unknown> = {
@@ -399,7 +399,7 @@ export async function setSessionBotState(
   const ref = sessionRef(db, uid, sessionId);
   const snap = await ref.get();
   if (!snap.exists) {
-    throw new Error("Session not found.");
+    throw new Error("Conversation not found.");
   }
 
   const updates: Record<string, unknown> = {
@@ -425,7 +425,7 @@ export async function deleteSession(
   const ref = sessionRef(db, uid, sessionId);
   const snap = await ref.get();
   if (!snap.exists) {
-    throw new Error("Session not found.");
+    throw new Error("Conversation not found.");
   }
   await db.recursiveDelete(ref);
 }

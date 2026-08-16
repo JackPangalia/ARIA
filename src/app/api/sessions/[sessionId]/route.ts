@@ -19,13 +19,13 @@ export async function GET(req: NextRequest, context: RouteContext) {
     const { sessionId } = await context.params;
     const detail = await getSessionDetail(uid, sessionId);
     if (!detail) {
-      return jsonError("Session not found.", 404);
+      return jsonError("Conversation not found.", 404);
     }
     // Plan history retention: hide (never delete) sessions past the window.
     const { limits } = await loadEntitlements(uid);
     const cutoff = historyCutoffIso(limits, new Date());
     if (cutoff && detail.session.updatedAt < cutoff) {
-      return jsonError("Session not found.", 404);
+      return jsonError("Conversation not found.", 404);
     }
     return jsonOk(detail);
   });
@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 
     const parsed = PatchSessionSchema.safeParse(body);
     if (!parsed.success) {
-      return jsonError("Invalid session patch payload.", 400);
+      return jsonError("Invalid conversation patch payload.", 400);
     }
 
     try {

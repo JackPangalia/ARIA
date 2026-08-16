@@ -8,6 +8,8 @@ import {
 
 const bundle = {
   messages: "stable context",
+  stableContext: "stable context",
+  liveTranscript: "",
   history: [],
   tokenEstimate: 10,
   question: "draft",

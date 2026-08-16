@@ -66,6 +66,11 @@ export class CueEngine {
     this.master.connect(this.ctx.destination);
   }
 
+  /** Sample rate of the unlocked playback context, once `ensureReady` has run. */
+  get sampleRate(): number | null {
+    return this.ctx?.sampleRate ?? null;
+  }
+
   // The answer-playback path schedules raw PCM through this already-unlocked
   // context (a fresh AudioContext could start suspended outside a gesture).
   async getPlaybackContext(): Promise<{

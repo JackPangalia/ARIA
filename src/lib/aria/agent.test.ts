@@ -63,6 +63,8 @@ vi.mock("./tools", async () => {
 const {
   buildAriaSystemPrompt,
   buildAriaUserPrompt,
+  buildAriaStableContextPrompt,
+  buildAriaInputItems,
   resolveEffectiveAskModelOption,
   runAriaAgentStream,
 } = await import("./agent");
@@ -144,6 +146,59 @@ describe("voice agent configuration", () => {
       "Respond now as Kivo, out loud"
     );
     expect(buildAriaUserPrompt(userInput)).toContain("Current time:");
+  });
+});
+
+describe("Anthropic prompt cache layout", () => {
+  it("keeps updatedAt and the live question out of the cached stable block", () => {
+    const stable = buildAriaStableContextPrompt(
+      "# Session\nTitle: Planning\nStatus: active"
+    );
+    expect(stable).toContain("# Session");
+    expect(stable).not.toContain("Updated:");
+    expect(stable).not.toContain("Current time:");
+    expect(stable).not.toContain("What you're being asked");
+  });
+
+  it("puts the question and current time only on the uncached live prompt", () => {
+    const live = buildAriaUserPrompt({
+      liveTranscript: "# Recent room transcript\nSpeaker: ship Friday",
+      question: "When are we shipping?",
+    });
+    expect(live).toContain("When are we shipping?");
+    expect(live).toContain("Current time:");
+    expect(live).toContain("ship Friday");
+  });
+
+  it("marks cache on stable context and last history, not on the final question", () => {
+    const items = buildAriaInputItems({
+      stableContext: "# Session\nTitle: Planning",
+      history: [
+        { role: "user", text: "first ask" },
+        { role: "assistant", text: "first answer" },
+      ],
+      finalUserPrompt: "Current time: now\n\nWhen are we shipping?",
+      provider: "anthropic",
+    });
+
+    expect(items).toHaveLength(4);
+    expect(items[0]).toMatchObject({
+      role: "user",
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    });
+    expect(String(items[0].content)).toContain("Title: Planning");
+    expect(items[1]).toMatchObject({ role: "user", content: "first ask" });
+    expect(items[1].providerOptions).toBeUndefined();
+    expect(items[2]).toMatchObject({
+      role: "assistant",
+      content: "first answer",
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    });
+    expect(items[3]).toMatchObject({
+      role: "user",
+      content: "Current time: now\n\nWhen are we shipping?",
+    });
+    expect(items[3].providerOptions).toBeUndefined();
   });
 });
 

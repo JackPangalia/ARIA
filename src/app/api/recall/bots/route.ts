@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     try {
       await assertSessionOwner(uid, sessionId);
     } catch {
-      return jsonError("Session not found.", 404);
+      return jsonError("Conversation not found.", 404);
     }
 
     const recall = RecallClient.fromEnv(env);

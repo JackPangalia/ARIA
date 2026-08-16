@@ -277,6 +277,7 @@ export async function runAnswerPipeline(
   let preLlmMs: number;
   let agentStart: number;
   let agentReadyMs: number;
+  let promptCacheReadTokens: number | null = null;
 
   setAskPipelineForComposio(pipeline);
   try {
@@ -342,6 +343,8 @@ export async function runAnswerPipeline(
     agentStart = performance.now();
     textStream = await runAriaAgentStream({
       messages: context.messages,
+      stableContext: context.stableContext,
+      liveTranscript: context.liveTranscript,
       history: context.history,
       question: context.question,
       env,
@@ -355,6 +358,9 @@ export async function runAnswerPipeline(
       askerName: speakerName,
       speakerAware: session.transcriptionMode !== "basic",
       onToolEvent: handleToolEvent,
+      onUsage: (usage) => {
+        promptCacheReadTokens = usage.cachedInputTokens;
+      },
     });
     agentReadyMs = performance.now() - agentStart;
     pipeline.stage("agent.ready", { ms: Math.round(agentReadyMs) });
@@ -753,6 +759,7 @@ export async function runAnswerPipeline(
           composioToolCount: composioResult.toolCount,
           ttsTransport: wsCtx ? "cartesia-ws" : "cartesia-http",
           ttsFallbackReason,
+          promptCacheReadTokens,
         });
 
         logAskComplete({

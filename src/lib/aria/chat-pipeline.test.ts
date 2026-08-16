@@ -41,6 +41,8 @@ vi.mock("@/lib/aria/context/build-context", () => ({
     contextCalls.push(input);
     return {
       messages: "meeting context",
+      stableContext: "meeting context",
+      liveTranscript: "",
       history: [],
       question: input.question,
       tokenEstimate: 4,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getUsage } from "@/lib/plan/client";
 import type { UsageSummary } from "@/lib/plan/types";
 import { useAriaStore } from "@/lib/store";
@@ -12,31 +12,36 @@ function formatHm(seconds: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function Bar({
-  label,
-  detail,
-  pct,
-  danger,
-}: {
+function StatCard(props: {
   label: string;
-  detail: string;
+  value: ReactNode;
   pct: number;
   danger: boolean;
+  sub: string;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between text-[10px] tracking-[0.12em] text-app-muted">
-        <span className="uppercase">{label}</span>
-        <span className="tabular-nums">{detail}</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
+    <div className="grok-stat-card">
+      <p className="grok-stat-label">{props.label}</p>
+      <p className="grok-stat-value">{props.value}</p>
+      <div className="grok-meter-track">
         <div
-          className={`h-full rounded-full transition-[width] duration-500 ${
-            danger ? "bg-danger" : "bg-accent"
-          }`}
-          style={{ width: `${Math.min(100, Math.max(2, pct))}%` }}
+          className="grok-meter-fill"
+          data-danger={props.danger}
+          style={{ width: `${Math.min(100, Math.max(2, props.pct))}%` }}
         />
       </div>
+      <p className="grok-stat-sub">{props.sub}</p>
+    </div>
+  );
+}
+
+function StatCardSkeleton() {
+  return (
+    <div className="grok-stat-card" aria-busy="true">
+      <div className="kivo-skeleton h-3 w-20 rounded-full" />
+      <div className="kivo-skeleton h-6 w-24 rounded-full" />
+      <div className="kivo-skeleton h-1.5 w-full rounded-full" />
+      <div className="kivo-skeleton h-3 w-28 rounded-full" />
     </div>
   );
 }
@@ -68,23 +73,45 @@ export function UsageMeter() {
     // Re-run (refetch) whenever listening status changes — e.g. after stop/ask.
   }, [status]);
 
-  if (!usage) return null;
+  if (!usage) {
+    return (
+      <div className="grok-stat-grid">
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex w-full max-w-[19rem] flex-col gap-3">
-      <Bar
+    <div className="grok-stat-grid">
+      <StatCard
         label="Listening"
-        detail={`${formatHm(usage.listening.usedSeconds)} / ${formatHm(
-          usage.listening.capSeconds
-        )}`}
+        value={
+          <>
+            {formatHm(usage.listening.usedSeconds)}{" "}
+            <span className="grok-stat-cap">
+              / {formatHm(usage.listening.capSeconds)}
+            </span>
+          </>
+        }
         pct={usage.listening.pct}
         danger={usage.listening.pct >= 90}
+        sub={
+          usage.listening.exhausted
+            ? "Used up — upgrade for more hours"
+            : `${formatHm(usage.listening.remainingSeconds)} left this month`
+        }
       />
-      <Bar
-        label="Asks"
-        detail={`${usage.asks.pct}%`}
+      <StatCard
+        label="Kivo asks"
+        value={`${usage.asks.pct}%`}
         pct={usage.asks.pct}
         danger={usage.asks.pct >= 90}
+        sub={
+          usage.asks.exhausted
+            ? "Used up — upgrade for more asks"
+            : "of this month's allowance used"
+        }
       />
     </div>
   );

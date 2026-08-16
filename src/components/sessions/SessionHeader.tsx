@@ -16,7 +16,7 @@ export function SessionHeader(props: {
           defaultValue={props.session.title}
           onBlur={(event) => props.onRename(event.target.value)}
           className="w-full bg-transparent text-base font-medium text-zinc-100 outline-none lg:text-lg"
-          aria-label="Session title"
+          aria-label="Conversation title"
         />
         <p className="mt-0.5 text-xs text-zinc-500">
           {props.session.status.toUpperCase()} · Updated{" "}

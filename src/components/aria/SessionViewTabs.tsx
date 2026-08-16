@@ -1,12 +1,16 @@
 "use client";
 
 /**
- * Lightweight Voice / Overview switch — sits in the session header row beside
- * the sidebar controls, aligned with the KIVO mark. No recording chrome.
+ * Session header switch — Overview to review the session, Resume/Start to
+ * begin listening. Replaces the old Voice tab (the orb is the voice surface;
+ * Resume is the action).
  */
 export function SessionViewTabs(props: {
   overviewMode: boolean;
   onChange: (overview: boolean) => void;
+  resume: boolean;
+  onResume: () => void;
+  resumeDisabled?: boolean;
   overviewDisabled?: boolean;
 }) {
   const tabClass = (active: boolean, disabled?: boolean) =>
@@ -22,19 +26,22 @@ export function SessionViewTabs(props: {
     <div className="inline-flex items-center gap-0.5">
       <button
         type="button"
-        onClick={() => props.onChange(false)}
-        className={tabClass(!props.overviewMode)}
-      >
-        Voice
-      </button>
-      <button
-        type="button"
         onClick={() => props.onChange(true)}
         disabled={props.overviewDisabled}
         className={tabClass(props.overviewMode, props.overviewDisabled)}
       >
         Overview
       </button>
+      {props.overviewMode ? (
+        <button
+          type="button"
+          onClick={props.onResume}
+          disabled={props.resumeDisabled}
+          className={tabClass(false, props.resumeDisabled)}
+        >
+          {props.resume ? "Resume" : "Start"}
+        </button>
+      ) : null}
     </div>
   );
 }

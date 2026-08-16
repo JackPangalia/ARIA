@@ -31,7 +31,9 @@ function turn(
 describe("isGenericSessionTitle", () => {
   it("treats default session titles as generic", () => {
     expect(isGenericSessionTitle("Untitled session")).toBe(true);
+    expect(isGenericSessionTitle("Untitled conversation")).toBe(true);
     expect(isGenericSessionTitle("Session 6/1/2026 2:30 PM")).toBe(true);
+    expect(isGenericSessionTitle("Conversation 6/1/2026 2:30 PM")).toBe(true);
   });
 
   it("treats custom titles as non-generic", () => {

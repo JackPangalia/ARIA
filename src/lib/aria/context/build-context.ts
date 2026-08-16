@@ -71,14 +71,13 @@ export function buildHistoryTurns(turns: TurnDoc[]): ContextHistoryTurn[] {
     );
 }
 
-function buildSessionHeader(session: SessionDoc): string {
+export function buildSessionHeader(session: SessionDoc): string {
   return [
     `# Session`,
     `Title: ${session.title}`,
     session.projectId ? `Project ID: ${session.projectId}` : null,
     `Status: ${session.status}`,
     `Speakers expected: ${session.speakerCount}`,
-    `Updated: ${session.updatedAt}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -202,10 +201,17 @@ export async function buildContextBundle(input: {
     project,
     sources: projectSources,
   });
-  const dynamicSections: string[] = [buildSessionHeader(input.session)];
+
+  const pinnedFacts = facts.filter((fact) => fact.pinned);
+  const generatedFacts = facts.filter((fact) => !fact.pinned).slice(0, 20);
+
+  const stableSections: string[] = [
+    projectSection,
+    buildSessionHeader(input.session),
+  ].filter((section): section is string => Boolean(section));
 
   if (rollingSummary) {
-    dynamicSections.push(`# Rolling summary\n\n${rollingSummary}`);
+    stableSections.push(`# Rolling summary\n\n${rollingSummary}`);
   }
 
   if (meetingSummary) {
@@ -221,42 +227,41 @@ export async function buildContextBundle(input: {
         ? `Action items:\n${meetingSummary.actionItems.map((item) => `- ${item}`).join("\n")}`
         : null,
     ].filter(Boolean);
-    dynamicSections.push(`# Final meeting summary\n\n${sections.join("\n\n")}`);
+    stableSections.push(`# Final meeting summary\n\n${sections.join("\n\n")}`);
   }
 
   if (summary && summary.keyDecisions.length > 0) {
-    dynamicSections.push(
+    stableSections.push(
       `# Key decisions\n\n${summary.keyDecisions.map((item) => `- ${item}`).join("\n")}`
     );
   }
 
   if (summary && summary.openQuestions.length > 0) {
-    dynamicSections.push(
+    stableSections.push(
       `# Open questions\n\n${summary.openQuestions.map((item) => `- ${item}`).join("\n")}`
     );
   }
-
-  const pinnedFacts = facts.filter((fact) => fact.pinned);
-  const generatedFacts = facts.filter((fact) => !fact.pinned).slice(0, 20);
 
   if (pinnedFacts.length > 0 || generatedFacts.length > 0) {
     const lines = [
       ...pinnedFacts.map((fact) => `- [pinned ${fact.category}] ${fact.text}`),
       ...generatedFacts.map((fact) => `- [${fact.category}] ${fact.text}`),
     ];
-    dynamicSections.push(`# Key facts\n\n${lines.join("\n")}`);
+    stableSections.push(`# Key facts\n\n${lines.join("\n")}`);
   }
 
   if (pins.length > 0) {
-    dynamicSections.push(
+    stableSections.push(
       `# Pinned snippets\n\n${pins
         .map((pin) => `- ${pin.label}: ${pin.snippet}`)
         .join("\n")}`
     );
   }
 
+  const liveSections: string[] = [];
+
   if (supplementalHits.length > 0) {
-    dynamicSections.push(
+    liveSections.push(
       `# Relevant earlier context\n\n${supplementalHits
         .map((turn) => formatTurnForContext(turn))
         .join("\n")}`
@@ -264,7 +269,7 @@ export async function buildContextBundle(input: {
   }
 
   if (roomTurns.length > 0) {
-    dynamicSections.push(
+    liveSections.push(
       `# Recent room transcript\n\n${roomTurns
         .map((turn) => formatTurnForContext(turn))
         .join("\n")}`
@@ -273,8 +278,9 @@ export async function buildContextBundle(input: {
 
   let historyTurns = history;
   const historyTexts = () => historyTurns.map((turn) => turn.text);
-  let dynamicMessages = dynamicSections.join("\n\n");
-  let messages = [projectSection, dynamicMessages].filter(Boolean).join("\n\n");
+  let stableContext = stableSections.join("\n\n");
+  let liveTranscript = liveSections.join("\n\n");
+  let messages = [stableContext, liveTranscript].filter(Boolean).join("\n\n");
   let tokenEstimate = estimateTokensForTexts([
     messages,
     ...historyTexts(),
@@ -283,29 +289,28 @@ export async function buildContextBundle(input: {
   let budgetTrimApplied = false;
 
   if (
-    estimateTokensForTexts([dynamicMessages, ...historyTexts(), question]) >
+    estimateTokensForTexts([messages, ...historyTexts(), question]) >
     CONTEXT_BUDGET_TOKENS
   ) {
     budgetTrimApplied = true;
     historyTurns = history.slice(-12);
     const trimmedRoom = roomTurns.slice(-10);
-    const compactSections = [
+    stableContext = [
+      projectSection,
       buildSessionHeader(input.session),
-      rollingSummary
-        ? `# Rolling summary\n\n${rollingSummary}`
-        : null,
+      rollingSummary ? `# Rolling summary\n\n${rollingSummary}` : null,
       meetingSummary
         ? `# Final meeting summary\n\n${meetingSummary.overview}`
         : null,
-      trimmedRoom.length
-        ? `# Recent room transcript\n\n${trimmedRoom
-            .map((turn) => formatTurnForContext(turn))
-            .join("\n")}`
-        : null,
-    ].filter(Boolean);
-
-    dynamicMessages = compactSections.join("\n\n");
-    messages = [projectSection, dynamicMessages].filter(Boolean).join("\n\n");
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    liveTranscript = trimmedRoom.length
+      ? `# Recent room transcript\n\n${trimmedRoom
+          .map((turn) => formatTurnForContext(turn))
+          .join("\n")}`
+      : "";
+    messages = [stableContext, liveTranscript].filter(Boolean).join("\n\n");
     tokenEstimate = estimateTokensForTexts([
       messages,
       ...historyTexts(),
@@ -350,7 +355,15 @@ export async function buildContextBundle(input: {
   // Full context is now printed verbatim by logRawPrompt() at agent run time,
   // so we no longer duplicate the assembled messages block here.
 
-  return { messages, history: historyTurns, tokenEstimate, question, log };
+  return {
+    messages,
+    stableContext,
+    liveTranscript,
+    history: historyTurns,
+    tokenEstimate,
+    question,
+    log,
+  };
 }
 
 export { shouldCompactSession } from "@/lib/aria/context/turn-selection";

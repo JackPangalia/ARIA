@@ -334,11 +334,6 @@ export function ConnectorsManager(props: { grok?: boolean }) {
   if (props.grok) {
     return (
       <section>
-        <p className="grok-settings-section-title">Connectors</p>
-        <p className="grok-settings-section-desc">
-          Connect apps so Kivo can read from and write to them when you ask.
-        </p>
-
         {error ? (
           <p className="mb-4 text-[13px] text-[#f87171]">{error}</p>
         ) : null}

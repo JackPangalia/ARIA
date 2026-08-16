@@ -36,6 +36,8 @@ const mockCueMethods = vi.hoisted(() => ({
   stopWorkCue: vi.fn(),
   dispose: vi.fn(),
   playClip: vi.fn(),
+  getPlaybackContext: vi.fn(async () => null),
+  sampleRate: 48000,
 }));
 
 vi.mock("@/lib/store", () => ({
@@ -545,7 +547,7 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
   });
 
-  it("does not force the endpoint on a rambling statement", () => {
+  it("does not force the endpoint on a first-wake rambling statement", () => {
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
@@ -559,6 +561,118 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     forceEndpoint(engine);
 
     expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+    expect(askSessionQuestion).not.toHaveBeenCalled();
+  });
+
+  it("does not force a follow-up complete thought — waits for acoustic EOU", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    (
+      engine as unknown as {
+        handleFollowUp: (
+          id: string,
+          speaker: number,
+          speakerName: string | null,
+          providerSpeakerLabel: string | null
+        ) => void;
+      }
+    ).handleFollowUp("u-fu", 0, null, null);
+    emit(engine, {
+      ...utterance("so I've been looking at the landing page numbers", "u2"),
+      isFinal: false,
+      speechFinal: false,
+    });
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(askSessionQuestion).mock.calls[0]?.[1]).toEqual(
+      expect.stringContaining("landing page numbers")
+    );
+    expect(vi.mocked(askSessionQuestion).mock.calls[0]?.[6]).toEqual(
+      expect.objectContaining({ speculative: true })
+    );
+  });
+
+  it("does not force a punctuated first-wake briefing", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    armCaptureWithPartial(
+      engine,
+      "Kivo okay so we have been looking at pricing."
+    );
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.stringContaining("looking at pricing"),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
+  });
+
+  it("forces the endpoint on a yield closer even on the first wake", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    armCaptureWithPartial(engine, "Kivo alright yeah");
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.stringContaining("alright yeah"),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
+  });
+
+  it("does not force an unfinished follow-up tail", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    (
+      engine as unknown as {
+        handleFollowUp: (
+          id: string,
+          speaker: number,
+          speakerName: string | null,
+          providerSpeakerLabel: string | null
+        ) => void;
+      }
+    ).handleFollowUp("u-fu", 0, null, null);
+    emit(engine, {
+      ...utterance("so I've been looking at the landing page and the", "u2"),
+      isFinal: false,
+      speechFinal: false,
+    });
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+    expect(askSessionQuestion).not.toHaveBeenCalled();
   });
 
   it("does not force outside question capture", () => {
@@ -573,17 +687,14 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
   });
 
-  it("speculatively dispatches a clear-ask the moment the voice stops", () => {
+  it("speculatively dispatches a clear-ask while the speaker is still talking", () => {
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
     });
     withFakeStt(engine);
 
-    // A directive ("tell me…") is a clear ask even without a "?" — complete
-    // enough to answer before the endpoint is confirmed.
     armCaptureWithPartial(engine, "Kivo tell me what to charge for the pro tier");
-    forceEndpoint(engine);
 
     expect(askSessionQuestion).toHaveBeenCalledTimes(1);
     expect(askSessionQuestion).toHaveBeenLastCalledWith(
@@ -597,20 +708,61 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     );
   });
 
-  it("does not speculate on a likely-ask (only forces transcription)", () => {
+  it("speculates on a likely-ask at speech-end", () => {
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
     });
     const stt = withFakeStt(engine);
 
-    // Question-shaped but unpunctuated: force finalization, but too uncertain to
-    // pre-warm the answer.
     armCaptureWithPartial(engine, "Kivo what should we charge for the pro tier");
     forceEndpoint(engine);
 
     expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
-    expect(askSessionQuestion).not.toHaveBeenCalled();
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.stringContaining("what should we charge"),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
+  });
+
+  it("restarts speculation when the draft grows", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    withFakeStt(engine);
+
+    armCaptureWithPartial(engine, "Kivo tell me the price");
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    const firstAbort = vi.mocked(askSessionQuestion).mock.calls[0]?.[4] as
+      | AbortSignal
+      | undefined;
+
+    emit(
+      engine,
+      utterance("Kivo tell me the price of the enterprise plan", "u1", {
+        isFinal: false,
+        speechFinal: false,
+      })
+    );
+
+    expect(askSessionQuestion).toHaveBeenCalledTimes(2);
+    expect(firstAbort?.aborted).toBe(true);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.stringContaining("enterprise plan"),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
   });
 });
 

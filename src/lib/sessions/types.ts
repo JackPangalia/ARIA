@@ -200,8 +200,19 @@ export interface ContextHistoryTurn {
 }
 
 export interface ContextBundle {
-  /** Ambient reference blocks: session header, summary, facts, room transcript. */
+  /** Concat of stableContext + liveTranscript — logs and legacy callers. */
   messages: string;
+  /**
+   * Slow-changing meeting brain: project, summary, facts, pins, session
+   * identity. Cached across asks. Must not include `updatedAt` or the live
+   * question — those bust the Anthropic prefix cache.
+   */
+  stableContext: string;
+  /**
+   * Volatile tail: recent room transcript and question-specific search hits.
+   * Stays uncached so the model still sees the last seconds of the room.
+   */
+  liveTranscript: string;
   /**
    * Prior user_question/assistant turns as alternating chat messages —
    * append-only within a session, which keeps the prompt prefix stable for

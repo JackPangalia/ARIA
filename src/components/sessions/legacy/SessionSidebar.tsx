@@ -378,7 +378,7 @@ function SessionHistoryMenu(props: {
       <button
         ref={triggerRef}
         type="button"
-        aria-label="Session options"
+        aria-label="Conversation options"
         aria-expanded={open}
         data-open={open}
         onClick={(e) => {
@@ -615,7 +615,7 @@ export function SessionSidebar(props: {
                 if (e.key === "Escape") setRenamingId(null);
               }}
               className="mx-2 my-1 flex-1 rounded-md border border-app/50 bg-app px-2 py-1.5 text-sm text-app outline-none"
-              aria-label="Rename session"
+              aria-label="Rename conversation"
             />
           ) : (
             <button
@@ -678,7 +678,7 @@ export function SessionSidebar(props: {
           <button
             type="button"
             onClick={props.onClose}
-            aria-label="Close sessions"
+            aria-label="Close conversations"
             className="-ml-1.5 flex h-10 w-10 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-surface-hover hover:text-app"
           >
             <CloseIcon />
@@ -686,10 +686,10 @@ export function SessionSidebar(props: {
         ) : null}
         {!props.onClose ? (
           <span
-            className="flex select-none pl-[0.65em] text-[10px] font-normal tracking-[0.65em] text-app-subtle"
+            className="kivo-wordmark flex select-none text-[10px] text-app-subtle"
             aria-label="Kivo"
           >
-            KIVO
+            Kivo
           </span>
         ) : null}
       </header>
@@ -702,7 +702,7 @@ export function SessionSidebar(props: {
 
         <button type="button" onClick={props.onCreate} className={navRowClass}>
           <ComposeIcon className="shrink-0 text-app-muted" />
-          <span>New session</span>
+          <span>New conversation</span>
         </button>
       </div>
 
@@ -736,7 +736,7 @@ export function SessionSidebar(props: {
         {historyOpen ? (
           pinnedSessions.length === 0 && timeGroups.length === 0 ? (
             <p className="px-3 py-2 text-sm font-normal text-app-subtle">
-              No unassigned sessions yet.
+              No unassigned conversations yet.
             </p>
           ) : (
             <div className="space-y-1">

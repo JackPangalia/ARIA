@@ -8,10 +8,9 @@ const CONNECT_TIMEOUT_MS = 3000;
 const CONNECT_RETRIES = 1;
 const CONNECT_RETRY_DELAY_MS = 150;
 /** How long Cartesia may wait for more transcript before starting to speak.
- * Low enough that the first clause starts promptly, high enough that it can
- * join the small word-level fragments the answer pipeline streams into one
- * prosodic phrase instead of synthesizing each fragment in isolation (the
- * per-fragment pitch-reset failure mode). */
+ * The first fragment uses a shorter delay so first-audio is prompt; later
+ * fragments keep this join window so continuation still sounds like one phrase. */
+const FIRST_BUFFER_DELAY_MS = 80;
 const MAX_BUFFER_DELAY_MS = 250;
 
 export const CARTESIA_PCM_SAMPLE_RATE = 24000;
@@ -210,10 +209,20 @@ export async function createCartesiaContextStream(
     },
   });
 
-  const send = (transcript: string, continues: boolean) => {
+  let sentFragments = 0;
+  const send = (
+    transcript: string,
+    continues: boolean,
+    bufferDelayMs = MAX_BUFFER_DELAY_MS
+  ) => {
     if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(
-      JSON.stringify({ ...baseMessage, transcript, continue: continues })
+      JSON.stringify({
+        ...baseMessage,
+        max_buffer_delay_ms: bufferDelayMs,
+        transcript,
+        continue: continues,
+      })
     );
   };
 
@@ -222,7 +231,10 @@ export async function createCartesiaContextStream(
       const clean = stripMarkdownForSpeech(text);
       const t = (clean || text).trim();
       if (!t) return;
-      send(`${t} `, true);
+      const delay =
+        sentFragments === 0 ? FIRST_BUFFER_DELAY_MS : MAX_BUFFER_DELAY_MS;
+      sentFragments += 1;
+      send(`${t} `, true, delay);
     },
     finish() {
       send("", false);

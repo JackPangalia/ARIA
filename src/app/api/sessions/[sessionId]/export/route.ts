@@ -18,7 +18,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
 
     const detail = await getSessionDetail(uid, sessionId);
     if (!detail) {
-      return jsonError("Session not found.", 404);
+      return jsonError("Conversation not found.", 404);
     }
 
     if (format === "json") {

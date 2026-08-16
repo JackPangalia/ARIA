@@ -17,11 +17,39 @@ type OnboardingFlowProps = {
   preview?: boolean;
 };
 
+const PRIMARY_BTN =
+  "inline-flex min-w-[9.5rem] items-center justify-center rounded-full bg-accent px-8 py-2.5 text-[13px] font-medium tracking-[0.02em] text-accent-fg transition-[opacity,transform] duration-150 hover:opacity-90 active:translate-y-px disabled:pointer-events-none disabled:opacity-40";
+
+const GHOST_BTN =
+  "rounded-full px-5 py-2.5 text-[13px] font-medium text-app-muted transition-colors duration-150 hover:bg-surface hover:text-app disabled:opacity-40";
+
 function KivoWordmark() {
   return (
-    <p className="select-none text-center text-xs font-medium tracking-[0.55em] text-app-secondary">
-      KIVO
+    <p className="kivo-wordmark select-none text-center text-[11px] text-app-muted">
+      Kivo
     </p>
+  );
+}
+
+function ProgressRail({ step }: { step: number }) {
+  return (
+    <div
+      className="mx-auto flex w-full max-w-[10rem] items-center gap-1.5"
+      aria-hidden
+    >
+      {Array.from({ length: TOTAL_STEPS }, (_, i) => {
+        const n = i + 1;
+        const filled = n <= step;
+        return (
+          <span
+            key={n}
+            className={`h-0.5 flex-1 rounded-full transition-colors duration-300 ${
+              filled ? "bg-app" : "bg-surface-strong"
+            }`}
+          />
+        );
+      })}
+    </div>
   );
 }
 
@@ -30,12 +58,12 @@ function OnboardingStepHeader(props: { title: string; description?: string }) {
     <div className="flex flex-col items-center text-center">
       <h1
         id="onboarding-title"
-        className="font-sans text-[1.75rem] font-normal leading-[1.1] tracking-[-0.02em] text-app sm:text-[2rem]"
+        className="max-w-sm text-balance font-sans text-[1.75rem] font-medium leading-[1.1] tracking-[-0.03em] text-app sm:text-[2rem]"
       >
         {props.title}
       </h1>
       {props.description ? (
-        <p className="mt-3 max-w-sm text-[15px] leading-[1.65] text-app-muted sm:text-base sm:leading-[1.7]">
+        <p className="mt-3 max-w-sm text-[15px] leading-[1.55] tracking-[-0.011em] text-app-secondary sm:text-base">
           {props.description}
         </p>
       ) : null}
@@ -97,38 +125,42 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
   const primaryDisabled =
     finishing || (isSpeakerStep && !speakerDone);
 
-  const primaryButtonClass =
-    "min-w-[9.5rem] rounded-full bg-accent px-8 py-2.5 text-[13px] font-medium tracking-[0.04em] text-accent-fg transition-opacity disabled:opacity-40";
-
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
-      className="fixed inset-0 z-[300] flex flex-col bg-app text-app"
+      className="kivo-overlay-in fixed inset-0 z-[300] flex flex-col bg-app text-app"
     >
-      <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10">
-        <div className="w-full max-w-lg">
-          {step > 1 ? (
-            <p className="text-center text-[10px] font-normal uppercase tracking-[0.55em] text-app-muted">
-              Step {step} of {TOTAL_STEPS}
+      <div className="safe-pt flex shrink-0 flex-col items-center gap-5 px-6 pb-2 pt-5">
+        <KivoWordmark />
+        {step > 1 ? (
+          <div className="w-full">
+            <ProgressRail step={step} />
+            <p className="mt-3 text-center text-[11px] font-medium tracking-[0.08em] text-app-subtle uppercase">
+              {step} of {TOTAL_STEPS}
             </p>
-          ) : null}
+          </div>
+        ) : null}
+      </div>
 
+      <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-8">
+        <div key={step} className="kivo-fade-in w-full max-w-lg">
           {step === 1 ? (
-            <div className="flex flex-col items-center px-2 py-6 text-center sm:py-10">
-              <KivoWordmark />
-
-              <div className="mt-16 flex max-w-xs flex-col items-center sm:mt-20 sm:max-w-sm">
+            <div className="kivo-stagger flex flex-col items-center px-2 py-4 text-center sm:py-8">
+              <div className="flex max-w-sm flex-col items-center">
                 <h1
                   id="onboarding-title"
-                  className="font-sans text-[2rem] font-normal leading-[1.08] tracking-[-0.03em] text-app sm:text-[2.5rem]"
+                  className="text-balance font-sans text-[2.25rem] font-medium leading-[1.05] tracking-[-0.04em] text-app sm:text-[2.75rem]"
                 >
                   Welcome
                 </h1>
-                <p className="mt-4 text-[15px] leading-[1.65] text-app-muted sm:text-base sm:leading-[1.7]">
-                  Kivo listens to the room, and answers out loud when you ask.
-                  Let&apos;s get you set up in a minute.
+                <p className="mt-4 text-[15px] leading-[1.55] tracking-[-0.011em] text-app-secondary sm:text-base">
+                  Kivo listens to the conversation, understands who&apos;s
+                  speaking, and answers out loud when you ask.
+                </p>
+                <p className="mt-3 text-[13px] leading-relaxed text-app-subtle">
+                  A minute to get set up.
                 </p>
               </div>
 
@@ -136,7 +168,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
                 type="button"
                 disabled={finishing}
                 onClick={goNext}
-                className={`mt-12 sm:mt-14 ${primaryButtonClass}`}
+                className={`mt-12 sm:mt-14 ${PRIMARY_BTN}`}
               >
                 Continue
               </button>
@@ -144,19 +176,19 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
           ) : null}
 
           {step === 2 ? (
-            <div className="mt-10 flex flex-col items-center">
+            <div className="flex flex-col items-center">
               <OnboardingStepHeader
                 title="Appearance"
                 description="Choose how Kivo looks on this device."
               />
-              <div className="mt-8 w-full max-w-xs grok-settings-embedded">
+              <div className="mt-10 w-full max-w-xs grok-settings-embedded">
                 <ThemeToggle variant="settings" />
               </div>
             </div>
           ) : null}
 
           {step === 3 ? (
-            <div className="mt-10 flex flex-col items-center">
+            <div className="flex flex-col items-center">
               <OnboardingStepHeader
                 title="Voice"
                 description="Pick the voice Kivo uses when it answers you."
@@ -168,7 +200,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
           ) : null}
 
           {step === 4 ? (
-            <div className="mt-10 flex flex-col items-center">
+            <div className="flex flex-col items-center">
               <OnboardingStepHeader
                 title="Your voice"
                 description="Two quick recordings so Kivo knows who's speaking."
@@ -184,7 +216,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
           ) : null}
 
           {step === 5 ? (
-            <div className="mt-10 flex flex-col items-center">
+            <div className="flex flex-col items-center">
               <OnboardingStepHeader
                 title="How Kivo works"
                 description="One loop — listen, ask, answer, wrap up."
@@ -202,13 +234,13 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
       </div>
 
       {step > 1 ? (
-        <div className="border-t border-app bg-app px-6 py-5">
-          <div className="mx-auto flex w-full max-w-lg flex-wrap items-center justify-center gap-3">
+        <div className="safe-pb shrink-0 bg-gradient-to-t from-app via-app to-transparent px-6 pt-6 pb-5">
+          <div className="mx-auto flex w-full max-w-lg flex-wrap items-center justify-center gap-2">
             <button
               type="button"
               disabled={finishing}
               onClick={goBack}
-              className="rounded-full px-5 py-2.5 text-[13px] text-app-muted transition-colors hover:text-app disabled:opacity-40"
+              className={GHOST_BTN}
             >
               Back
             </button>
@@ -217,7 +249,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
                 type="button"
                 disabled={finishing}
                 onClick={skipSpeaker}
-                className="rounded-full px-3 py-2.5 text-[13px] text-app-muted underline-offset-4 transition-colors hover:text-app hover:underline disabled:opacity-40"
+                className="rounded-full px-4 py-2.5 text-[13px] font-medium text-app-subtle underline-offset-4 transition-colors duration-150 hover:text-app hover:underline disabled:opacity-40"
               >
                 Skip for now
               </button>
@@ -226,7 +258,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
               type="button"
               disabled={primaryDisabled}
               onClick={primaryAction}
-              className={primaryButtonClass}
+              className={PRIMARY_BTN}
             >
               {finishing ? "Saving…" : primaryLabel}
             </button>

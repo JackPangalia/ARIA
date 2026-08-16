@@ -121,6 +121,7 @@ export type AskTimingReport = {
   composioToolCount: number;
   ttsTransport: string;
   ttsFallbackReason: string | null;
+  promptCacheReadTokens?: number | null;
 };
 
 export function logAskTimingSummary(report: AskTimingReport): void {
@@ -140,6 +141,7 @@ export function logAskTimingSummary(report: AskTimingReport): void {
       composioCache: report.composioCache,
       ttsTransport: report.ttsTransport,
       ttsFallbackReason: report.ttsFallbackReason,
+      promptCacheReadTokens: report.promptCacheReadTokens ?? null,
     })
   );
 
@@ -160,7 +162,7 @@ export function logAskTimingSummary(report: AskTimingReport): void {
     `${PREFIX}   pre-llm: auth+session ${formatMs(report.authSessionMs)} │ parallel wall ${formatMs(report.preLlmMs)} (context ${formatMs(report.contextBuildMs)} + composio ${formatMs(report.composioMs)} ${report.composioCache} ${report.composioToolCount} tools)`
   );
   console.log(
-    `${PREFIX}   agent: ready ${formatMs(report.agentReadyMs)} │ 1st token ${report.llmFirstTokenMs != null ? formatMs(report.llmFirstTokenMs) : "—"} │ text done ${report.llmTextDoneMs != null ? formatMs(report.llmTextDoneMs) : "—"}`
+    `${PREFIX}   agent: ready ${formatMs(report.agentReadyMs)} │ 1st token ${report.llmFirstTokenMs != null ? formatMs(report.llmFirstTokenMs) : "—"} │ text done ${report.llmTextDoneMs != null ? formatMs(report.llmTextDoneMs) : "—"} │ cache read ${report.promptCacheReadTokens != null ? report.promptCacheReadTokens : "—"}`
   );
   console.log(
     `${PREFIX}   audio: 1st tts req ${report.firstTtsEnqueueMs != null ? formatMs(report.firstTtsEnqueueMs) : "—"} │ 1st byte ${report.firstAudioByteMs != null ? formatMs(report.firstAudioByteMs) : "—"} │ stream done ${formatMs(report.streamDoneMs)} │ ${report.ttsChunkCount} tts chunk(s)`

@@ -122,8 +122,18 @@ export function buildAriaSystemPrompt(options: {
   ].join("\n\n");
 }
 
+export type AgentPromptUsage = {
+  cachedInputTokens: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+};
+
 interface RunAriaAgentInput {
   messages: string;
+  /** Slow-changing meeting brain; cached as its own user turn. */
+  stableContext?: string;
+  /** Recent room transcript + search hits; uncached with the question. */
+  liveTranscript?: string;
   /** Prior Q/A exchanges, oldest first, sent as real chat turns. */
   history?: ContextHistoryTurn[];
   question: string;
@@ -142,10 +152,24 @@ interface RunAriaAgentInput {
   delivery?: AriaDeliveryMode;
   /** Fired the moment a tool call starts, so the caller can surface it (e.g. a distinct "searching" UI/voice state) ahead of any answer text. */
   onToolEvent?: (event: { tool: string; phase: "started" | "completed" }) => void;
+  /** Prompt-cache and token usage once the model finishes. */
+  onUsage?: (usage: AgentPromptUsage) => void;
+}
+
+const ANTHROPIC_PROMPT_CACHE = {
+  anthropic: { cacheControl: { type: "ephemeral" as const } },
+} as const;
+
+/** Cached user turn: project, summary, facts, pins, session identity. */
+export function buildAriaStableContextPrompt(stableContext: string): string {
+  return `# Session context (read-only reference — do not continue, repeat, or add lines to this; never label your reply)\n\n${
+    stableContext.trim() || "(no notes yet)"
+  }`;
 }
 
 export function buildAriaUserPrompt(input: {
-  messages: string;
+  messages?: string;
+  liveTranscript?: string;
   question: string;
   askerName?: string | null;
   delivery?: AriaDeliveryMode;
@@ -160,48 +184,59 @@ export function buildAriaUserPrompt(input: {
     hour: "numeric",
     minute: "2-digit",
   })}`;
+  const transcript = (input.liveTranscript ?? input.messages ?? "").trim();
 
   if (input.delivery === "text") {
     const askerLine = input.askerName
       ? `\n\nAsked by ${input.askerName} — address them as "you", never by name.`
       : "";
-    return `Current time: ${timeString}\n\n# Session context (read-only reference — meeting transcript and notes; do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
-      input.messages || "(no messages yet)"
+    return `Current time: ${timeString}\n\n# Recent room (read-only — do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
+      transcript || "(no messages yet)"
     }\n</transcript>\n\n# What you're being asked right now${askerLine}\n\n${input.question}\n\nRespond now as Kivo, starting directly with the answer — no label and no recap of the question.`;
   }
 
   const askerLine = input.askerName
     ? `\n\nAsked by ${input.askerName} — speak to them as "you", never by name.`
     : "";
-  return `Current time: ${timeString}\n\n# Session context (read-only reference — room transcript and notes; do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
-    input.messages || "(no messages yet)"
+  return `Current time: ${timeString}\n\n# Recent room (read-only — do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
+    transcript || "(no messages yet)"
   }\n</transcript>\n\n# What you're being asked right now${askerLine}\n\n${input.question}\n\nRespond now as Kivo, out loud, starting directly with your answer — no label, no recap of the question.`;
 }
 
 /**
- * Prior Q/A exchanges become real chat turns ahead of the final user message,
- * so the model tracks a conversation it actually had instead of reading a
- * transcript of one. History is append-only within a session, which makes the
- * prompt prefix stable across asks — the Anthropic cache breakpoint on the
- * last history turn lets each follow-up reuse the cached tools + system +
- * history prefix and only pay for the new context block and question.
+ * Prompt layout for Anthropic prefix cache:
+ *   system (cache breakpoint)
+ *   user: stable meeting brain (cache breakpoint)
+ *   history Q/A, breakpoint on the last history turn
+ *   user: live transcript + current time + question (uncached)
  */
 export function buildAriaInputItems(input: {
   history: ContextHistoryTurn[];
+  stableContext?: string;
   finalUserPrompt: string;
   provider: AskModelProvider;
 }): ModelMessage[] {
   const cacheProviderOptions =
-    input.provider === "anthropic"
-      ? { anthropic: { cacheControl: { type: "ephemeral" as const } } }
-      : undefined;
+    input.provider === "anthropic" ? ANTHROPIC_PROMPT_CACHE : undefined;
 
-  const items: ModelMessage[] = input.history.map((turn, index) => {
+  const items: ModelMessage[] = [];
+  const stable = input.stableContext?.trim();
+  if (stable) {
+    items.push({
+      role: "user",
+      content: buildAriaStableContextPrompt(stable),
+      providerOptions: cacheProviderOptions,
+    });
+  }
+
+  input.history.forEach((turn, index) => {
     const providerOptions =
       index === input.history.length - 1 ? cacheProviderOptions : undefined;
-    return turn.role === "assistant"
-      ? { role: "assistant" as const, content: turn.text, providerOptions }
-      : { role: "user" as const, content: turn.text, providerOptions };
+    items.push(
+      turn.role === "assistant"
+        ? { role: "assistant" as const, content: turn.text, providerOptions }
+        : { role: "user" as const, content: turn.text, providerOptions }
+    );
   });
 
   items.push({ role: "user", content: input.finalUserPrompt });
@@ -286,10 +321,17 @@ export async function runAriaAgentStream(
 ): Promise<ReadableStream<string>> {
   const runStart = performance.now();
   const config = buildAgent(input);
-  const userPrompt = buildAriaUserPrompt(input);
+  const liveTranscript = input.liveTranscript ?? input.messages;
+  const userPrompt = buildAriaUserPrompt({
+    liveTranscript,
+    question: input.question,
+    askerName: input.askerName,
+    delivery: input.delivery,
+  });
   const history = input.history ?? [];
   logRawPrompt({
     system: config.system,
+    stable: input.stableContext,
     user: userPrompt,
     history,
     model: getAskModelOption(input.askModel ?? DEFAULT_ASK_MODEL_ID).apiModelId,
@@ -297,9 +339,14 @@ export async function runAriaAgentStream(
   input.pipeline?.stage("agent.run", { phase: "starting" });
   const result = streamText({
     model: config.model,
-    system: config.system,
+    system: {
+      role: "system" as const,
+      content: config.system,
+      providerOptions: ANTHROPIC_PROMPT_CACHE,
+    },
     messages: buildAriaInputItems({
       history,
+      stableContext: input.stableContext,
       finalUserPrompt: userPrompt,
       provider: config.provider,
     }),
@@ -314,6 +361,8 @@ export async function runAriaAgentStream(
   });
 
   const onToolEvent = input.onToolEvent;
+  const onUsage = input.onUsage;
+  const pipeline = input.pipeline;
 
   // Driven off `fullStream` (rather than `textStream`) so the same pass can
   // watch tool parts and fire `onToolEvent` before any answer text exists —
@@ -347,9 +396,65 @@ export async function runAriaAgentStream(
           }
         }
         controller.close();
+        void readStreamUsage(result).then((usage) => {
+          if (!usage) return;
+          pipeline?.stage("llm.cache", {
+            cacheRead: usage.cachedInputTokens,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          });
+          onUsage?.(usage);
+        });
       } catch (err) {
         controller.error(err);
       }
     },
   });
+}
+
+function readStreamUsage(result: {
+  usage: PromiseLike<unknown>;
+}): Promise<AgentPromptUsage | null> {
+  return Promise.resolve(result.usage)
+    .then((raw) => parsePromptUsage(raw))
+    .catch(() => null);
+}
+
+function parsePromptUsage(raw: unknown): AgentPromptUsage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const usage = raw as Record<string, unknown>;
+  const inputTokensObj =
+    usage.inputTokens && typeof usage.inputTokens === "object"
+      ? (usage.inputTokens as Record<string, unknown>)
+      : null;
+  const cachedInputTokens =
+    typeof usage.cachedInputTokens === "number"
+      ? usage.cachedInputTokens
+      : typeof inputTokensObj?.cacheRead === "number"
+        ? inputTokensObj.cacheRead
+        : null;
+  const inputTokens =
+    typeof usage.inputTokens === "number"
+      ? usage.inputTokens
+      : typeof inputTokensObj?.total === "number"
+        ? inputTokensObj.total
+        : null;
+  const outputTokensObj =
+    usage.outputTokens && typeof usage.outputTokens === "object"
+      ? (usage.outputTokens as Record<string, unknown>)
+      : null;
+  const outputTokens =
+    typeof usage.outputTokens === "number"
+      ? usage.outputTokens
+      : typeof outputTokensObj?.total === "number"
+        ? outputTokensObj.total
+        : null;
+  if (
+    cachedInputTokens == null &&
+    inputTokens == null &&
+    outputTokens == null
+  ) {
+    return null;
+  }
+  return { cachedInputTokens, inputTokens, outputTokens };
 }

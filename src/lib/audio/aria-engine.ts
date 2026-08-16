@@ -52,9 +52,11 @@ import {
 } from "@/lib/aria/conversation/wake";
 import {
   assessQuestionCompleteness,
-  END_OF_UTTERANCE_GRACE_MS,
+  graceMsFor,
   LOCAL_SPEECH_END_SETTLE_MS,
-  SETTLE_MS,
+  settleMsFor,
+  shouldForceEndpoint,
+  shouldSpeculateAsk,
 } from "@/lib/aria/conversation/endpointing";
 import { joinText } from "@/lib/text/join-text";
 import { useAriaStore } from "@/lib/store";
@@ -215,6 +217,8 @@ export class AriaEngine {
   // and are deliberately left alone.
   private streamTurnIdsByLabel = new Map<string, string[]>();
   private currentTurnTelemetry: VoiceTurnTelemetry | null = null;
+  /** Cached at session start so speculative asks don't await AudioContext. */
+  private playbackSampleRate: number | null = null;
   private readonly voiceEngineV2 = VOICE_ENGINE_V2_ENABLED;
   private readonly turnController = new VoiceTurnController({
     onPhaseChange: (phase, previous) =>
@@ -261,6 +265,7 @@ export class AriaEngine {
 
     try {
       await this.cues.ensureReady();
+      this.playbackSampleRate = this.cues.sampleRate;
       // Neural VAD loads in parallel with STT connect; process() uses its RMS
       // fallback until the model is ready (or permanently if it never loads).
       const silero = new SileroVadDetector();
@@ -487,12 +492,10 @@ export class AriaEngine {
 
   /**
    * Semantic fast path (two-stage endpointing): the local VAD heard the voice
-   * stop. If everything heard so far — settled finals plus the freshest
-   * partial — already reads like a completed ask, tell Speechmatics to
-   * finalize now instead of waiting out the server's silence trigger. This
-   * only accelerates *transcription*: dispatch still goes through the graded
-   * grace on the punctuated final, so a wrong force can never cut anyone off —
-   * worst case an utterance is split in two and capture keeps accumulating.
+   * stop. Confident asks and yield closers tell Speechmatics to finalize now
+   * instead of waiting out the 0.55s silence trigger. Briefings do not force —
+   * a breath after a sentence is not a send — but they still pre-warm
+   * generation. Dispatch always goes through graded grace on the final.
    */
   private maybeForceEndpoint() {
     if (this.endpointForced || !this.capturingQuestion) return;
@@ -502,28 +505,49 @@ export class AriaEngine {
     );
     if (!draft.trim()) return;
     const completeness = assessQuestionCompleteness(draft);
-    if (completeness !== "clear-ask" && completeness !== "likely-ask") return;
+    // Pre-warm even when we don't force — a briefing pause still wants
+    // generation in flight behind the 0.55s acoustic wait.
+    this.maybeRefreshSpeculativeAsk(draft);
+    if (!shouldForceEndpoint(completeness, draft)) return;
     this.endpointForced = true;
     this.currentTurnTelemetry?.mark("endpoint_forced", { completeness });
     devLog("wake", `Voice stopped, draft reads ${completeness} — forcing endpoint.`);
     this.stt?.forceEndOfUtterance();
-    // Only a *clear* ask (terminal "?" or directive) is complete enough to
-    // answer speculatively: fire the request now so the LLM/TTS runs during the
-    // STT-finalization + grace window. Playback still waits for the endpoint to
-    // confirm (askAria adopts this in-flight request), so a wrong guess is
-    // silently discarded, never spoken. Likely-asks only get the faster
-    // transcription above — not the speculative dispatch.
-    if (completeness === "clear-ask") {
-      this.startSpeculativeAsk(draft);
-    }
   }
 
   /**
-   * Fire the answer request for a provably-complete (clear-ask) draft *before*
-   * the endpoint is confirmed. The server runs context → LLM → TTS immediately,
-   * so by the time the endpoint grace elapses and `askAria` adopts this request,
-   * the first audio is already on its way — hiding the LLM/TTS time-to-first-
-   * audio behind the endpoint window. The response is held, not played.
+   * Start or replace a held answer request for a draft that already reads as
+   * a completed turn — including while the speaker is still finishing the last
+   * words. Playback waits for endpoint confirm. A growing draft aborts the
+   * stale request and starts a new one; a shrinking/flickering partial keeps
+   * the in-flight (longer) guess. Unfinished drafts and first-wake statements
+   * never fire.
+   */
+  private maybeRefreshSpeculativeAsk(draft: string): void {
+    const question = sanitizeQuestionText(draft);
+    if (!question || !isSubstantiveQuestion(question)) return;
+    const completeness = assessQuestionCompleteness(question);
+    if (!shouldSpeculateAsk(completeness, this.capturingFollowUp)) return;
+
+    const spec = this.speculativeAsk;
+    if (spec) {
+      if (questionsMatchForContext(spec.question, question)) return;
+      const prev = sanitizeQuestionText(spec.question).toLowerCase();
+      const next = question.toLowerCase();
+      // STT often flickers a shorter partial; keep the longer in-flight ask.
+      if (prev.startsWith(next)) return;
+      this.abortSpeculativeAsk("draft_grew");
+    }
+    this.startSpeculativeAsk(question);
+  }
+
+  /**
+   * Fire the answer request for a completed-looking ask *before* the endpoint
+   * is confirmed. The server runs context → LLM → TTS immediately, so by the
+   * time the endpoint grace elapses and `askAria` adopts this request, the
+   * first audio is already on its way — hiding the LLM/TTS time-to-first-
+   * audio behind the remaining speech and the endpoint window. The response
+   * is held, not played.
    *
    * Speculative requests carry `X-Kivo-Speculative`, so the server defers the
    * question-turn persistence to the first audio byte: a discarded speculation
@@ -540,12 +564,8 @@ export class AriaEngine {
     telemetry?.mark("speculation_start", { chars: question.length });
     devLog("pipeline", "speculative_start", { chars: question.length });
 
-    const responsePromise = (async () => {
-      const pcmContext =
-        this.supportsPcmPlayback() && this.voiceEngineV2
-          ? await this.cues.getPlaybackContext()
-          : null;
-      return askSessionQuestion(
+    const responsePromise = Promise.resolve(
+      askSessionQuestion(
         this.sessionId,
         question,
         captured.speaker,
@@ -555,12 +575,12 @@ export class AriaEngine {
         {
           acceptPcm: this.supportsPcmPlayback(),
           acceptMuxText: this.supportsPcmPlayback(),
-          pcmSampleRate: pcmContext?.ctx.sampleRate,
+          pcmSampleRate: this.playbackSampleRate ?? undefined,
           turnId: telemetry?.turnId,
           speculative: true,
         }
-      );
-    })();
+      )
+    );
     // The discard path aborts without awaiting — swallow the resulting
     // rejection so it never surfaces as an unhandled promise rejection.
     responsePromise.catch(() => {});
@@ -717,6 +737,9 @@ export class AriaEngine {
     // utterance supersedes it (its text lands in the settled draft below).
     if (!utteranceStable) {
       this.capturePartial = wake.detected ? wake.question : u.text.trim();
+      this.maybeRefreshSpeculativeAsk(
+        joinText(this.getCapturedQuestion().question, this.capturePartial)
+      );
     } else {
       this.capturePartial = "";
     }
@@ -728,6 +751,7 @@ export class AriaEngine {
         this.inlineQuestion = u.text.trim();
       }
       if (this.inlineQuestion) {
+        this.maybeRefreshSpeculativeAsk(this.inlineQuestion);
         this.scheduleQuestionResolution(
           this.settleDelayForDraft(u.speechFinal)
         );
@@ -741,6 +765,7 @@ export class AriaEngine {
         text: wake.detected ? wake.question : u.text,
       });
       if (this.getCapturedQuestion().question.length > 0) {
+        this.maybeRefreshSpeculativeAsk(this.getCapturedQuestion().question);
         this.scheduleQuestionResolution(
           this.settleDelayForDraft(u.speechFinal)
         );
@@ -924,14 +949,14 @@ export class AriaEngine {
     const draft = this.getCapturedQuestion().question;
     if (draft.length > 0) {
       // Speechmatics has detected end-of-turn — the speaker has gone silent
-      // for `end_of_utterance_silence_trigger`. How long to still wait is
-      // semantic, not acoustic: a question that reads finished dispatches
-      // almost immediately, an ambiguous one waits a beat, and a tail like
-      // "...and the" means they're pausing to think — hold long enough for
-      // the thought to land instead of answering mid-sentence. Context was
-      // already prefetched while capturing, so we skip re-scheduling it here.
+      // for `end_of_utterance_silence_trigger`. Residual grace after that is
+      // semantic, not acoustic: a finished turn dispatches almost immediately,
+      // a first-wake briefing waits a medium beat, and a tail like "...and the"
+      // means they're pausing to think — hold long enough for the thought to
+      // land instead of answering mid-sentence. Context was already prefetched
+      // while capturing, so we skip re-scheduling it here.
       const completeness = assessQuestionCompleteness(draft);
-      const graceMs = END_OF_UTTERANCE_GRACE_MS[completeness];
+      const graceMs = graceMsFor(completeness, this.capturingFollowUp);
       devLog("wake", `End of turn — question reads ${completeness}, grace ${graceMs}ms.`);
       this.currentTurnTelemetry?.mark("endpoint_grace", {
         completeness,
@@ -1475,9 +1500,10 @@ export class AriaEngine {
    * the flat window since their text is still mutating. */
   private settleDelayForDraft(speechFinal: boolean | undefined): number {
     if (!speechFinal) return QUESTION_SETTLE_MS;
-    return SETTLE_MS[
-      assessQuestionCompleteness(this.getCapturedQuestion().question)
-    ];
+    return settleMsFor(
+      assessQuestionCompleteness(this.getCapturedQuestion().question),
+      this.capturingFollowUp
+    );
   }
 
   private scheduleQuestionResolution(
@@ -1497,8 +1523,10 @@ export class AriaEngine {
       // words proving the speaker wasn't done ("what's the…") often land
       // during the grace. If the fuller draft now warrants a longer hold,
       // extend once; any new transcript event restarts grading fresh.
-      const requiredMs =
-        END_OF_UTTERANCE_GRACE_MS[assessQuestionCompleteness(question)];
+      const requiredMs = graceMsFor(
+        assessQuestionCompleteness(question),
+        this.capturingFollowUp
+      );
       if (requiredMs > delayMs && !options.extended) {
         devLog(
           "wake",
@@ -1705,10 +1733,6 @@ export class AriaEngine {
         // body is filling with LLM/TTS output — playback starts near-instantly.
         res = await adopted.responsePromise;
       } else {
-        const pcmContext =
-          this.supportsPcmPlayback() && this.voiceEngineV2
-            ? await this.cues.getPlaybackContext()
-            : null;
         res = await askSessionQuestion(
           this.sessionId,
           question,
@@ -1719,7 +1743,7 @@ export class AriaEngine {
           {
             acceptPcm: this.supportsPcmPlayback(),
             acceptMuxText: this.supportsPcmPlayback(),
-            pcmSampleRate: pcmContext?.ctx.sampleRate,
+            pcmSampleRate: this.playbackSampleRate ?? undefined,
             turnId: telemetry.turnId,
           }
         );

@@ -1,72 +1,286 @@
-/* Grok settings modal — theme-aware tokens */
+/* Full-page settings + shared control tokens. Settings uses the same
+   transparent canvas, spacing, and quiet surfaces as the Kivo hubs. */
 
-.grok-settings-overlay {
-  background: var(--app-overlay);
-  backdrop-filter: blur(2px);
-}
-
-.dark .grok-settings-overlay {
-  background: rgba(0, 0, 0, 0.82);
-}
-
-.grok-settings-modal {
-  --grok-bg: #ffffff;
-  --grok-nav-active: #e4e4e7;
-  --grok-border: #e4e4e7;
-  --grok-muted: #71717a;
-  --grok-btn-bg: #f4f4f5;
-  --grok-btn-hover: #e4e4e7;
-  --grok-fg: #18181b;
-  --grok-modal-border: #e4e4e7;
-  --grok-selected-border: #a1a1aa;
-  --grok-radio-border: #d4d4d8;
-  --grok-radio-checked: #18181b;
-  --grok-btn-primary-bg: #18181b;
-  --grok-btn-primary-fg: #fafafa;
-  --grok-btn-primary-hover: #27272a;
-  --grok-input-focus: #a1a1aa;
-  --grok-danger-fg: #b91c1c;
-  --grok-danger-border: #fecaca;
+.kivo-settings-page {
+  --grok-bg: var(--app-bg);
+  --grok-nav-active: var(--app-surface-hover);
+  --grok-border: var(--app-border);
+  --grok-muted: var(--app-fg-muted);
+  --grok-subtle: var(--app-fg-subtle);
+  --grok-btn-bg: var(--app-surface);
+  --grok-btn-hover: var(--app-surface-hover);
+  --grok-fg: var(--app-fg);
+  --grok-fg-secondary: var(--app-fg-secondary);
+  --grok-selected-border: var(--app-border-strong);
+  --grok-radio-border: var(--app-border-strong);
+  --grok-radio-checked: var(--app-fg);
+  --grok-btn-primary-bg: var(--app-accent);
+  --grok-btn-primary-fg: var(--app-accent-fg);
+  --grok-btn-primary-hover: color-mix(in srgb, var(--app-accent) 88%, var(--app-bg));
+  --grok-input-bg: var(--app-input-bg);
+  --grok-input-focus: var(--app-border-strong);
+  --grok-danger-fg: var(--app-danger-fg);
+  --grok-danger-border: color-mix(in srgb, var(--app-danger-fg) 28%, transparent);
   --grok-radius-control: 10px;
   --grok-radius-button: 9999px;
 
-  width: min(92vw, 700px);
-  height: min(85vh, 550px);
+  background: transparent;
+  color: var(--app-fg);
+}
+
+html.kivo-desktop .kivo-settings-page {
+  background: transparent;
+}
+
+.kivo-settings-sidebar-shell {
+  border-right: 1px solid color-mix(in srgb, var(--app-border) 65%, transparent);
+}
+
+.kivo-settings-page-inner {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 32px 40px 80px;
+}
+
+.kivo-settings-page-inner--mobile {
+  padding: 8px 16px calc(28px + env(safe-area-inset-bottom));
+}
+
+.kivo-settings-page-header {
+  margin-bottom: 32px;
+}
+
+.kivo-settings-page-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--app-fg);
+}
+
+.kivo-settings-page-desc {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--app-fg-muted);
+}
+
+.kivo-settings-group-label {
+  margin: 0 0 8px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--app-fg-subtle);
+}
+
+.kivo-settings-card {
+  overflow: visible;
+  background: transparent;
+}
+
+.kivo-settings-card-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  padding: 14px 16px;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-surface) 48%, transparent);
+}
+
+.kivo-settings-card-row--last {
+  margin-bottom: 0;
+}
+
+.kivo-settings-row-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--app-fg);
+}
+
+.kivo-settings-row-desc {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--app-fg-muted);
+}
+
+.kivo-settings-row-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.kivo-settings-meter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 140px;
+}
+
+.kivo-settings-meter-track {
+  height: 4px;
+  width: 140px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--app-surface-hover);
+}
+
+.kivo-settings-meter-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--app-accent);
+  transition: width 500ms ease;
+}
+
+.kivo-settings-meter-fill[data-danger="true"] {
+  background: #dc2626;
+}
+
+.dark .kivo-settings-meter-fill[data-danger="true"] {
+  background: #f87171;
+}
+
+.kivo-settings-meter-label {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-fg-muted);
+}
+
+.kivo-settings-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 24px;
+  text-align: center;
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+
+.kivo-settings-empty-icon {
+  display: flex;
+  height: 48px;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--app-surface-hover);
+  color: var(--app-fg-muted);
+  margin-bottom: 14px;
+}
+
+.kivo-settings-empty-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--app-fg);
+}
+
+.kivo-settings-empty-desc {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--app-fg-muted);
+  max-width: 320px;
+}
+
+.kivo-settings-delete-overlay,
+.grok-settings-delete-dialog {
+  --grok-bg: var(--app-menu);
+  --grok-border: var(--app-border);
+  --grok-muted: var(--app-fg-muted);
+  --grok-btn-bg: var(--app-surface);
+  --grok-btn-hover: var(--app-surface-hover);
+  --grok-fg: var(--app-fg);
+  --grok-btn-primary-bg: var(--app-accent);
+  --grok-btn-primary-fg: var(--app-accent-fg);
+  --grok-btn-primary-hover: color-mix(in srgb, var(--app-accent) 88%, var(--app-bg));
+  --grok-input-bg: var(--app-input-bg);
+  --grok-input-focus: var(--app-border-strong);
+  --grok-danger-fg: var(--app-danger-fg);
+  --grok-danger-border: color-mix(in srgb, var(--app-danger-fg) 28%, transparent);
+  --grok-radius-control: 10px;
+  --grok-radius-button: 9999px;
+}
+
+.kivo-settings-delete-overlay {
+  background: var(--app-overlay);
+  backdrop-filter: blur(6px) saturate(140%);
+  -webkit-backdrop-filter: blur(6px) saturate(140%);
+}
+
+/* Legacy modal shell — still used by the command palette. */
+.grok-settings-overlay {
+  background: var(--app-overlay);
+  backdrop-filter: blur(6px) saturate(140%);
+  -webkit-backdrop-filter: blur(6px) saturate(140%);
+  animation: kivo-overlay-in 200ms ease-out both;
+}
+
+.grok-settings-modal {
+  --grok-bg: var(--app-menu);
+  --grok-nav-active: var(--app-surface-hover);
+  --grok-border: var(--app-border);
+  --grok-muted: var(--app-fg-muted);
+  --grok-subtle: var(--app-fg-subtle);
+  --grok-btn-bg: var(--app-surface);
+  --grok-btn-hover: var(--app-surface-hover);
+  --grok-fg: var(--app-fg);
+  --grok-fg-secondary: var(--app-fg-secondary);
+  --grok-modal-border: var(--app-border);
+  --grok-selected-border: var(--app-border-strong);
+  --grok-radio-border: var(--app-border-strong);
+  --grok-radio-checked: var(--app-fg);
+  --grok-btn-primary-bg: var(--app-accent);
+  --grok-btn-primary-fg: var(--app-accent-fg);
+  --grok-btn-primary-hover: color-mix(in srgb, var(--app-accent) 88%, var(--app-bg));
+  --grok-input-bg: var(--app-input-bg);
+  --grok-input-focus: var(--app-border-strong);
+  --grok-danger-fg: var(--app-danger-fg);
+  --grok-danger-border: color-mix(in srgb, var(--app-danger-fg) 28%, transparent);
+  --grok-radius-control: 10px;
+  --grok-radius-button: 9999px;
+
+  width: min(94vw, 880px);
+  height: min(88vh, 640px);
   background: var(--grok-bg);
   border: 1px solid var(--grok-modal-border);
-  border-radius: 16px;
+  border-radius: 20px;
   color: var(--grok-fg);
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   font-weight: 400;
-  box-shadow: 0 20px 40px var(--app-shadow);
+  box-shadow:
+    0 1px 2px var(--app-shadow),
+    0 24px 64px var(--app-shadow),
+    0 48px 120px var(--app-shadow);
+  animation: kivo-fade-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.dark .grok-settings-modal {
-  --grok-bg: #121212;
-  --grok-nav-active: #2a2a2a;
-  --grok-border: #2f3336;
-  --grok-muted: #71767b;
-  --grok-btn-bg: #1c1c1c;
-  --grok-btn-hover: #262626;
-  --grok-fg: #ffffff;
-  --grok-modal-border: #1f1f1f;
-  --grok-selected-border: #404040;
-  --grok-radio-border: #525252;
-  --grok-radio-checked: #ffffff;
-  --grok-btn-primary-bg: #ffffff;
-  --grok-btn-primary-fg: #121212;
-  --grok-btn-primary-hover: #e5e5e5;
-  --grok-input-focus: #525252;
-  --grok-danger-fg: #f87171;
-  --grok-danger-border: #3f2626;
-  box-shadow: none;
+@media (prefers-reduced-motion: reduce) {
+  .grok-settings-overlay,
+  .grok-settings-modal {
+    animation: none;
+  }
 }
+
+/* Desktop shell: the modal stays a solid surface. The app behind it is
+   already translucent glass — a glass-on-glass modal reads muddy in dark
+   mode, so we deliberately do not adopt the --kivo-glass tokens here. */
+
+/* ---- Sidebar: profile header + grouped nav ---- */
 
 .grok-settings-sidebar {
-  width: 200px;
+  width: 224px;
   flex-shrink: 0;
-  padding: 24px 12px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 12px 24px 16px;
   border-right: 1px solid var(--grok-border);
+  overflow-y: auto;
 }
 
 .grok-settings-title {
@@ -74,8 +288,63 @@
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--grok-fg);
-  margin-bottom: 20px;
+  margin-bottom: 14px;
   padding-left: 10px;
+}
+
+.grok-settings-side-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border-radius: 12px;
+  padding: 8px 10px;
+  margin-bottom: 20px;
+  text-align: left;
+  transition: background 140ms ease;
+}
+
+.grok-settings-side-profile:hover {
+  background: var(--grok-btn-hover);
+}
+
+.grok-settings-side-profile[data-active="true"] {
+  background: var(--grok-nav-active);
+}
+
+.grok-settings-side-profile-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--grok-fg);
+}
+
+.grok-settings-side-profile-email {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--grok-muted);
+}
+
+.grok-settings-nav-group + .grok-settings-nav-group {
+  margin-top: 20px;
+}
+
+.grok-settings-nav-label {
+  margin: 0 0 6px;
+  padding-left: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grok-subtle);
 }
 
 .grok-settings-nav-btn {
@@ -84,19 +353,21 @@
   align-items: center;
   gap: 10px;
   border-radius: var(--grok-radius-control);
-  padding: 9px 12px;
-  font-size: 14px;
+  padding: 8px 10px;
+  font-size: 13.5px;
   line-height: 1.25;
-  color: var(--grok-fg);
-  transition: background 120ms ease;
+  color: var(--grok-fg-secondary);
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .grok-settings-nav-btn:hover {
   background: var(--grok-btn-hover);
+  color: var(--grok-fg);
 }
 
 .grok-settings-nav-btn[data-active="true"] {
   background: var(--grok-nav-active);
+  color: var(--grok-fg);
 }
 
 .grok-settings-main {
@@ -109,8 +380,8 @@
 
 .grok-settings-close {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 18px;
+  right: 18px;
   z-index: 2;
   display: flex;
   height: 32px;
@@ -119,7 +390,7 @@
   justify-content: center;
   border-radius: var(--grok-radius-control);
   color: var(--grok-muted);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .grok-settings-close:hover {
@@ -127,17 +398,39 @@
   color: var(--grok-fg);
 }
 
+/* ---- Content area: per-tab editorial header + sections ---- */
+
 .grok-settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 56px 24px 28px;
+  padding: 28px 56px 40px 32px;
+}
+
+.grok-settings-content-header {
+  margin-bottom: 26px;
+  padding-right: 28px;
+}
+
+.grok-settings-content-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--grok-fg);
+}
+
+.grok-settings-content-desc {
+  margin-top: 5px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--grok-muted);
 }
 
 .grok-settings-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 56px;
+  gap: 14px;
+  min-height: 62px;
   border-bottom: 1px solid var(--grok-border);
 }
 
@@ -146,13 +439,14 @@
 }
 
 .grok-settings-row-title {
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 500;
   color: var(--grok-fg);
 }
 
 .grok-settings-row-sub {
   font-size: 13px;
+  line-height: 1.45;
   color: var(--grok-muted);
   margin-top: 2px;
 }
@@ -165,15 +459,29 @@
   border-radius: var(--grok-radius-button);
   border: 1px solid var(--grok-border);
   background: var(--grok-btn-bg);
-  padding: 6px 16px;
+  padding: 7px 16px;
   font-size: 13px;
   font-weight: 500;
   color: var(--grok-fg);
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease,
+    transform 80ms ease;
 }
 
 .grok-settings-btn:hover:not(:disabled) {
   background: var(--grok-btn-hover);
+  border-color: var(--grok-selected-border);
+}
+
+.grok-settings-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.grok-settings-btn:focus-visible {
+  outline: 2px solid var(--app-fg);
+  outline-offset: 2px;
 }
 
 .grok-settings-btn:disabled {
@@ -190,45 +498,464 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
-  margin-bottom: 28px;
+  margin-bottom: 0;
 }
 
-.grok-theme-card {
+.kivo-settings-card .grok-theme-grid {
+  margin-bottom: 0;
+}
+
+.grok-theme-grid--two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* ---- Preview cards (theme / desktop-widget pickers) ---- */
+
+.grok-preview-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  min-height: 88px;
-  border-radius: var(--grok-radius-control);
+  padding: 10px 10px 12px;
+  border-radius: 14px;
   border: 1px solid var(--grok-border);
   background: transparent;
   font-size: 13px;
-  color: var(--grok-fg);
-  transition: background 120ms ease, border-color 120ms ease;
+  color: var(--grok-fg-secondary);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
 }
 
-.grok-theme-card:hover {
+.grok-preview-card:hover {
+  background: var(--grok-btn-hover);
+  color: var(--grok-fg);
+}
+
+.grok-preview-card[data-selected="true"] {
+  border-color: var(--grok-selected-border);
+  background: var(--grok-btn-bg);
+  color: var(--grok-fg);
+  box-shadow: 0 0 0 1px var(--grok-selected-border);
+}
+
+.grok-preview-card-label {
+  font-weight: 500;
+}
+
+.grok-theme-preview {
+  display: flex;
+  width: 100%;
+  height: 64px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--grok-border);
+}
+
+.grok-theme-preview-half {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.grok-theme-preview-side {
+  width: 26%;
+  flex-shrink: 0;
+}
+
+.grok-theme-preview-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px;
+}
+
+.grok-theme-preview-line {
+  display: block;
+  height: 5px;
+  border-radius: 9999px;
+}
+
+.grok-preview-iconwell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 56px;
+  border-radius: 10px;
+  border: 1px solid var(--grok-border);
+  background: var(--grok-btn-bg);
+  color: var(--grok-fg-secondary);
+}
+
+.grok-preview-card[data-selected="true"] .grok-preview-iconwell {
+  color: var(--grok-fg);
+}
+
+/* ---- Option cards (answer model / voice / transcription mode) ---- */
+
+.grok-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.grok-option-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--grok-border);
+  background: transparent;
+  text-align: left;
+  color: var(--grok-fg);
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+button.grok-option-card:hover:not(:disabled) {
   background: var(--grok-btn-hover);
 }
 
-.grok-theme-card[data-selected="true"] {
-  background: var(--grok-nav-active);
+.grok-option-card[data-selected="true"] {
+  border-color: var(--grok-selected-border);
+  background: var(--grok-btn-bg);
+}
+
+.grok-option-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.grok-option-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+}
+
+.grok-option-main:disabled {
+  cursor: not-allowed;
+}
+
+.grok-option-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.grok-option-title {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--grok-fg);
+}
+
+.grok-option-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--grok-muted);
+}
+
+.grok-current-badge {
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 1px solid var(--grok-border);
+  background: var(--grok-bg);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--grok-muted);
+}
+
+.grok-option-saving {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--grok-muted);
+}
+
+.grok-icon-btn {
+  flex-shrink: 0;
+  display: flex;
+  height: 32px;
+  width: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid var(--grok-border);
+  background: var(--grok-bg);
+  color: var(--grok-fg-secondary);
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.grok-icon-btn:hover:not(:disabled) {
+  background: var(--grok-btn-hover);
+  color: var(--grok-fg);
+}
+
+.grok-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.grok-icon-btn[data-active="true"] {
+  color: var(--grok-fg);
   border-color: var(--grok-selected-border);
 }
 
-.grok-settings-section-title {
-  font-size: 14px;
+/* ---- Usage stat cards ---- */
+
+.grok-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-width: 620px;
+}
+
+.grok-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--grok-border);
+  background: var(--grok-btn-bg);
+  padding: 16px;
+}
+
+.grok-stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grok-subtle);
+}
+
+.grok-stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--grok-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.grok-stat-cap {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--grok-muted);
+}
+
+.grok-stat-sub {
+  font-size: 12px;
+  color: var(--grok-muted);
+}
+
+.grok-meter-track {
+  height: 6px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--grok-btn-hover);
+}
+
+.grok-meter-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--app-accent);
+  transition: width 500ms ease;
+}
+
+.grok-meter-fill[data-danger="true"] {
+  background: #dc2626;
+}
+
+.dark .grok-meter-fill[data-danger="true"] {
+  background: #f87171;
+}
+
+/* ---- Billing plan cards ---- */
+
+.grok-plan-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--grok-border);
+  background: var(--grok-btn-bg);
+  padding: 18px 20px;
+}
+
+.grok-plan-hero-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--grok-fg);
+}
+
+.grok-plan-hero-sub {
+  margin-top: 3px;
+  font-size: 13px;
+  color: var(--grok-muted);
+}
+
+.grok-plan-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--grok-border);
+  padding: 16px 18px;
+}
+
+.grok-plan-card[data-featured="true"] {
+  border-color: var(--grok-selected-border);
+  background: var(--grok-btn-bg);
+}
+
+.grok-plan-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--grok-fg);
+}
+
+.grok-plan-price {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--grok-muted);
+}
+
+.grok-plan-bullets {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  list-style: none;
+  padding: 0;
+}
+
+.grok-plan-bullets li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--grok-muted);
+}
+
+.grok-plan-bullet-dot {
+  margin-top: 6px;
+  height: 4px;
+  width: 4px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--grok-subtle);
+}
+
+/* ---- Static row cards (account, trash) + empty state ---- */
+
+.grok-row-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--grok-border);
+  padding: 14px 16px;
+}
+
+.grok-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.grok-empty-icon {
+  display: flex;
+  height: 48px;
+  width: 48px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: var(--grok-btn-bg);
+  color: var(--grok-muted);
+  margin-bottom: 14px;
+}
+
+.grok-empty-title {
+  font-size: 14.5px;
   font-weight: 500;
   color: var(--grok-fg);
-  margin-bottom: 6px;
+}
+
+.grok-empty-desc {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--grok-muted);
+  max-width: 320px;
+}
+
+.grok-profile-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--grok-border);
+  background: var(--grok-btn-bg);
+  padding: 16px 18px;
+}
+
+.grok-profile-summary-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--grok-fg);
+}
+
+.grok-profile-summary-email {
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--grok-muted);
+}
+
+.grok-settings-section-title {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--grok-subtle);
+  margin-bottom: 8px;
 }
 
 .grok-settings-section-desc {
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--grok-muted);
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .grok-settings-divider {
@@ -241,7 +968,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 0;
+  padding: 18px 0;
   border-bottom: 1px solid var(--grok-border);
 }
 
@@ -250,7 +977,7 @@
 }
 
 .grok-model-row-title {
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 500;
   color: var(--grok-fg);
 }
@@ -258,9 +985,9 @@
 .grok-model-row-desc {
   margin-top: 4px;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--grok-muted);
-  max-width: 420px;
+  max-width: 460px;
 }
 
 .grok-radio {
@@ -291,7 +1018,7 @@
   background: var(--grok-btn-primary-bg);
   color: var(--grok-btn-primary-fg);
   border-radius: var(--grok-radius-button);
-  padding: 6px 16px;
+  padding: 7px 16px;
   font-weight: 500;
 }
 
@@ -304,9 +1031,9 @@
   border: none;
   background: transparent;
   border-radius: var(--grok-radius-button);
-  padding: 6px 16px;
+  padding: 7px 16px;
   font-weight: 500;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .grok-settings-btn-ghost {
@@ -342,9 +1069,9 @@
 .grok-connector-group-label {
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--grok-muted);
+  color: var(--grok-subtle);
 }
 
 .grok-connector-rows {
@@ -416,7 +1143,7 @@
 }
 
 .grok-speaker-script-card {
-  border-radius: var(--grok-radius-control);
+  border-radius: 14px;
   border: 1px solid var(--grok-border);
   background: var(--grok-btn-bg);
   padding: 14px 16px;
@@ -427,7 +1154,7 @@
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--grok-muted);
+  color: var(--grok-subtle);
 }
 
 .grok-speaker-script-body {
@@ -446,9 +1173,12 @@
   color: var(--grok-fg);
 }
 
-.grok-settings-embedded .text-app-muted,
-.grok-settings-embedded .text-app-subtle {
+.grok-settings-embedded .text-app-muted {
   color: var(--grok-muted);
+}
+
+.grok-settings-embedded .text-app-subtle {
+  color: var(--grok-subtle);
 }
 
 .grok-settings-embedded .border-app {
@@ -470,12 +1200,12 @@
   width: 100%;
   border-radius: var(--grok-radius-control);
   border: 1px solid var(--grok-border);
-  background: var(--grok-btn-bg);
+  background: var(--grok-input-bg);
   padding: 8px 12px;
   font-size: 14px;
   color: var(--grok-fg);
   outline: none;
-  transition: border-color 120ms ease;
+  transition: border-color 140ms ease;
 }
 
 .grok-settings-input:focus {
@@ -486,14 +1216,11 @@
   background: var(--app-overlay);
 }
 
-.dark .grok-settings-delete-overlay {
-  background: rgba(0, 0, 0, 0.7);
-}
-
 .grok-settings-delete-dialog {
   border: 1px solid var(--grok-border);
   background: var(--grok-bg);
   color: var(--grok-fg);
+  box-shadow: 0 24px 64px var(--app-shadow);
 }
 
 .grok-settings-delete-dialog .grok-settings-delete-title {
@@ -512,7 +1239,7 @@
   color: var(--grok-muted);
 }
 
-/* ---- Mobile: stacked settings navigation (Grok-style) ---- */
+/* ---- Mobile: stacked settings navigation, theme-aware ---- */
 .grok-settings-stack-header {
   display: grid;
   grid-template-columns: 44px 1fr 44px;
@@ -550,9 +1277,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background: var(--grok-mobile-pill, #2c2c2e);
+  background: var(--grok-mobile-pill, var(--grok-btn-bg));
   color: var(--grok-mobile-fg, var(--grok-fg));
-  transition: background 120ms ease, opacity 120ms ease;
+  transition: background 140ms ease, opacity 140ms ease;
 }
 
 .grok-settings-stack-pill-btn:active {
@@ -571,10 +1298,10 @@
   margin-bottom: 22px;
   padding: 14px 16px;
   text-align: left;
-  background: var(--grok-mobile-card, #1c1c1e);
+  background: var(--grok-mobile-card, var(--grok-btn-bg));
   border-radius: 20px;
   color: var(--grok-mobile-fg, var(--grok-fg));
-  transition: opacity 120ms ease;
+  transition: opacity 140ms ease;
 }
 
 .grok-settings-profile-card:active {
@@ -594,8 +1321,8 @@
   justify-content: center;
   font-size: 18px;
   font-weight: 600;
-  color: #ffffff;
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 50%, #ec4899 100%);
+  color: var(--app-fg);
+  background: var(--app-surface-hover);
 }
 
 .grok-settings-profile-copy {
@@ -628,16 +1355,18 @@
 
 .grok-settings-menu-section-label {
   margin: 0 0 8px 4px;
-  font-size: 13px;
-  font-weight: 400;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   line-height: 1.2;
-  color: var(--grok-mobile-muted, var(--grok-muted));
+  color: var(--grok-mobile-muted, var(--grok-subtle));
 }
 
 .grok-settings-menu-card {
   overflow: hidden;
   border-radius: 20px;
-  background: var(--grok-mobile-card, #1c1c1e);
+  background: var(--grok-mobile-card, var(--grok-btn-bg));
 }
 
 .grok-settings-menu-row {
@@ -650,7 +1379,7 @@
   font-size: 16px;
   line-height: 1.25;
   color: var(--grok-mobile-fg, var(--grok-fg));
-  transition: background 120ms ease;
+  transition: background 140ms ease;
 }
 
 .grok-settings-menu-row--divided {
@@ -664,11 +1393,11 @@
   bottom: 0;
   left: 52px;
   height: 1px;
-  background: var(--grok-mobile-divider, rgba(255, 255, 255, 0.08));
+  background: var(--grok-mobile-divider, var(--grok-border));
 }
 
 .grok-settings-menu-row:active {
-  background: var(--grok-mobile-row-active, rgba(255, 255, 255, 0.06));
+  background: var(--grok-mobile-row-active, var(--grok-btn-hover));
 }
 
 .grok-settings-menu-row-leading {
@@ -698,29 +1427,28 @@
 
 @media (max-width: 640px) {
   .grok-settings-overlay {
-    background: #000000;
+    background: var(--app-bg);
     backdrop-filter: none;
-  }
-
-  .dark .grok-settings-overlay {
-    background: #000000;
+    -webkit-backdrop-filter: none;
   }
 
   .grok-settings-modal--full,
   .grok-settings-modal--full.grok-settings-mobile {
-    --grok-bg: #000000;
-    --grok-fg: #ffffff;
-    --grok-muted: #8e8e93;
-    --grok-border: rgba(255, 255, 255, 0.1);
-    --grok-btn-bg: #1c1c1e;
-    --grok-btn-hover: rgba(255, 255, 255, 0.08);
-    --grok-nav-active: #2c2c2e;
-    --grok-mobile-fg: #ffffff;
-    --grok-mobile-muted: #8e8e93;
-    --grok-mobile-card: #1c1c1e;
-    --grok-mobile-pill: #2c2c2e;
-    --grok-mobile-divider: rgba(255, 255, 255, 0.08);
-    --grok-mobile-row-active: rgba(255, 255, 255, 0.06);
+    --grok-bg: var(--app-bg);
+    --grok-fg: var(--app-fg);
+    --grok-fg-secondary: var(--app-fg-secondary);
+    --grok-muted: var(--app-fg-muted);
+    --grok-subtle: var(--app-fg-subtle);
+    --grok-border: var(--app-border);
+    --grok-btn-bg: var(--app-surface);
+    --grok-btn-hover: var(--app-surface-hover);
+    --grok-nav-active: var(--app-surface-hover);
+    --grok-mobile-fg: var(--app-fg);
+    --grok-mobile-muted: var(--app-fg-muted);
+    --grok-mobile-card: var(--app-surface);
+    --grok-mobile-pill: var(--app-surface-hover);
+    --grok-mobile-divider: var(--app-border);
+    --grok-mobile-row-active: var(--app-surface-hover);
     position: relative;
     width: 100%;
     height: 100%;
@@ -728,8 +1456,9 @@
     border-radius: 0;
     border: none;
     box-shadow: none;
-    background: #000000;
-    color: #ffffff;
+    background: var(--app-bg);
+    color: var(--app-fg);
+    animation: none;
   }
 
   /* Detail screens: comfortable iOS-style side insets (was flush to edges). */
@@ -737,19 +1466,9 @@
     padding: 10px 16px calc(28px + env(safe-area-inset-bottom));
   }
 
-  .grok-settings-modal--full .grok-settings-embedded .grok-settings-section-title,
-  .grok-settings-modal--full .grok-settings-embedded .grok-settings-row-title {
-    color: #ffffff;
-  }
-
-  .grok-settings-modal--full .grok-settings-embedded .grok-settings-section-desc,
-  .grok-settings-modal--full .grok-settings-embedded .grok-settings-row-sub {
-    color: #8e8e93;
-  }
-
-  /* Larger, more legible section headers on mobile. */
-  .grok-settings-modal--full .grok-settings-section-title {
-    font-size: 15px;
+  /* The stacked header already shows the tab title — hide the desktop header. */
+  .grok-settings-modal--full .grok-settings-content-header {
+    display: none;
   }
 
   .grok-settings-modal--full .grok-settings-section-desc {
@@ -772,37 +1491,43 @@
     max-width: none;
   }
 
-  /* Theme picker: rounded cards consistent with the menu's iOS aesthetic. */
+  /* Theme picker: rounded cards consistent with the menu's grouped aesthetic. */
   .grok-settings-modal--full .grok-theme-grid {
     gap: 12px;
     margin-bottom: 4px;
   }
 
-  .grok-settings-modal--full .grok-theme-card {
-    min-height: 96px;
-    gap: 12px;
-    border-radius: 16px;
+  /* Cards adopt the grouped-list surface on small screens. */
+  .grok-settings-modal--full .grok-preview-card,
+  .grok-settings-modal--full .grok-option-card,
+  .grok-settings-modal--full .grok-row-card,
+  .grok-settings-modal--full .grok-stat-card,
+  .grok-settings-modal--full .grok-plan-hero,
+  .grok-settings-modal--full .grok-plan-card,
+  .grok-settings-modal--full .grok-profile-summary,
+  .grok-settings-modal--full .grok-preview-iconwell {
+    background: var(--grok-mobile-card, var(--grok-btn-bg));
     border-color: transparent;
-    background: var(--grok-mobile-card, #1c1c1e);
   }
 
-  .grok-settings-modal--full .grok-theme-card[data-selected="true"] {
-    border-color: var(--grok-mobile-fg, #ffffff);
-    background: var(--grok-mobile-card, #1c1c1e);
+  .grok-settings-modal--full .grok-preview-card[data-selected="true"],
+  .grok-settings-modal--full .grok-option-card[data-selected="true"] {
+    border-color: var(--grok-selected-border);
+    box-shadow: none;
   }
 
-  /* Group simple row lists (account, model, trash) into inset iOS-style cards. */
+  /* Group simple row lists (account, model, trash) into inset grouped cards. */
   .grok-settings-modal--full .grok-settings-content div:has(> .grok-settings-row),
   .grok-settings-modal--full .grok-settings-content div:has(> .grok-model-row) {
     overflow: hidden;
     padding: 0 16px;
     border-radius: 18px;
-    background: var(--grok-mobile-card, #1c1c1e);
+    background: var(--grok-mobile-card, var(--grok-btn-bg));
   }
 
   .grok-settings-modal--full .grok-settings-content .grok-settings-row,
   .grok-settings-modal--full .grok-settings-content .grok-model-row {
-    border-color: var(--grok-mobile-divider, rgba(255, 255, 255, 0.08));
+    border-color: var(--grok-mobile-divider, var(--grok-border));
   }
 
   /* Search palette: roomier on small screens. */
@@ -870,11 +1595,14 @@
   color: var(--grok-muted);
 }
 
-/* Command palette — Grok-style session search (same shell size as settings) */
+/* Command palette — session search. Keeps its own compact shell size so it
+   doesn't inherit the settings modal's larger footprint. */
 .grok-palette-modal {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  width: min(92vw, 620px);
+  height: min(85vh, 560px);
 }
 
 .dark .grok-palette-modal {
@@ -945,7 +1673,7 @@
   color: var(--grok-fg);
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease;
+  transition: background 140ms ease;
 }
 
 .grok-palette-action:hover {
@@ -964,7 +1692,7 @@
   align-items: center;
   min-height: 36px;
   border-radius: var(--grok-radius-control);
-  transition: background 120ms ease;
+  transition: background 140ms ease;
 }
 
 .grok-palette-row[data-focused="true"],
@@ -1001,7 +1729,7 @@
   gap: 2px;
   padding-right: 6px;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity 140ms ease;
 }
 
 /* Reveal on hover/focus (desktop) or when JS flags the row hovered. */
@@ -1042,7 +1770,7 @@
   padding: 5px;
   color: var(--grok-muted);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 140ms ease, color 140ms ease;
 }
 
 .grok-palette-icon-btn:hover {

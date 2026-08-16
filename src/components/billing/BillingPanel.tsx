@@ -6,10 +6,7 @@ import type { UsageSummary } from "@/lib/plan/types";
 import { PLANS, TIERS, type Tier } from "@/lib/plan/tiers";
 import { openBillingPortal, startCheckout } from "@/lib/billing/client";
 import { PAID_TIERS, type PaidTier } from "@/lib/plan/tiers";
-import {
-  GrokSettingsButton,
-  GrokSettingsRow,
-} from "@/components/settings/SettingsRow";
+import { GrokSettingsButton } from "@/components/settings/SettingsRow";
 
 const PAID_TIER_LIST: PaidTier[] = [...PAID_TIERS];
 
@@ -70,61 +67,76 @@ export function BillingPanel() {
 
   return (
     <section>
-      <p className="grok-settings-section-title">Billing</p>
-      <p className="grok-settings-section-desc">
-        Your plan controls listening hours and session history limits.
-      </p>
-
-      <GrokSettingsRow
-        title={<span className="font-medium">{PLANS[currentTier].display.name}</span>}
-        description={
-          currentTier === "free"
-            ? "Free plan"
-            : `$${PLANS[currentTier].display.priceMonthlyUsd}/month`
-        }
-        action={
-          currentTier !== "free" ? (
-            <GrokSettingsButton
-              disabled={busy !== null}
-              onClick={() => void handlePortal()}
-            >
-              {busy === "portal" ? "Opening…" : "Manage billing"}
-            </GrokSettingsButton>
-          ) : undefined
-        }
-      />
+      <div className="grok-plan-hero">
+        <div className="min-w-0">
+          <p className="grok-plan-hero-name">
+            {PLANS[currentTier].display.name}
+          </p>
+          <p className="grok-plan-hero-sub">
+            {currentTier === "free"
+              ? "Free plan"
+              : `$${PLANS[currentTier].display.priceMonthlyUsd}/month · ${PLANS[currentTier].display.tagline}`}
+          </p>
+        </div>
+        {currentTier !== "free" ? (
+          <GrokSettingsButton
+            disabled={busy !== null}
+            onClick={() => void handlePortal()}
+          >
+            {busy === "portal" ? "Opening…" : "Manage billing"}
+          </GrokSettingsButton>
+        ) : null}
+      </div>
 
       {error ? (
-        <p className="grok-settings-delete-error mt-2 text-xs">{error}</p>
+        <p className="grok-settings-delete-error mt-3 text-xs">{error}</p>
       ) : null}
 
-      <div className="mt-4 flex flex-col gap-2">
+      <p className="grok-settings-section-title mt-8">Available plans</p>
+
+      <div className="grok-card-stack">
         {PAID_TIER_LIST.map((tier) => {
           const { display } = PLANS[tier];
           const isCurrent = tier === currentTier;
           const isDowngrade = tierRank(tier) < currentRank;
           return (
-            <GrokSettingsRow
+            <div
               key={tier}
-              title={<span className="font-medium">{display.name}</span>}
-              description={`$${display.priceMonthlyUsd}/month · ${display.tagline}`}
-              action={
-                isCurrent ? (
-                  <span className="text-xs text-app-muted">Current plan</span>
-                ) : (
-                  <GrokSettingsButton
-                    disabled={busy !== null}
-                    onClick={() => void handleCheckout(tier)}
-                  >
-                    {busy === tier
-                      ? "Redirecting…"
-                      : isDowngrade
-                        ? "Switch plan"
-                        : `Choose ${display.name}`}
-                  </GrokSettingsButton>
-                )
-              }
-            />
+              className="grok-plan-card"
+              data-featured={display.featured && !isCurrent}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="grok-plan-name">{display.name}</span>
+                  {isCurrent ? (
+                    <span className="grok-current-badge">Current plan</span>
+                  ) : null}
+                </div>
+                <p className="grok-plan-price">
+                  ${display.priceMonthlyUsd}/month · {display.tagline}
+                </p>
+                <ul className="grok-plan-bullets">
+                  {display.featureBullets.slice(0, 3).map((bullet) => (
+                    <li key={bullet}>
+                      <span aria-hidden className="grok-plan-bullet-dot" />
+                      {bullet}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              {isCurrent ? null : (
+                <GrokSettingsButton
+                  disabled={busy !== null}
+                  onClick={() => void handleCheckout(tier)}
+                >
+                  {busy === tier
+                    ? "Redirecting…"
+                    : isDowngrade
+                      ? "Switch plan"
+                      : `Choose ${display.name}`}
+                </GrokSettingsButton>
+              )}
+            </div>
           );
         })}
       </div>

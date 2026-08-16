@@ -53,15 +53,19 @@ export function isLandingActive(): boolean {
   return document.documentElement.classList.contains("landing-active");
 }
 
-/** Pin the marketing landing page to dark mode regardless of app theme preference. */
+/** Pin marketing to the light product canvas, regardless of app theme. */
 export function applyLandingTheme() {
   const root = document.documentElement;
-  root.classList.add("landing-active", "dark");
-  root.style.colorScheme = "dark";
+  root.classList.add("landing-active");
+  root.classList.remove("dark");
+  root.style.colorScheme = "light";
+  document.body?.classList.add("landing-active");
 }
 
 export function clearLandingTheme() {
-  document.documentElement.classList.remove("landing-active");
+  const root = document.documentElement;
+  root.classList.remove("landing-active");
+  document.body?.classList.remove("landing-active", "menu-locked");
 }
 
 export function applyTheme(preference: ThemePreference) {
@@ -73,4 +77,4 @@ export function applyTheme(preference: ThemePreference) {
   root.style.colorScheme = resolved;
 }
 
-export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""){document.documentElement.classList.add("landing-active","dark");document.documentElement.style.colorScheme="dark";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="light"?false:t==="dark"?true:window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}})();`;
+export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""){document.documentElement.classList.add("landing-active");document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="light"?false:t==="dark"?true:window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}})();`;

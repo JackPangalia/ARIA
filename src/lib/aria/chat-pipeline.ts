@@ -68,6 +68,8 @@ export async function runChatPipeline(
 
   const llmStream = await runAriaAgentStream({
     messages: context.messages,
+    stableContext: context.stableContext,
+    liveTranscript: context.liveTranscript,
     history: context.history,
     question: context.question,
     env,

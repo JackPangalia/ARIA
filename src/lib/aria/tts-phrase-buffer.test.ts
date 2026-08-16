@@ -32,6 +32,14 @@ describe("VoicePhraseBuffer", () => {
 
 
 describe("WordStreamBuffer", () => {
+  it("flushes the first fragment sooner than later ones", () => {
+    const buffer = new WordStreamBuffer();
+    expect(buffer.push("The free ")).toEqual(["The free "]);
+    expect(buffer.push("plan ")).toEqual([]);
+    expect(buffer.push("gets people ")).toEqual(["plan gets people "]);
+    expect(buffer.finish()).toEqual([]);
+  });
+
   it("flushes word-aligned fragments once past the minimum size", () => {
     const buffer = new WordStreamBuffer(12);
     const out: string[] = [];

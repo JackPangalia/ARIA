@@ -11,16 +11,11 @@ import { PROJECT_SOURCES_TOKEN_BUDGET } from "@/lib/sessions/constants";
 import type { ProjectDoc, ProjectSourceDoc } from "@/lib/projects/types";
 import type { SessionDoc } from "@/lib/sessions/types";
 
-function FolderIcon({ className }: { className?: string }) {
+function SearchIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -75,6 +70,18 @@ function FileIcon({ className }: { className?: string }) {
   );
 }
 
+function SessionIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 10v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M9 7v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M13 9v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M17 5v14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M21 11v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function TrashIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -89,16 +96,6 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
-function MoreVerticalIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="5" r="1.75" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.75" fill="currentColor" />
-      <circle cx="12" cy="19" r="1.75" fill="currentColor" />
-    </svg>
-  );
-}
-
 function formatSessionDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
     month: "short",
@@ -109,18 +106,16 @@ function formatSessionDate(value: string): string {
 type HubTab = "sessions" | "sources";
 type AddSourceMode = "choose" | "text";
 
+const PAGE_SIZE = 15;
+
 export function ProjectHubView(props: {
   project: ProjectDoc;
   sessions: SessionDoc[];
-  busy: boolean;
-  onNewSession: () => void;
+  onOpenSearch: () => void;
   onSelectSession: (sessionId: string) => void;
-  onEditProject: () => void;
-  onArchiveProject: () => void;
-  onSaveInstructions: (instructions: string) => void;
 }) {
   const [tab, setTab] = useState<HubTab>("sessions");
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [sources, setSources] = useState<ProjectSourceDoc[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourceBusy, setSourceBusy] = useState(false);
@@ -131,7 +126,6 @@ export function ProjectHubView(props: {
   const [pasteName, setPasteName] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [mounted, setMounted] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -172,32 +166,17 @@ export function ProjectHubView(props: {
     };
   }, [props.project.id]);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-
-    const onPointerDown = (event: MouseEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      setMenuOpen(false);
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [menuOpen]);
-
   const sortedSessions = useMemo(
     () =>
       [...props.sessions].sort(
         (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
       ),
     [props.sessions]
+  );
+
+  const paginatedSessions = useMemo(
+    () => sortedSessions.slice(0, visibleCount),
+    [sortedSessions, visibleCount]
   );
 
   const usedSourceTokens = useMemo(
@@ -284,98 +263,79 @@ export function ProjectHubView(props: {
     }`;
 
   return (
-    <div className="pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-[32rem] flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 pt-14 sm:px-6 lg:pt-16">
+    <div className="pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 pt-6 sm:px-10 sm:pt-8">
         <div>
-          <header className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <FolderIcon className="shrink-0 text-app-muted" />
-              <h1 className="truncate text-xl font-medium tracking-[-0.02em] text-app">
-                {props.project.name}
-              </h1>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-1.5">
-              <button
-                type="button"
-                onClick={props.onNewSession}
-                disabled={props.busy}
-                className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                <PlusIcon className="shrink-0" />
-                <span>New session</span>
-              </button>
-
-              <div ref={menuRef} className="relative">
-                <button
-                  type="button"
-                  aria-label="Project options"
-                  aria-expanded={menuOpen}
-                  onClick={() => setMenuOpen((open) => !open)}
-                  className="rounded-lg p-2 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
-                >
-                  <MoreVerticalIcon />
-                </button>
-                {menuOpen ? (
-                  <div className="absolute right-0 top-full z-20 mt-1 w-44 rounded-xl border border-app bg-menu p-1.5 shadow-menu">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        props.onEditProject();
-                      }}
-                      className="flex w-full rounded-lg px-2.5 py-2 text-left text-[13px] text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
-                    >
-                      Edit project
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        props.onArchiveProject();
-                      }}
-                      className="flex w-full rounded-lg px-2.5 py-2 text-left text-[13px] text-danger transition-colors hover:bg-danger/10"
-                    >
-                      Archive project
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </header>
+          <div>
+            <button
+              type="button"
+              onClick={props.onOpenSearch}
+              className="group flex w-full items-center gap-2.5 rounded-2xl bg-surface/60 px-3.5 py-2.5 text-left text-sm text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+            >
+              <SearchIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app-secondary" />
+              <span className="flex-1 text-sm font-normal">Search conversations & project sources...</span>
+              <kbd className="hidden rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-app-subtle sm:inline">
+                ⌘K
+              </kbd>
+            </button>
+          </div>
 
           <div className="mt-6 flex items-center gap-1">
             <button type="button" onClick={() => setTab("sessions")} className={tabClass(tab === "sessions")}>
-              Sessions
+              Conversations ({sortedSessions.length})
             </button>
             <button type="button" onClick={() => setTab("sources")} className={tabClass(tab === "sources")}>
-              Sources
+              Sources ({sources.length})
             </button>
           </div>
 
           {tab === "sessions" ? (
             <div className="mt-5">
               {sortedSessions.length === 0 ? (
-                <p className="px-2 py-3 text-sm font-normal text-app-subtle">
-                  No sessions in this project yet.
+                <p className="px-3 py-3 text-sm font-normal text-app-subtle">
+                  No conversations in this project yet.
                 </p>
               ) : (
-                <ul className="space-y-0.5">
-                  {sortedSessions.map((session) => (
-                    <li key={session.id}>
+                <div className="space-y-3">
+                  <ul className="space-y-0.5">
+                    {paginatedSessions.map((session) => (
+                      <li key={session.id}>
+                        <button
+                          type="button"
+                          onClick={() => props.onSelectSession(session.id)}
+                          className="group flex w-full items-center justify-between gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
+                        >
+                          <div className="flex min-w-0 items-center gap-2.5">
+                            <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
+                            <span className="truncate text-sm text-app">{session.title}</span>
+                          </div>
+                          <span className="shrink-0 text-xs text-app-subtle">
+                            {formatSessionDate(session.updatedAt)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {sortedSessions.length > paginatedSessions.length ? (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-xs text-app-subtle">
+                        Showing {paginatedSessions.length} of {sortedSessions.length} conversations
+                      </span>
                       <button
                         type="button"
-                        onClick={() => props.onSelectSession(session.id)}
-                        className="flex w-full items-center justify-between gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover"
+                        onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                        className="rounded-lg bg-surface px-3 py-1.5 text-xs font-medium text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
                       >
-                        <span className="truncate text-sm text-app">{session.title}</span>
-                        <span className="shrink-0 text-xs text-app-subtle">
-                          {formatSessionDate(session.updatedAt)}
-                        </span>
+                        Load more
                       </button>
-                    </li>
-                  ))}
-                </ul>
+                    </div>
+                  ) : sortedSessions.length > PAGE_SIZE ? (
+                    <p className="pt-2 text-center text-xs text-app-subtle">
+                      Showing all {sortedSessions.length} conversations
+                    </p>
+                  ) : null}
+                </div>
               )}
             </div>
           ) : (

@@ -1,3 +1,10 @@
+import type { AriaStatus } from "@/lib/types";
+
+export interface OrbState {
+  status: AriaStatus;
+  micLevel: number;
+}
+
 export interface KivoDesktopApi {
   platform: NodeJS.Platform;
   onAuthToken: (cb: (token: string) => void) => () => void;
@@ -5,6 +12,13 @@ export interface KivoDesktopApi {
   getPendingAuthToken: () => Promise<string | null>;
   openExternal: (url: string) => void;
   openDashboard: () => void;
+  /** Dashboard renderer -> main -> floating widget window (see `/widget`). */
+  publishOrbState: (state: OrbState) => void;
+  onOrbState: (cb: (state: OrbState) => void) => () => void;
+  /** Floating widget: pointer-based window drag (absolute screen coords). */
+  startWidgetDrag: (screenX: number, screenY: number) => void;
+  moveWidgetDrag: (screenX: number, screenY: number) => void;
+  endWidgetDrag: () => void;
 }
 
 declare global {

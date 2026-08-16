@@ -16,6 +16,9 @@ export type Tier = "free" | "plus" | "pro" | "max";
 
 export const TIERS: readonly Tier[] = ["free", "plus", "pro", "max"] as const;
 
+/** Plans shown on the marketing pricing section. */
+export const MARKETING_TIERS = ["free", "plus"] as const;
+
 export const DEFAULT_TIER: Tier = "free";
 
 export function isTier(value: unknown): value is Tier {
@@ -90,17 +93,17 @@ export const PLANS: Record<Tier, PlanConfig> = {
     display: {
       name: "Free",
       priceMonthlyUsd: 0,
-      tagline: "Try Kivo in your real conversations.",
+      tagline: "Try Kivo in real conversations.",
       featured: false,
       ctaLabel: "Start free",
       featureBullets: [
-        "3 hours of listening / month",
-        "Basic real-time transcription",
-        "2 hrs/month of Speaker recognition (beta)",
+        "3 hours of listening per month",
+        "Real-time transcription",
+        "2 hours/month of speaker recognition beta",
         "Live Kivo Q&A",
         "1 app connector",
         "30-day session history",
-        "Export transcripts",
+        "Transcript export",
       ],
     },
   },
@@ -117,13 +120,13 @@ export const PLANS: Record<Tier, PlanConfig> = {
     },
     display: {
       name: "Plus",
-      priceMonthlyUsd: 10,
-      tagline: "For regular meetings and calls.",
-      featured: false,
-      ctaLabel: "Choose Plus",
+      priceMonthlyUsd: 15,
+      tagline: "For regular meetings and conversations.",
+      featured: true,
+      ctaLabel: "Get Plus",
       featureBullets: [
-        "10 hours of listening / month",
-        "Unlimited Speaker recognition",
+        "10 hours of listening per month",
+        "Unlimited speaker recognition",
         "3 app connectors",
         "1-year session history",
         "Everything in Free",
@@ -144,11 +147,11 @@ export const PLANS: Record<Tier, PlanConfig> = {
     display: {
       name: "Pro",
       priceMonthlyUsd: 25,
-      tagline: "For people who live in conversations.",
-      featured: true,
+      tagline: "For people who use Kivo every day.",
+      featured: false,
       ctaLabel: "Choose Pro",
       featureBullets: [
-        "30 hours of listening / month",
+        "30 hours of listening per month",
         "All app connectors",
         "Unlimited session history",
         "Priority processing",
@@ -170,11 +173,11 @@ export const PLANS: Record<Tier, PlanConfig> = {
     display: {
       name: "Max",
       priceMonthlyUsd: 50,
-      tagline: "Maximum headroom and early features.",
+      tagline: "For heavy usage and early access.",
       featured: false,
       ctaLabel: "Choose Max",
       featureBullets: [
-        "60 hours of listening / month",
+        "60 hours of listening per month",
         "Priority processing",
         "Early access to new features",
         "Everything in Pro",

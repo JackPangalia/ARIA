@@ -1,192 +1,143 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import Link from "next/link";
-import { LandingOrb } from "@/components/landing/LandingOrb";
+import { ImageStreamHero } from "@/components/ui/image-stream-hero";
 import { useLandingEffects } from "@/components/landing/useLandingEffects";
-import { planFeatureBullets, PLANS, TIERS } from "@/lib/plan/tiers";
+import { planFeatureBullets, PLANS, MARKETING_TIERS } from "@/lib/plan/tiers";
 
-// Archived for now — re-enable once we have real customer quotes to show.
-const SHOW_TESTIMONIALS = false;
+const HERO_IMAGES = [
+  {
+    src: "/landing/kivo-hero-whiteboard-workshop.png",
+    alt: "Young team collaborating around a whiteboard in a loft studio",
+  },
+  {
+    src: "/landing/kivo-hero-night-build.png",
+    alt: "Young founders working late at a desk overlooking the city",
+  },
+  {
+    src: "/landing/kivo-hero-bali-brainstorm.png",
+    alt: "Young founders brainstorming at a tropical work villa",
+  },
+  {
+    src: "/landing/kivo-hero-study-session.png",
+    alt: "Young people working together around a busy study table",
+  },
+  {
+    src: "/landing/kivo-hero-production-review.png",
+    alt: "Young creative team reviewing a project in a production studio",
+  },
+  {
+    src: "/landing/kivo-hero-pitch-practice.png",
+    alt: "Young founder presenting an idea to a team in a meeting room",
+  },
+  {
+    src: "/landing/kivo-hero-whiteboard-critique.png",
+    alt: "Young product team reviewing wireframes on a whiteboard",
+  },
+  {
+    src: "/landing/kivo-hero-city-boardroom.png",
+    alt: "Young founders preparing for a meeting in a city boardroom",
+  },
+  {
+    src: "/landing/kivo-hero-oceanfounders.png",
+    alt: "Young founders working together overlooking the ocean at sunset",
+  },
+  {
+    src: "/landing/kivo-hero-cinematic-meeting.png",
+    alt: "Small team in a thoughtful in-person meeting",
+  },
+  {
+    src: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=900&q=80",
+    alt: "Team together",
+  },
+  {
+    src: "https://images.unsplash.com/photo-1559136555-9303baea8ebd?auto=format&fit=crop&w=900&q=80",
+    alt: "Open workspace",
+  },
+] as const;
 
-const WAVE_HEIGHTS = [
-  { height: 24, delay: 0 },
-  { height: 42, delay: 120 },
-  { height: 66, delay: 240 },
-  { height: 30, delay: 80 },
-  { height: 82, delay: 300 },
-  { height: 52, delay: 160 },
-  { height: 72, delay: 360 },
-  { height: 38, delay: 40 },
-  { height: 90, delay: 200 },
-  { height: 46, delay: 280 },
-  { height: 60, delay: 100 },
-  { height: 28, delay: 340 },
-  { height: 74, delay: 60 },
-  { height: 50, delay: 220 },
-  { height: 84, delay: 320 },
-  { height: 34, delay: 140 },
-];
+const STORY = [
+  {
+    step: "1",
+    title: "Start listening",
+    body: "Start a Kivo session before your meeting or conversation. Kivo listens through your microphone and creates a live, speaker-attributed transcript.",
+  },
+  {
+    step: "2",
+    title: "Ask Kivo",
+    body: "Say “Hey Kivo” whenever you need something. Ask a question, clarify something that was discussed, summarize a point, or get help without leaving the conversation.",
+  },
+  {
+    step: "3",
+    title: "Keep the context",
+    body: "When the meeting ends, Kivo gives you the transcript, decisions, action items, and a clear summary of what happened.",
+  },
+] as const;
 
+const CAPABILITIES = [
+  {
+    title: "Knows who’s speaking",
+    body: "Kivo separates speakers so it can understand who said what.",
+  },
+  {
+    title: "Understands the conversation",
+    body: "Ask about something discussed five minutes ago without explaining the context again.",
+  },
+  {
+    title: "Speaks when invited",
+    body: "Kivo doesn’t constantly interrupt. It listens and responds when someone asks for it.",
+  },
+  {
+    title: "Remembers the meeting",
+    body: "Every session becomes searchable context you can return to later.",
+  },
+] as const;
 
-const TESTIMONIALS = {
-  s1: [
-    {
-      quote:
-        "“I stopped taking notes three weeks ago. When someone asks ‘what did we decide,’ I just ask Kivo.”",
-      name: "Nadia Osei",
-      role: "Head of Product",
-      avatar: "https://randomuser.me/api/portraits/women/1.jpg",
-    },
-    {
-      quote:
-        "“The diarization is the magic. It knows it’s me versus my co-founder, so the summary actually reads right.”",
-      name: "Ravi Menon",
-      role: "Founder",
-      avatar: "https://randomuser.me/api/portraits/men/2.jpg",
-    },
-    {
-      quote:
-        "“Quiet until I need it. That restraint is rarer than the intelligence, honestly.”",
-      name: "Aisha Noor",
-      role: "Product Manager",
-      avatar: "https://randomuser.me/api/portraits/women/9.jpg",
-    },
-  ],
-  s2: [
-    {
-      quote:
-        "“Saying ‘Hey Kivo, put that on the calendar’ mid-call and watching it just happen — that’s the moment everyone got it.”",
-      name: "Sofia Klein",
-      role: "Chief of Staff",
-      avatar: "https://randomuser.me/api/portraits/women/3.jpg",
-    },
-    {
-      quote:
-        "“It settled an argument by quoting what we’d actually agreed on ten minutes earlier. Unbeatable.”",
-      name: "Marcus Bell",
-      role: "Engineering Lead",
-      avatar: "https://randomuser.me/api/portraits/men/4.jpg",
-    },
-    {
-      quote:
-        "“The fact that there’s no bot in the call is the whole thing. It’s just there, listening.”",
-      name: "Priya Raman",
-      role: "Design Lead",
-      avatar: "https://randomuser.me/api/portraits/women/5.jpg",
-    },
-  ],
-  s3: [
-    {
-      quote:
-        "“‘Hey Kivo, draft that follow-up’ — and it’s already in my drafts before the call ends.”",
-      name: "Tom Alvarez",
-      role: "Account Executive",
-      avatar: "https://randomuser.me/api/portraits/men/6.jpg",
-    },
-    {
-      quote:
-        "“Onboarding a new teammate, I just shared the session. They were caught up in minutes.”",
-      name: "Lena Fischer",
-      role: "Operations",
-      avatar: "https://randomuser.me/api/portraits/women/7.jpg",
-    },
-    {
-      quote:
-        "“It knows my voice from my co-founder’s. The summaries finally read like a real account of the meeting.”",
-      name: "Dan Whitfield",
-      role: "Co-founder",
-      avatar: "https://randomuser.me/api/portraits/men/8.jpg",
-    },
-  ],
-};
-
-const CAPTION_ROWS = [
-  { tone: "a", width: 78, delay: 0 },
-  { tone: "b", width: 52, delay: 0.9 },
-  { tone: "a", width: 90, delay: 1.8 },
-  { tone: "c", width: 40, delay: 2.7 },
-  { tone: "b", width: 66, delay: 3.6 },
-];
+const ROOM_MOMENTS = [
+  {
+    title: "Team meetings.",
+    body: "Keep the conversation clear, even when every voice matters.",
+  },
+  {
+    title: "Brainstorming.",
+    body: "Stay with the ideas while Kivo holds onto the context.",
+  },
+  {
+    title: "Planning.",
+    body: "Bring decisions, tradeoffs, and next steps into focus.",
+  },
+  {
+    title: "Everyday conversations.",
+    body: "A shared memory for the conversations that move work forward.",
+  },
+] as const;
 
 const FAQ_ITEMS = [
   {
+    q: "Is Kivo a meeting recorder?",
+    a: "Kivo can transcribe and summarize meetings, but that isn’t the main idea. Kivo is a voice AI you can interact with during the conversation itself.",
+  },
+  {
+    q: "Does Kivo join Zoom or Google Meet calls?",
+    a: "Kivo is designed primarily for conversations happening around you. It listens through your device instead of joining as a meeting bot.",
+  },
+  {
     q: "How does Kivo know who’s speaking?",
-    a: "You enroll a voice once — about eight seconds in a quiet room — and Kivo builds a voice print for that person. From then on it recognizes them automatically in any session and attaches their name to the transcript. No manual labeling, no setup before each meeting.",
+    a: "Kivo uses speaker recognition to distinguish between people in the conversation and keep track of who said what.",
   },
   {
-    q: "Does it join my calls like a meeting bot?",
-    a: "No. Kivo listens through your device — there’s no extra participant in the call and nothing for others to see. You hit start, and it quietly transcribes in the background until you stop it.",
+    q: "What can I ask Kivo?",
+    a: "You can ask questions about the conversation, request summaries, clarify something that was said, brainstorm ideas, retrieve earlier points, or ask general questions.",
   },
   {
-    q: "What can I actually ask it to do?",
-    a: "Say “Hey Kivo” and ask it to summarize, recall a past decision, weigh in on a disagreement, or answer a question about what was just said. Because it’s been listening, it already has the context.",
+    q: "Does Kivo listen all the time?",
+    a: "Kivo only listens while you have an active session running.",
   },
   {
     q: "Is my data private?",
-    a: "Yes. Transcripts and recordings are encrypted in transit and at rest, voice profiles are only created when you explicitly enroll them, and you can delete any session or voice print at any time.",
+    a: "Your conversations are handled according to Kivo’s privacy policy. You remain in control of your sessions and stored conversation history.",
   },
 ];
-
-function CheckIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m20 6-11 11-5-5" />
-    </svg>
-  );
-}
-
-function TestimonialCard({
-  quote,
-  name,
-  role,
-  avatar,
-}: {
-  quote: string;
-  name: string;
-  role: string;
-  avatar: string;
-}) {
-  return (
-    <div className="tcard">
-      <p>{quote}</p>
-      <div className="who2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={avatar} alt="" />
-        <div>
-          <div className="nm">{name}</div>
-          <div className="rl">{role}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TestimonialColumn({
-  className,
-  items,
-}: {
-  className: string;
-  items: Array<{ quote: string; name: string; role: string; avatar: string }>;
-}) {
-  return (
-    <div className={className}>
-      {items.map((item) => (
-        <TestimonialCard key={`a-${item.name}`} {...item} />
-      ))}
-      {items.map((item) => (
-        <TestimonialCard key={`b-${item.name}`} {...item} />
-      ))}
-    </div>
-  );
-}
 
 export function LandingPage() {
   useLandingEffects();
@@ -194,18 +145,19 @@ export function LandingPage() {
 
   return (
     <>
-      <header className="nav">
-        <div className="wrap nav-inner">
-          <a href="#top" className="wordmark">
-            KIVO
+      <header className="lp-nav">
+        <div className="lp-wrap lp-nav-inner">
+          <a href="#top" className="lp-wordmark">
+            Kivo
           </a>
-          <div className="nav-mobile-actions">
-            <a href="#pricing" className="nav-mobile-cta btn btn-primary">
+
+          <div className="lp-nav-mobile">
+            <Link href="/sign-in" className="lp-btn lp-btn-primary">
               Start free
-            </a>
+            </Link>
             <button
               type="button"
-              className="nav-toggle"
+              className="lp-nav-toggle"
               aria-label="Toggle menu"
               aria-expanded="false"
               aria-controls="mobile-menu"
@@ -215,452 +167,289 @@ export function LandingPage() {
               <span />
             </button>
           </div>
-          <nav className="nav-links">
-            <a href="#how">How it works</a>
-            <a href="#features">Features</a>
-            <a href="#pricing">Pricing</a>
-            <a href="#faq">FAQ</a>
-          </nav>
-          <div className="nav-cta">
-            <Link href="/sign-in" className="signin">
+
+          <div className="lp-nav-cta">
+            <nav className="lp-nav-links" aria-label="Primary">
+              <a href="#pricing" className="lp-link">
+                Pricing
+              </a>
+              <a href="#faq" className="lp-link">
+                FAQ
+              </a>
+            </nav>
+            <Link href="/sign-in" className="lp-link">
               Sign in
             </Link>
-            <a href="#pricing" className="btn btn-primary">
+            <Link href="/sign-in" className="lp-btn lp-btn-primary">
               Start free
-            </a>
+            </Link>
           </div>
         </div>
 
-        <div className="mobile-menu" id="mobile-menu">
-          <nav className="mobile-menu-links">
-            <a href="#how">How it works</a>
-            <a href="#features">Features</a>
+        <div className="lp-wrap lp-mobile-menu" id="mobile-menu">
+          <nav aria-label="Mobile">
             <a href="#pricing">Pricing</a>
             <a href="#faq">FAQ</a>
+            <Link href="/sign-in">Sign in</Link>
           </nav>
-          <div className="mobile-menu-cta">
-            <Link href="/sign-in" className="btn btn-ghost btn-lg">
-              Sign in
-            </Link>
-            <a href="#pricing" className="btn btn-primary btn-lg">
+          <div className="lp-mobile-menu-cta">
+            <Link href="/sign-in" className="lp-btn lp-btn-primary">
               Start free
-            </a>
+            </Link>
           </div>
         </div>
       </header>
 
-      <section className="hero" id="top" data-screen-label="Hero">
-        <LandingOrb className="landing-orb-canvas" />
-        <div className="hero-aura" />
-
-        <div className="hero-content">
-          <h1 className="display">
-            <span className="grad">
-              The AI that moves
-              <br />
-              you forward.
-            </span>
-          </h1>
-          <p className="lead">
-            Kivo listens to every conversation, learns every voice, and is
-            ready the moment you say its name.
-          </p>
-          <div className="hero-actions">
-            <Link href="/sign-in" className="btn btn-primary btn-lg">
-              Start free
-            </Link>
-            <a href="#how" className="btn btn-ghost btn-lg">
-              See how it works
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                width="16"
-                height="16"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M5 12h14M13 6l6 6-6 6" />
-              </svg>
-            </a>
-          </div>
-        </div>
-
-        <div className="hero-scroll">
-          <span>Scroll</span>
-          <span className="line" />
-        </div>
-      </section>
-
-      <section className="how-helps" id="how" data-screen-label="How Kivo helps">
-        <div className="wrap">
-          <div className="section-head center reveal">
-            <span className="eyebrow">Conversational intelligence</span>
-            <h2 className="h2">The third mind in the room.</h2>
-            <p className="lead">
-              Kivo sits in, absorbs the nuance of your debate, and speaks out loud to offer objective breakthroughs the moment you say its name.
-            </p>
-          </div>
-
-          <div className="helps-bento reveal">
-            <div className="helps-card left-card">
-              <h3 className="helps-title">
-                It follows the whole conversation
-              </h3>
-              <p className="helps-sub">
-                Every voice, every trade-off, every compromise — quietly absorbed in real time.
-              </p>
-
-              <div className="helps-timer">
-                <div className="helps-timer-val">42:16</div>
-                <div className="helps-speakers" aria-hidden>
-                  <span className="helps-speaker" style={{ animationDelay: "0s" }}>R</span>
-                  <span className="helps-speaker" style={{ animationDelay: "1.4s" }}>S</span>
-                  <span className="helps-speaker" style={{ animationDelay: "2.8s" }}>M</span>
-                </div>
-              </div>
-
-              <div className="helps-captions" aria-hidden>
-                {CAPTION_ROWS.map((row, i) => (
-                  <div className="helps-caption-row" key={i}>
-                    <span className={`helps-caption-dot tone-${row.tone}`} />
-                    <span
-                      className="helps-caption-bar"
-                      style={
-                        {
-                          "--tw": `${row.width}%`,
-                          animationDelay: `${row.delay}s`,
-                        } as CSSProperties
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="helps-col-right">
-              <div className="helps-card right-card-top">
-                <h3 className="helps-title">
-                  When you need help, say &ldquo;Hey Kivo&rdquo;
-                </h3>
-
-                <blockquote className="helps-quote">
-                  &ldquo;Hey Kivo, weigh in. We&apos;re stuck. What do you think we should do?&rdquo;
-                </blockquote>
-
-                <div className="helps-orb-stage">
-                  <div className="helps-orb-wrap">
-                    <LandingOrb className="helps-orb-canvas" compact variant="grey" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="helps-card right-card-bottom">
-                <h3 className="helps-title">
-                  Speaks out loud like a human
-                </h3>
-                <p className="helps-sub">
-                  Kivo synthesizes the debate and delivers a clear path forward.
-                </p>
-
-                <p className="helps-kivo-line">
-                  You agreed to simplify the dashboard twelve minutes ago. Ship the stripped version Tuesday — the migration is already scheduled.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="section" id="features" data-screen-label="Features">
-        <div className="wrap">
-          <div className="section-head center reveal">
-            <span className="eyebrow">Under the hood</span>
-            <h2 className="h2">Quietly capable.</h2>
-            <p className="lead">
-              Everything Kivo does while it waits — and the instant you bring it
-              in.
-            </p>
-          </div>
-
-          <div className="bento">
-            <div className="bento-tile b2 reveal">
-              <div className="bento-art">
-                <div className="wave">
-                  {WAVE_HEIGHTS.map((bar, i) => (
-                    <i
-                      key={i}
-                      style={{
-                        height: `${bar.height}px`,
-                        animationDelay: `${bar.delay}ms`,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="bento-foot">
-                <span className="lbl">Real-time</span>
-                <h3>Live transcription</h3>
-                <p>
-                  Every word, written down as it’s spoken — searchable the
-                  instant you stop.
-                </p>
-              </div>
-            </div>
-
-            <div className="bento-tile b2 reveal d1">
-              <div className="bento-art">
-                <div className="rings">
-                  <span className="ring r1" />
-                  <span className="ring r2" />
-                  <span className="ring r3" />
-                  <span className="core" />
-                  <span className="pip a">D</span>
-                  <span className="pip b">M</span>
-                </div>
-              </div>
-              <div className="bento-foot">
-                <span className="lbl">Voice prints</span>
-                <h3>Knows who’s speaking</h3>
-                <p>
-                  Enroll a voice in eight seconds — Kivo recognizes them in
-                  every session after.
-                </p>
-              </div>
-            </div>
-
-            <div className="bento-tile b2 reveal d2">
-              <div className="bento-art">
-                <div className="orb-mini-css" />
-              </div>
-              <div className="bento-foot">
-                <span className="lbl">On call</span>
-                <h3>Always caught up</h3>
-                <p>
-                  Say its name and ask anything. No briefing — it already has
-                  the context.
-                </p>
-              </div>
-            </div>
-
-            <div className="bento-tile b3 reveal d1">
-              <div className="bento-art">
-                <div className="lockwrap">
-                  <span className="halo" />
-                  <span className="halo b" />
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5z" />
-                    <path
-                      className="lock-check"
-                      d="m9 12 2 2 4-4"
-                    />
-                  </svg>
-                </div>
-              </div>
-              <div className="bento-foot">
-                <span className="lbl">Yours alone</span>
-                <h3>Private by default</h3>
-                <p>
-                  Encrypted end to end, consent-first voice prints, and
-                  one-click control over every connection.
-                </p>
-              </div>
-            </div>
-
-            <div className="bento-tile b3 reveal d2">
-              <div className="bento-art">
-                <div className="bento-chips" aria-hidden>
-                  <span className="bento-chip active">You</span>
-                  <span className="bento-chip active">Alex</span>
-                  <span className="bento-chip nobot">Bot</span>
-                </div>
-              </div>
-              <div className="bento-foot">
-                <span className="lbl">Your device</span>
-                <h3>No creepy meeting bots</h3>
-                <p>
-                  Kivo listens through your mic — no extra participant, nothing
-                  for others to see in the call.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {SHOW_TESTIMONIALS && (
-        <section className="section tsection" data-screen-label="Testimonials">
-          <div className="wrap">
-            <div className="section-head center reveal">
-              <span className="eyebrow">In their words</span>
-              <h2 className="h2">
-                Loved in the rooms
+      <main>
+        <section className="lp-hero" id="top">
+          <ImageStreamHero images={HERO_IMAGES} className="lp-hero-stream">
+            <div className="lp-hero-stream-scrim" aria-hidden />
+            <div className="lp-hero-stream-inner">
+              <h1 className="lp-display">
+                The voice AI
                 <br />
-                that move fast.
-              </h2>
+                built for meetings.
+              </h1>
+              <div className="lp-hero-stream-foot">
+                <p className="lp-lead">
+                  Kivo listens to the conversation, understands who’s speaking,
+                  and answers out loud when you ask it to.
+                </p>
+                <div className="lp-hero-actions">
+                  <Link href="/sign-in" className="lp-btn lp-btn-primary">
+                    Start free
+                  </Link>
+                </div>
+                <p className="lp-note">No credit card required.</p>
+              </div>
+            </div>
+          </ImageStreamHero>
+        </section>
+
+        <section className="lp-section" aria-labelledby="pitch-heading">
+          <div className="lp-wrap lp-split">
+            <h2 className="lp-display lp-split-title" id="pitch-heading">
+              Kivo understands the room.
+            </h2>
+            <div className="lp-split-copy">
+              <p>ChatGPT understands you. Most voice AI is built for one person talking to an AI.</p>
+              <p>
+                Kivo is built for everyone at the table. It follows the
+                conversation, keeps track of who said what, and stays quiet
+                until someone asks for it.
+              </p>
             </div>
           </div>
-          <div className="tcols">
-            <TestimonialColumn className="tcol s1" items={TESTIMONIALS.s1} />
-            <TestimonialColumn className="tcol s2" items={TESTIMONIALS.s2} />
-            <TestimonialColumn className="tcol s3" items={TESTIMONIALS.s3} />
+
+          <div className="lp-wrap lp-stage">
+            <figure className="lp-stage-main">
+              <img
+                src="/landing/kivo-tidal-water.png"
+                alt="Tide moving over dark coastal stone"
+                width={1600}
+                height={1066}
+              />
+            </figure>
+            <figure className="lp-stage-side">
+              <img
+                src="/landing/kivo-alpine-dawn.png"
+                alt="Mountain ridge above clouds at dawn"
+                width={1200}
+                height={1600}
+              />
+            </figure>
           </div>
         </section>
-      )}
 
-      <section className="section" id="pricing" data-screen-label="Pricing">
-        <div className="wrap">
-          <div className="section-head center reveal">
-            <span className="eyebrow">Pricing</span>
-            <h2 className="h2">
-              Start free. Grow when
-              <br />
-              the room does.
+        <section className="lp-section" id="how" aria-labelledby="story-heading">
+          <div className="lp-wrap lp-split">
+            <h2 className="lp-display lp-split-title" id="story-heading">
+              Start. Ask. Keep.
             </h2>
-            <p className="lead">
-              No card to begin. Bring Kivo into your next conversation in under
-              a minute.
-            </p>
-          </div>
-          <div className="price-rail reveal d1">
-            <div className="price-grid price-grid-4">
-            {TIERS.map((tier, index) => {
-              const { display } = PLANS[tier];
-              const cardClass = [
-                "price-card",
-                display.featured ? "featured" : "",
-                "reveal",
-                index > 0 ? `d${index}` : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <div className={cardClass} key={tier}>
-                  {display.featured ? (
-                    <span className="badge">Most loved</span>
-                  ) : null}
-                  <span className="tier">{display.name}</span>
-                  <div className="amt">
-                    ${display.priceMonthlyUsd}
-                    <span> / month</span>
+            <ol className="lp-story">
+              {STORY.map((item) => (
+                <li key={item.step} className="lp-story-item">
+                  <span className="lp-story-step" aria-hidden>
+                    {item.step.padStart(2, "0")}
+                  </span>
+                  <div className="lp-story-copy">
+                    <h3 className="lp-story-title">{item.title}.</h3>
+                    <p className="lp-story-body">{item.body}</p>
                   </div>
-                  <p className="desc">{display.tagline}</p>
-                  <Link
-                    href={
-                      tier === "free"
-                        ? "/sign-in"
-                        : `/sign-in?plan=${tier}`
-                    }
-                    className="btn btn-ghost"
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section
+          className="lp-section lp-section-scene lp-scene-sequence"
+          aria-labelledby="scene-heading"
+        >
+          <div className="lp-wrap">
+            <figure className="lp-scene" data-room-scene>
+              <img
+                src="/landing/kivo-whole-room.png"
+                alt="People talking across a table"
+                width={1800}
+                height={1200}
+              />
+              <div className="lp-scene-scrim" aria-hidden />
+              <figcaption className="lp-scene-copy">
+                <h2 className="lp-scene-title" id="scene-heading">
+                  The whole room.
+                </h2>
+                {ROOM_MOMENTS.map((moment, index) => (
+                  <div
+                    className="lp-room-moment"
+                    data-room-moment
+                    data-active={index === 0 ? "true" : undefined}
+                    key={moment.title}
                   >
-                    {display.ctaLabel}
-                  </Link>
-                  <ul className="price-feats">
-                    {planFeatureBullets(tier).map((bullet) => (
-                      <li key={bullet}>
-                        <CheckIcon />
-                        {bullet}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
+                    <h3>{moment.title}</h3>
+                    <p>{moment.body}</p>
+                  </div>
+                ))}
+              </figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section
+          className="lp-section"
+          id="capabilities"
+          aria-labelledby="capabilities-heading"
+        >
+          <div className="lp-wrap">
+            <h2 className="lp-display lp-caps-title" id="capabilities-heading">
+              One AI. The whole conversation.
+            </h2>
+            <ul className="lp-caps">
+              {CAPABILITIES.map((item) => (
+                <li key={item.title} className="lp-cap">
+                  <h3 className="lp-cap-title">{item.title}.</h3>
+                  <p className="lp-cap-body">{item.body}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section
+          className="lp-section"
+          id="pricing"
+          aria-labelledby="pricing-heading"
+        >
+          <div className="lp-wrap">
+            <div className="lp-section-head">
+              <h2 className="lp-display" id="pricing-heading">
+                Two plans.
+              </h2>
+              <p className="lp-lead">Start free. Upgrade when you need more time.</p>
+            </div>
+            <ul className="lp-plans">
+              {MARKETING_TIERS.map((tier) => {
+                const { display } = PLANS[tier];
+                return (
+                  <li
+                    key={tier}
+                    className={`lp-plan${display.featured ? " featured" : ""}`}
+                  >
+                    <div className="lp-plan-top">
+                      <span className="lp-plan-name">{display.name}</span>
+                      <span className="lp-plan-price">
+                        {display.priceMonthlyUsd === 0
+                          ? "$0"
+                          : `$${display.priceMonthlyUsd}`}
+                        <span className="lp-plan-period">/mo</span>
+                      </span>
+                      <p className="lp-plan-desc">{display.tagline}</p>
+                    </div>
+                    <ul className="lp-plan-feats">
+                      {planFeatureBullets(tier).map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
+                    </ul>
+                    <Link
+                      href={
+                        tier === "free" ? "/sign-in" : `/sign-in?plan=${tier}`
+                      }
+                      className={
+                        display.featured
+                          ? "lp-btn lp-btn-primary lp-plan-btn"
+                          : "lp-btn lp-btn-ghost lp-plan-btn"
+                      }
+                    >
+                      {display.ctaLabel}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </section>
+
+        <section className="lp-section" id="faq" aria-labelledby="faq-heading">
+          <div className="lp-wrap lp-split">
+            <h2 className="lp-display lp-split-title" id="faq-heading">
+              Questions.
+            </h2>
+            <div className="lp-faq">
+              {FAQ_ITEMS.map((item) => (
+                <details key={item.q} className="lp-faq-item" name="faq">
+                  <summary className="lp-faq-q">
+                    {item.q}
+                    <span className="pm" aria-hidden />
+                  </summary>
+                  <div className="lp-faq-a">
+                    <div className="lp-faq-a-inner">
+                      {item.q === "Is my data private?" ? (
+                        <>
+                          Your conversations are handled according to Kivo’s{" "}
+                          <Link href="/privacy" className="lp-inline-link">
+                            privacy policy
+                          </Link>
+                          . You remain in control of your sessions and stored
+                          conversation history.
+                        </>
+                      ) : (
+                        item.a
+                      )}
+                    </div>
+                  </div>
+                </details>
+              ))}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      <section className="section" id="faq" data-screen-label="FAQ">
-        <div className="wrap">
-          <div className="section-head center reveal">
-            <span className="eyebrow">Questions</span>
-            <h2 className="h2">Good to know.</h2>
-          </div>
-          <div className="faq reveal d1">
-            {FAQ_ITEMS.map((item) => (
-              <div key={item.q} className="faq-item">
-                <button type="button" className="faq-q">
-                  {item.q}
-                  <span className="pm" />
-                </button>
-                <div className="faq-a">
-                  <div className="faq-a-inner">{item.a}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="cta" data-screen-label="Final CTA">
-        <div className="wrap cta-content">
-          <h2 className="h2 reveal d1">
-            Bring Kivo into your
-            <br />
-            next conversation.
+      <footer className="lp-footer">
+        <div className="lp-wrap lp-footer-cta">
+          <h2 className="lp-display" id="close-heading">
+            Bring AI into the conversation.
           </h2>
-          <p className="lead reveal d2">
-            Always listening, never interrupting, ready the moment you need it.
-            Start free — it takes under a minute.
-          </p>
-          <div
-            className="hero-actions reveal d2"
-            style={{ justifyContent: "center" }}
-          >
-            <Link href="/sign-in" className="btn btn-primary btn-lg">
+          <div className="lp-hero-actions">
+            <Link href="/sign-in" className="lp-btn lp-btn-primary">
               Start free
             </Link>
-            <a href="mailto:hello@kivo.ai" className="btn btn-ghost btn-lg">
-              Book a demo
-            </a>
           </div>
+          <p className="lp-note">No credit card required.</p>
         </div>
-      </section>
 
-      <footer className="footer">
-        <div className="wrap">
-          <div className="footer-grid">
-            <div className="footer-brand">
-              <a href="#top" className="wordmark">
-                KIVO
-              </a>
-              <p>
-                The AI that sits in on your conversations, remembers everything,
-                and moves you forward.
-              </p>
-            </div>
-            <div className="footer-cols">
-              <div className="footer-col">
-                <h5>Product</h5>
-                <a href="#how">How it works</a>
-                <a href="#features">Features</a>
-                <a href="#pricing">Pricing</a>
-                <a href="#faq">FAQ</a>
-              </div>
-              <div className="footer-col">
-                <h5>Company</h5>
-                <a href="mailto:hello@kivo.ai">Contact</a>
-              </div>
-              <div className="footer-col">
-                <h5>Legal</h5>
-                <Link href="/privacy">Privacy</Link>
-                <Link href="/terms">Terms</Link>
-              </div>
-            </div>
+        <a href="#top" className="lp-footer-mark" aria-label="Kivo, back to top">
+          Kivo
+        </a>
+
+        <div className="lp-wrap lp-footer-meta">
+          <div className="lp-footer-links">
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+            <a href="mailto:hello@kivo.ai">Contact</a>
           </div>
-          <div className="footer-bottom">
-            <span>© {year} Centonis AI Inc. All rights reserved.</span>
-            <span>Always listening. Never interrupting.</span>
-          </div>
+          <p className="lp-footer-copy">
+            © {year} Centonis AI Inc. All rights reserved.
+          </p>
         </div>
       </footer>
     </>

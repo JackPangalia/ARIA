@@ -30,16 +30,6 @@ function MoonIcon({ className }: { className?: string }) {
   );
 }
 
-function SystemIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 3v18" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" opacity="0.35" />
-    </svg>
-  );
-}
-
 type ThemeToggleProps = {
   variant?: "menu" | "settings";
 };
@@ -47,12 +37,69 @@ type ThemeToggleProps = {
 const THEME_OPTIONS: {
   id: ThemePreference;
   label: string;
-  Icon: typeof SunIcon;
 }[] = [
-  { id: "light", label: "Light", Icon: SunIcon },
-  { id: "dark", label: "Dark", Icon: MoonIcon },
-  { id: "system", label: "System", Icon: SystemIcon },
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+  { id: "system", label: "System" },
 ];
+
+const LIGHT_MOCK = {
+  bg: "#fafafa",
+  side: "#f4f4f5",
+  line: "#e4e4e7",
+  accent: "#d4d4d8",
+};
+
+const DARK_MOCK = {
+  bg: "#090909",
+  side: "#18181b",
+  line: "#27272a",
+  accent: "#3f3f46",
+};
+
+function ThemePreviewHalf({
+  mock,
+}: {
+  mock: typeof LIGHT_MOCK;
+}) {
+  return (
+    <span className="grok-theme-preview-half" style={{ background: mock.bg }}>
+      <span
+        className="grok-theme-preview-side"
+        style={{ background: mock.side }}
+      />
+      <span className="grok-theme-preview-body">
+        <span
+          className="grok-theme-preview-line"
+          style={{ background: mock.accent, width: "62%" }}
+        />
+        <span
+          className="grok-theme-preview-line"
+          style={{ background: mock.line, width: "84%" }}
+        />
+        <span
+          className="grok-theme-preview-line"
+          style={{ background: mock.line, width: "46%" }}
+        />
+      </span>
+    </span>
+  );
+}
+
+function ThemePreview({ id }: { id: ThemePreference }) {
+  return (
+    <span className="grok-theme-preview" aria-hidden>
+      {id === "system" ? (
+        <>
+          <ThemePreviewHalf mock={LIGHT_MOCK} />
+          <ThemePreviewHalf mock={DARK_MOCK} />
+        </>
+      ) : (
+        <ThemePreviewHalf mock={id === "light" ? LIGHT_MOCK : DARK_MOCK} />
+      )}
+    </span>
+  );
+}
 
 export function ThemeToggle({ variant = "menu" }: ThemeToggleProps) {
   const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
@@ -63,17 +110,16 @@ export function ThemeToggle({ variant = "menu" }: ThemeToggleProps) {
       <div className="grok-theme-grid">
         {THEME_OPTIONS.map((option) => {
           const selected = theme === option.id;
-          const Icon = option.Icon;
           return (
             <button
               key={option.id}
               type="button"
               onClick={() => setTheme(option.id)}
               data-selected={selected}
-              className="grok-theme-card"
+              className="grok-preview-card"
             >
-              <Icon />
-              <span>{option.label}</span>
+              <ThemePreview id={option.id} />
+              <span className="grok-preview-card-label">{option.label}</span>
             </button>
           );
         })}

@@ -21,11 +21,37 @@ export function OrbParticles({
   energy,
   isLight,
   className,
+  particleCount = 13000,
+  particleSize = 0.052,
+  colorMixPower = 1.6,
+  cameraZ = 6.7,
 }: {
   color: string;
   energy: number;
   isLight: boolean;
   className?: string;
+  /** Lower for small render targets (e.g. the floating widget) to cut per-frame CPU cost. */
+  particleCount?: number;
+  /**
+   * Particle radius in world units. Because `sizeAttenuation` is on, a particle's
+   * on-screen size scales with the canvas, so a small canvas needs a larger value
+   * to keep the field looking like the same orb rather than finer dust.
+   */
+  particleSize?: number;
+  /**
+   * Exponent on each particle's white→accent blend position. The default skews
+   * most particles toward the white core; values below 1 push more of them into
+   * the accent, so the current mode's color still reads on a small canvas where
+   * there's less overlap to accumulate it.
+   */
+  colorMixPower?: number;
+  /**
+   * Camera distance. The default keeps the resting orb large in-app with just
+   * enough margin for loud-state expansion. Pull it back to shrink the whole
+   * field relative to the canvas — the floating widget needs the extra headroom
+   * because its window edge is a hard clip with no mask fade past it.
+   */
+  cameraZ?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const energyRef = useRef(energy);
@@ -42,7 +68,7 @@ export function OrbParticles({
     ).matches;
     const motion = reduceMotion ? 0.2 : 1;
 
-    const N = 13000;
+    const N = particleCount;
     const RADIUS = 2.0;
 
     const host = canvas;
@@ -54,7 +80,7 @@ export function OrbParticles({
     // Pulled back to match the canvas being ~1.4x its layout box (see
     // OrbVisualizer): keeps the resting orb the same on-screen size while
     // leaving margin so loud-state expansion isn't clipped at the frustum edge.
-    camera.position.z = 6.7;
+    camera.position.z = cameraZ;
 
     const renderer = new THREE.WebGLRenderer({
       canvas,
@@ -109,7 +135,7 @@ export function OrbParticles({
       positions[i * 3 + 2] = original[i * 3 + 2] = pz;
       seeds[i] = Math.random() * Math.PI * 2;
       // Power curve: most particles sit near the bright core, a few stray out.
-      mix[i] = Math.pow(Math.random(), 1.6);
+      mix[i] = Math.pow(Math.random(), colorMixPower);
     }
 
     const geo = new THREE.BufferGeometry();
@@ -117,7 +143,7 @@ export function OrbParticles({
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 
     const mat = new THREE.PointsMaterial({
-      size: 0.052,
+      size: particleSize,
       map: sprite,
       vertexColors: true,
       transparent: true,
@@ -260,7 +286,7 @@ export function OrbParticles({
       sprite.dispose();
       renderer.dispose();
     };
-  }, [isLight]);
+  }, [isLight, particleCount, particleSize, colorMixPower, cameraZ]);
 
   return (
     <canvas

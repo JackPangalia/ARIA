@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
+import {
+  applyLandingTheme,
+  applyTheme,
+  clearLandingTheme,
+  readStoredTheme,
+} from "@/lib/theme";
 
+/**
+ * Forces the marketing surface to light product chrome.
+ * ThemeProvider may still toggle `.dark` for the rest of the app; landing.css
+ * pins its own light tokens on `html.landing-active` so that does not matter.
+ */
 export function LandingShell({
   children,
   className,
@@ -10,13 +21,10 @@ export function LandingShell({
   className?: string;
 }) {
   useEffect(() => {
-    document.body.classList.add("landing-active");
-    document.documentElement.classList.add("landing-active", "dark");
-    document.documentElement.style.colorScheme = "dark";
+    applyLandingTheme();
     return () => {
-      document.body.classList.remove("landing-active");
-      document.documentElement.classList.remove("landing-active", "dark");
-      document.documentElement.style.colorScheme = "";
+      clearLandingTheme();
+      applyTheme(readStoredTheme());
     };
   }, []);
 

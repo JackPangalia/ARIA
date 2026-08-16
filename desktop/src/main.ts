@@ -5,10 +5,12 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  screen,
   session,
   shell,
   Tray,
 } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 
 /**
@@ -20,8 +22,40 @@ const APP_URL = process.env.KIVO_APP_URL ?? "https://kivo.app";
 const APP_ORIGIN = new URL(APP_URL).origin;
 const APP_HOTKEY = "CommandOrControl+Shift+K";
 
+// Overridable so the size can be tried out without an edit + rebuild cycle:
+// `KIVO_WIDGET_SIZE=200 npm run dev`.
+const WIDGET_SIZE = Number(process.env.KIVO_WIDGET_SIZE) || 200;
+const WIDGET_MARGIN = 24;
+
 let dashboardWindow: BrowserWindow | null = null;
+let widgetWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+
+// Drives the floating orb widget: it only appears while a session is live
+// (`micLive`, from `kivo:orb-state`) and the dashboard isn't what the user is
+// looking at (`!dashboardHasFocus`, from the dashboard's own window events).
+let dashboardHasFocus = false;
+let micLive = false;
+let latestOrbState: { status: string; micLevel: number } = {
+  status: "idle",
+  micLevel: 0,
+};
+// Cursor-to-window offset while the widget is being dragged (see the
+// kivo:widget-drag-* IPC handlers).
+let widgetDragOffset: { x: number; y: number } | null = null;
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Drag IPC is only honored from the widget window itself — not the dashboard. */
+function isWidgetSender(event: Electron.IpcMainEvent): boolean {
+  return Boolean(
+    widgetWindow &&
+      !widgetWindow.isDestroyed() &&
+      event.sender === widgetWindow.webContents
+  );
+}
 
 // Last custom token from a kivo://auth deep link. Re-delivered to every page
 // load so windows created (or refreshed) after the link still sign in; tokens
@@ -80,6 +114,7 @@ function bootstrap(): void {
     setupWebSessionPolicies();
     setupIpc();
     createTray();
+    createWidgetWindow();
     showDashboard();
     if (!globalShortcut.register(APP_HOTKEY, showDashboard)) {
       console.warn(
@@ -148,6 +183,47 @@ function setupIpc(): void {
 
   ipcMain.on("kivo:open-dashboard", (event) => {
     if (isTrustedIpcSender(event)) showDashboard();
+  });
+
+  // Widget window dragging. `-webkit-app-region: drag` can't offer
+  // click-and-drag on the same surface (it swallows the click), so the widget
+  // page tracks pointer events itself and relays absolute screen coordinates
+  // here; main keeps the grab offset and moves the window. The existing
+  // "moved" listener persists the final position.
+  ipcMain.on("kivo:widget-drag-start", (event, x, y) => {
+    if (!isWidgetSender(event) || !isFiniteNumber(x) || !isFiniteNumber(y)) {
+      return;
+    }
+    const [wx, wy] = widgetWindow!.getPosition();
+    widgetDragOffset = { x: x - wx, y: y - wy };
+  });
+
+  ipcMain.on("kivo:widget-drag-move", (event, x, y) => {
+    if (!isWidgetSender(event) || !widgetDragOffset) return;
+    if (!isFiniteNumber(x) || !isFiniteNumber(y)) return;
+    widgetWindow!.setPosition(
+      Math.round(x - widgetDragOffset.x),
+      Math.round(y - widgetDragOffset.y)
+    );
+  });
+
+  ipcMain.on("kivo:widget-drag-end", (event) => {
+    if (isWidgetSender(event)) widgetDragOffset = null;
+  });
+
+  ipcMain.on("kivo:orb-state", (event, rawState) => {
+    if (!isTrustedIpcSender(event)) return;
+    if (!rawState || typeof rawState !== "object") return;
+    const { status, micLevel } = rawState as {
+      status?: unknown;
+      micLevel?: unknown;
+    };
+    if (typeof status !== "string" || typeof micLevel !== "number") return;
+
+    latestOrbState = { status, micLevel };
+    micLive = status !== "idle" && status !== "error";
+    updateWidgetVisibility();
+    widgetWindow?.webContents.send("kivo:orb-state", latestOrbState);
   });
 }
 
@@ -250,8 +326,19 @@ function createDashboardWindow(): BrowserWindow {
 
   attachWindowBehavior(dashboardWindow, { nativeTitle: "Kivo" });
   void dashboardWindow.loadURL(`${APP_URL}/app`);
+
+  dashboardWindow.on("focus", refreshDashboardFocus);
+  dashboardWindow.on("blur", refreshDashboardFocus);
+  dashboardWindow.on("show", refreshDashboardFocus);
+  dashboardWindow.on("hide", refreshDashboardFocus);
+  dashboardWindow.on("minimize", refreshDashboardFocus);
+  dashboardWindow.on("restore", refreshDashboardFocus);
   dashboardWindow.on("closed", () => {
     dashboardWindow = null;
+    // The renderer (and the mic session it owns) is torn down with the
+    // window — there's nothing left to mirror, so drop the widget with it.
+    micLive = false;
+    refreshDashboardFocus();
   });
   return dashboardWindow;
 }
@@ -261,6 +348,143 @@ function showDashboard(): void {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+/** Re-derives whether the dashboard is what the user is currently looking at. */
+function refreshDashboardFocus(): void {
+  dashboardHasFocus = Boolean(
+    dashboardWindow &&
+      !dashboardWindow.isDestroyed() &&
+      dashboardWindow.isVisible() &&
+      !dashboardWindow.isMinimized() &&
+      dashboardWindow.isFocused()
+  );
+  updateWidgetVisibility();
+}
+
+// ---- Floating orb widget ----
+//
+// A small always-on-top window that mirrors the in-app orb (status + mic
+// level, relayed from the dashboard renderer over `kivo:orb-state`) so the
+// user is reminded Kivo is listening while they're working in another app.
+// It never steals focus: shown with `showInactive()`, never `show()`/`focus()`.
+
+interface WidgetPosition {
+  x: number;
+  y: number;
+}
+
+function widgetPositionFile(): string {
+  return path.join(app.getPath("userData"), "widget-position.json");
+}
+
+function loadWidgetPosition(): WidgetPosition | null {
+  try {
+    const raw = fs.readFileSync(widgetPositionFile(), "utf8");
+    const parsed = JSON.parse(raw) as Partial<WidgetPosition>;
+    if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+      return { x: parsed.x, y: parsed.y };
+    }
+  } catch {
+    // No saved position yet (or the file is unreadable) — use the default corner.
+  }
+  return null;
+}
+
+let savePositionTimer: NodeJS.Timeout | null = null;
+function saveWidgetPositionDebounced(pos: WidgetPosition): void {
+  if (savePositionTimer) clearTimeout(savePositionTimer);
+  savePositionTimer = setTimeout(() => {
+    try {
+      fs.mkdirSync(path.dirname(widgetPositionFile()), { recursive: true });
+      fs.writeFileSync(widgetPositionFile(), JSON.stringify(pos));
+    } catch {
+      // Best-effort — losing the saved position just resets to the default corner.
+    }
+  }, 400);
+}
+
+function defaultWidgetPosition(): WidgetPosition {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    x: workArea.x + workArea.width - WIDGET_SIZE - WIDGET_MARGIN,
+    y: workArea.y + workArea.height - WIDGET_SIZE - WIDGET_MARGIN,
+  };
+}
+
+/** Keeps the widget on-screen even if it was last parked on a display that's since been unplugged. */
+function clampToWorkArea(pos: WidgetPosition): WidgetPosition {
+  const { workArea } = screen.getDisplayNearestPoint(pos);
+  return {
+    x: Math.min(Math.max(pos.x, workArea.x), workArea.x + workArea.width - WIDGET_SIZE),
+    y: Math.min(Math.max(pos.y, workArea.y), workArea.y + workArea.height - WIDGET_SIZE),
+  };
+}
+
+function updateWidgetVisibility(): void {
+  const win = widgetWindow;
+  if (!win || win.isDestroyed()) return;
+  const shouldShow = micLive && !dashboardHasFocus;
+  if (shouldShow && !win.isVisible()) {
+    win.showInactive();
+  } else if (!shouldShow && win.isVisible()) {
+    win.hide();
+  }
+}
+
+function createWidgetWindow(): BrowserWindow {
+  if (widgetWindow && !widgetWindow.isDestroyed()) return widgetWindow;
+
+  const position = clampToWorkArea(loadWidgetPosition() ?? defaultWidgetPosition());
+
+  widgetWindow = new BrowserWindow({
+    width: WIDGET_SIZE,
+    height: WIDGET_SIZE,
+    x: position.x,
+    y: position.y,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    resizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  // "screen-saver" is the highest level short of fighting the OS — it keeps
+  // the orb visible over a fullscreen call, matching how Zoom/Granola-style
+  // floating pills stay on top of everything.
+  widgetWindow.setAlwaysOnTop(true, "screen-saver");
+  // `visibleOnFullScreen` silently flips the app's activation policy to
+  // "accessory" on macOS as a side effect, which would stop the dashboard
+  // from ever taking foreground focus again. Restore "regular" immediately —
+  // the widget keeps its fullscreen collection behavior, the app stays normal.
+  widgetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (process.platform === "darwin") app.setActivationPolicy("regular");
+
+  attachWindowBehavior(widgetWindow);
+  void widgetWindow.loadURL(`${APP_URL}/widget`);
+  widgetWindow.webContents.on("did-finish-load", () => {
+    widgetWindow?.webContents.send("kivo:orb-state", latestOrbState);
+  });
+
+  widgetWindow.on("moved", () => {
+    if (!widgetWindow) return;
+    const [x, y] = widgetWindow.getPosition();
+    saveWidgetPositionDebounced({ x, y });
+  });
+  widgetWindow.on("closed", () => {
+    widgetWindow = null;
+    widgetDragOffset = null;
+  });
+
+  return widgetWindow;
 }
 
 function createTray(): void {

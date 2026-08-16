@@ -149,11 +149,11 @@ function EnrollmentScriptCard(props: {
 }) {
   if (props.onboarding) {
     return (
-      <div className="w-full rounded-xl border border-app bg-surface px-4 py-3.5 text-left">
-        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-app-subtle">
+      <div className="w-full rounded-2xl border border-app bg-surface/80 px-4 py-3.5 text-left">
+        <p className="text-[11px] font-medium tracking-[0.06em] text-app-subtle uppercase">
           {props.pass.label}
         </p>
-        <p className="mt-2 text-[14px] leading-relaxed text-app-secondary">
+        <p className="mt-2 text-[14px] leading-[1.55] tracking-[-0.011em] text-app-secondary">
           {props.pass.script}
         </p>
       </div>
@@ -322,13 +322,15 @@ function OnboardingEnrollmentSuccess(props: {
   note?: string | null;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-2 py-6 text-center">
-      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-        <CheckIcon className="h-5 w-5" />
+    <div className="kivo-fade-in flex flex-col items-center gap-3 px-2 py-6 text-center">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-app">
+        <CheckIcon className="h-4 w-4" />
       </span>
       <div>
-        <p className="text-sm font-medium text-app">{props.name} enrolled</p>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-app-muted">
+        <p className="text-sm font-medium tracking-[-0.01em] text-app">
+          {props.name} enrolled
+        </p>
+        <p className="mt-1.5 text-[13px] leading-[1.55] text-app-muted">
           {props.note ?? "Kivo will label your lines in the transcript."}
         </p>
       </div>
@@ -879,27 +881,30 @@ export function SpeakerProfilesManager(props: {
           </div>
         ) : isOnboarding ? (
           <div className="mx-auto w-full max-w-sm space-y-5 text-center">
-            <ul className="space-y-2.5 text-left text-[13px] leading-relaxed text-app-muted">
-              <li className="flex gap-3">
-                <span className="w-4 shrink-0 text-center text-app-subtle">1</span>
-                <span>Enter your name</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-4 shrink-0 text-center text-app-subtle">2</span>
-                <span>Read aloud for 15 seconds</span>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-4 shrink-0 text-center text-app-subtle">3</span>
-                <span>Talk naturally for 15 seconds</span>
-              </li>
-            </ul>
+            <ol className="m-0 list-none space-y-2.5 p-0 text-left">
+              {[
+                "Enter your name",
+                "Read aloud for 15 seconds",
+                "Talk naturally for 15 seconds",
+              ].map((label, index) => (
+                <li
+                  key={label}
+                  className="flex gap-3 text-[13px] leading-[1.55] text-app-muted"
+                >
+                  <span className="w-4 shrink-0 text-center text-[11px] font-medium text-app-subtle">
+                    {index + 1}
+                  </span>
+                  <span>{label}</span>
+                </li>
+              ))}
+            </ol>
 
             <input
               id="speaker-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="Your name"
-              className="w-full rounded-xl border border-app bg-app px-4 py-3 text-center text-sm text-app outline-none transition-colors placeholder:text-app-subtle focus:border-app-strong"
+              className="w-full rounded-2xl border border-app bg-app px-4 py-3 text-center text-sm tracking-[-0.011em] text-app outline-none transition-colors placeholder:text-app-subtle focus:border-app-strong"
             />
 
             {phase === "error" && error ? (
@@ -909,7 +914,7 @@ export function SpeakerProfilesManager(props: {
             <button
               type="button"
               onClick={() => void startEnrollment()}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-[13px] font-medium tracking-[0.04em] text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-40"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-[13px] font-medium tracking-[0.02em] text-accent-fg transition-[opacity,transform] duration-150 hover:opacity-90 active:translate-y-px disabled:opacity-40"
             >
               <MicIcon className="h-4 w-4" />
               {phase === "error" ? "Try again" : "Start enrollment"}

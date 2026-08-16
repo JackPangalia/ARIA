@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * Post-session "Continue chat" dock — PARKED.
+ *
+ * Not mounted anywhere while `SESSION_CHAT_ENABLED` is false in
+ * `src/lib/features.ts`. Keep this file (plus `/api/chat` and
+ * `chat-pipeline`) so a future update can remount it from OverviewView.
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SimpleMarkdown } from "@/components/sessions/SimpleMarkdown";
 import { streamChat } from "@/lib/chat/client";
@@ -25,7 +33,7 @@ function PlayIcon() {
       aria-hidden="true"
       viewBox="0 0 16 16"
       fill="currentColor"
-      className="h-4 w-4 translate-x-px"
+      className="h-3.5 w-3.5 translate-x-px"
     >
       <path d="M4.5 2.8c0-.7.8-1.2 1.4-.8l8 4.7c.6.3.6 1.2 0 1.6l-8 4.7c-.6.4-1.4-.1-1.4-.8V2.8Z" />
     </svg>
@@ -239,7 +247,7 @@ export function MeetingChatPanel(props: {
 
   const showCollapsedResume = Boolean(onResume) && !expanded;
   const resumeAriaLabel = resumeDisabled
-    ? "Session archived"
+    ? "Conversation archived"
     : resumeLabel === "RESUME"
       ? "Resume recording"
       : "Start recording";
@@ -250,14 +258,14 @@ export function MeetingChatPanel(props: {
     // summary/transcript content out of view instead of covering it.
     <div className="flex shrink-0 justify-center">
       {/* Same max-width + horizontal padding as the summary column in OverviewView. */}
-      <div className="flex w-full max-w-2xl items-stretch gap-2.5 px-3 pb-4 sm:max-w-3xl sm:gap-3 sm:px-4 sm:pb-5">
+      <div className="flex w-full max-w-3xl items-stretch gap-2 px-6 pb-4 sm:gap-2.5 sm:px-10 sm:pb-5">
         {showCollapsedResume ? (
           <button
             type="button"
             onClick={onResume}
             disabled={resumeBusy || resumeDisabled}
             aria-label={resumeAriaLabel}
-            className="bg-chat-well pointer-events-auto inline-flex aspect-square shrink-0 items-center justify-center rounded-[28px] px-3.5 text-app transition-[transform,opacity] hover:opacity-95 active:scale-[0.98] disabled:opacity-40 sm:px-4"
+            className="bg-chat-well pointer-events-auto inline-flex aspect-square shrink-0 items-center justify-center rounded-[22px] px-3 text-app transition-[transform,opacity] hover:opacity-95 active:scale-[0.98] disabled:opacity-40 sm:px-3.5"
           >
             {resumeDisabled ? (
               <span className="h-2 w-2 rounded-full bg-app-subtle" />
@@ -274,7 +282,7 @@ export function MeetingChatPanel(props: {
         <div
           id={`meeting-chat-panel-${sessionId}`}
           aria-expanded={expanded}
-          className="bg-chat-panel pointer-events-auto flex min-w-0 flex-1 flex-col overflow-hidden rounded-[28px]"
+          className="bg-chat-panel pointer-events-auto flex min-w-0 flex-1 flex-col overflow-hidden rounded-[22px]"
         >
         <div
           className={`grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
@@ -283,7 +291,7 @@ export function MeetingChatPanel(props: {
         >
           <div className="min-h-0 overflow-hidden">
             <div
-              className={`flex items-center justify-between gap-3 border-b border-app px-3 pb-2.5 pt-3 transition-opacity duration-200 sm:px-4 ${
+              className={`flex items-center justify-between gap-2.5 border-b border-app px-2.5 pb-2 pt-2.5 transition-opacity duration-200 sm:px-3 ${
                 expanded ? "opacity-100" : "opacity-0"
               }`}
             >
@@ -294,16 +302,16 @@ export function MeetingChatPanel(props: {
                   disabled={resumeBusy || resumeDisabled}
                   aria-label={resumeAriaLabel}
                   tabIndex={expanded ? 0 : -1}
-                  className="grid h-9 w-9 place-items-center rounded-full bg-chat-bubble text-app transition-colors hover:opacity-90 active:scale-95 disabled:opacity-40"
+                  className="grid h-8 w-8 place-items-center rounded-full bg-chat-bubble text-app transition-colors hover:opacity-90 active:scale-95 disabled:opacity-40"
                 >
                   {resumeDisabled ? (
-                    <span className="h-2 w-2 rounded-full bg-app-subtle" />
+                    <span className="h-1.5 w-1.5 rounded-full bg-app-subtle" />
                   ) : (
                     <PlayIcon />
                   )}
                 </button>
               ) : (
-                <span className="h-9 w-9" aria-hidden="true" />
+                <span className="h-8 w-8" aria-hidden="true" />
               )}
 
               <button
@@ -311,13 +319,13 @@ export function MeetingChatPanel(props: {
                 onClick={collapse}
                 aria-label="Close chat"
                 tabIndex={expanded ? 0 : -1}
-                className="grid h-9 w-9 place-items-center rounded-full bg-chat-bubble text-app transition-colors hover:opacity-90 active:scale-95"
+                className="grid h-8 w-8 place-items-center rounded-full bg-chat-bubble text-app transition-colors hover:opacity-90 active:scale-95"
               >
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 16 16"
                   fill="none"
-                  className="h-4 w-4"
+                  className="h-3.5 w-3.5"
                 >
                   <path
                     d="m4 4 8 8M12 4 4 12"
@@ -339,26 +347,26 @@ export function MeetingChatPanel(props: {
                     element.clientHeight <
                   BOTTOM_THRESHOLD_PX;
               }}
-              className={`max-h-[42vh] overflow-y-auto px-4 pb-5 pt-2 transition-opacity duration-200 sm:px-5 ${
+              className={`max-h-[42vh] overflow-y-auto px-3.5 pb-4 pt-1.5 transition-opacity duration-200 sm:px-4 ${
                 expanded ? "opacity-100" : "opacity-0"
               }`}
             >
               {messages.length === 0 ? (
-                <p className="px-1 py-6 text-[15px] leading-relaxed text-app-muted">
+                <p className="px-1 py-5 text-[14px] leading-relaxed text-app-muted">
                   Hey — what do you need?
                 </p>
               ) : (
-                <div className="space-y-5" aria-live="polite">
+                <div className="space-y-4" aria-live="polite">
                   {messages.map((message) =>
                     message.role === "user" ? (
                       <div key={message.id} className="flex justify-end">
-                        <div className="bg-chat-bubble max-w-[85%] whitespace-pre-wrap rounded-[22px] px-4 py-2.5 text-[15px] leading-relaxed text-app sm:max-w-[75%]">
+                        <div className="bg-chat-bubble max-w-[85%] whitespace-pre-wrap rounded-[18px] px-3.5 py-2 text-[14px] leading-relaxed text-app sm:max-w-[75%]">
                           {message.text}
                         </div>
                       </div>
                     ) : (
                       <div key={message.id} className="pr-2 sm:pr-8">
-                        <div className="text-[15px] leading-[1.7] text-app-secondary [&_strong]:text-app">
+                        <div className="text-[14px] leading-[1.65] text-app-secondary [&_strong]:text-app">
                           {message.text ? (
                             <SimpleMarkdown text={message.text} />
                           ) : message.status === "streaming" ? (
@@ -405,19 +413,19 @@ export function MeetingChatPanel(props: {
         <form
           onSubmit={handleSubmit}
           className={`shrink-0 transition-[padding] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-            expanded ? "px-3 pb-3 pt-1 sm:px-3.5" : "p-0"
+            expanded ? "px-2.5 pb-2.5 pt-1 sm:px-3" : "p-0"
           }`}
         >
           {disabled ? (
-            <p className="px-5 py-3.5 text-center text-sm text-app-muted">
+            <p className="px-4 py-3 text-center text-sm text-app-muted">
               Chat is unavailable for archived sessions.
             </p>
           ) : (
             <div
-              className={`flex items-end gap-2 transition-[border-radius,padding,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+              className={`flex items-end gap-1.5 transition-[border-radius,padding,opacity,background-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                 expanded
-                  ? "bg-chat-bubble rounded-full px-4 py-2"
-                  : "bg-chat-well rounded-[28px] px-4 py-2.5"
+                  ? "bg-chat-bubble rounded-full px-3.5 py-1.5"
+                  : "bg-chat-well rounded-[22px] px-3.5 py-2"
               } ${summarizing ? "opacity-40" : ""}`}
             >
               <label htmlFor={`meeting-chat-${sessionId}`} className="sr-only">
@@ -455,14 +463,14 @@ export function MeetingChatPanel(props: {
                 rows={1}
                 maxLength={MAX_QUESTION_LENGTH}
                 placeholder={placeholder}
-                className="block max-h-28 w-full resize-none bg-transparent py-1.5 text-[15px] leading-relaxed text-app outline-none placeholder:text-app-muted disabled:cursor-not-allowed"
+                className="block max-h-28 w-full resize-none bg-transparent py-1 text-[14px] leading-relaxed text-app outline-none placeholder:text-app-muted disabled:cursor-not-allowed"
               />
               <div className="flex shrink-0 items-center pb-0.5">
                 {streaming ? (
                   <button
                     type="button"
                     onClick={() => abortRef.current?.abort()}
-                    className="rounded-full bg-chat-panel px-3 py-1.5 text-xs font-medium text-app-secondary transition-colors hover:text-app"
+                    className="rounded-full bg-chat-panel px-2.5 py-1 text-xs font-medium text-app-secondary transition-colors hover:text-app"
                   >
                     Stop
                   </button>
@@ -471,13 +479,13 @@ export function MeetingChatPanel(props: {
                     type="submit"
                     disabled={!canSend}
                     aria-label="Send"
-                    className="grid h-8 w-8 place-items-center rounded-full bg-accent text-accent-fg transition-[opacity,transform] hover:opacity-90 active:scale-[0.96] disabled:opacity-30"
+                    className="grid h-7 w-7 place-items-center rounded-full bg-accent text-accent-fg transition-[opacity,transform] hover:opacity-90 active:scale-[0.96] disabled:opacity-30"
                   >
                     <svg
                       aria-hidden="true"
                       viewBox="0 0 16 16"
                       fill="none"
-                      className="h-3.5 w-3.5"
+                      className="h-3 w-3"
                     >
                       <path
                         d="M8 12V4m0 0L4.75 7.25M8 4l3.25 3.25"

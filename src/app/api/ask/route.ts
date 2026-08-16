@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (sessionResult.error || !sessionResult.session) {
-    return new Response(JSON.stringify({ error: "Session not found." }), {
+    return new Response(JSON.stringify({ error: "Conversation not found." }), {
       status: 404,
       headers: { "Content-Type": "application/json" },
     });
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   const session: SessionDoc = sessionResult.session;
 
   if (session.status === "archived") {
-    return new Response(JSON.stringify({ error: "Session is archived." }), {
+    return new Response(JSON.stringify({ error: "Conversation is archived." }), {
       status: 409,
       headers: { "Content-Type": "application/json" },
     });

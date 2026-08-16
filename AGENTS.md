@@ -19,10 +19,13 @@ frozen and change it only deliberately. (The model layer underneath it was
 rewritten in the Anthropic consolidation — see below — so this is a behavioral
 guarantee, not a literal "never edit these files".)
 
-Everything that happens *after* a session stops — the Overview summary, the
-transcript view, and the text chat dock (`/api/chat`) — is **shared, live V1
-surface**, not leftovers from a notes product. It is mode-agnostic and applies
-to in-person sessions. Don't remove it.
+Everything that happens *after* a session stops — the Overview summary and the
+transcript view — is **shared, live V1 surface**, not leftovers from a notes
+product. It is mode-agnostic and applies to in-person sessions. Don't remove it.
+
+The post-session text chat dock (`MeetingChatPanel` / `/api/chat`) is **built
+but parked** — `SESSION_CHAT_ENABLED` is `false` in `src/lib/features.ts`. Do
+not remount it for V1 work.
 
 ## The AI stack is 100% Anthropic — don't reintroduce a second vendor
 

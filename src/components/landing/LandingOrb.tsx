@@ -3,33 +3,16 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
-// Marketing hero palette — forest-green core with mint / teal / silver halo.
-const ORB_PALETTE = [
-  new THREE.Color("#ecfdf5"),
-  new THREE.Color("#a7f3d0"),
-  new THREE.Color("#6ee7b7"),
-  new THREE.Color("#2dd4bf"),
-  new THREE.Color("#134e4a"),
-];
-const ORB_CORE = new THREE.Color("#14532d");
-
+// Idle zinc — matches the in-app light idle orb. Color is for live state, not chrome.
 const GREY_ORB_ACCENT = new THREE.Color("#a1a1aa");
-
-function samplePalette(t: number, out: THREE.Color): THREE.Color {
-  const scaled = (((t % 1) + 1) % 1) * ORB_PALETTE.length;
-  const i0 = Math.floor(scaled) % ORB_PALETTE.length;
-  const i1 = (i0 + 1) % ORB_PALETTE.length;
-  const f = scaled - Math.floor(scaled);
-  return out.copy(ORB_PALETTE[i0]!).lerp(ORB_PALETTE[i1]!, f);
-}
 
 export function LandingOrb({
   className,
   compact = false,
-  variant = "brand",
 }: {
   className?: string;
   compact?: boolean;
+  /** @deprecated Ignored — landing orb is always idle grey. */
   variant?: "brand" | "grey";
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -42,11 +25,9 @@ export function LandingOrb({
       "(prefers-reduced-motion: reduce)",
     ).matches;
 
-    const isGrey = variant === "grey";
-
     const cfg = {
-      intensity: reduceMotion ? 0.15 : compact ? 0.65 : 0.7,
-      count: compact ? 8000 : 14000,
+      intensity: reduceMotion ? 0.15 : compact ? 0.55 : 0.6,
+      count: compact ? 8000 : 12000,
       particleSize: compact ? 0.05 : 0.055,
     };
 
@@ -132,9 +113,9 @@ export function LandingOrb({
 
     const coreGeo = new THREE.SphereGeometry(1.55, 32, 32);
     const coreMat = new THREE.MeshBasicMaterial({
-      color: isGrey ? GREY_ORB_ACCENT.clone() : ORB_CORE.clone(),
+      color: GREY_ORB_ACCENT.clone(),
       transparent: true,
-      opacity: isGrey ? 0.045 : 0.22,
+      opacity: 0.045,
       blending: THREE.NormalBlending,
       depthWrite: false,
     });
@@ -215,13 +196,7 @@ export function LandingOrb({
       const I = cfg.intensity;
 
       updateMouseWorld();
-
-      const colorDrift = t * 0.018;
-      if (isGrey) {
-        coreMat.color.copy(GREY_ORB_ACCENT).multiplyScalar(0.55);
-      } else {
-        coreMat.color.copy(ORB_CORE);
-      }
+      coreMat.color.copy(GREY_ORB_ACCENT).multiplyScalar(0.55);
 
       invQuat.copy(points.quaternion).invert();
       mouseLocal.copy(mouseWorld).applyQuaternion(invQuat);
@@ -245,18 +220,8 @@ export function LandingOrb({
         const oy = original[iy]!;
         const oz = original[iz]!;
         const m = mix[i]!;
-        if (isGrey) {
-          colorTmp.copy(GREY_ORB_ACCENT);
-        } else {
-          const angle = Math.atan2(oz, ox);
-          const lat = oy / RADIUS;
-          const paletteT =
-            ((angle + Math.PI) / (Math.PI * 2)) * 0.68 +
-            (lat + 1) * 0.16 +
-            colorDrift;
-          samplePalette(paletteT, colorTmp);
-        }
-        const dim = 1 - m * (isGrey ? 0.55 : 0.35);
+        colorTmp.copy(GREY_ORB_ACCENT);
+        const dim = 1 - m * 0.55;
         colArr[ix] = colorTmp.r * dim;
         colArr[iy] = colorTmp.g * dim;
         colArr[iz] = colorTmp.b * dim;
@@ -326,7 +291,7 @@ export function LandingOrb({
       sprite.dispose();
       renderer.dispose();
     };
-  }, [compact, variant]);
+  }, [compact]);
 
   return (
     <canvas ref={canvasRef} className={className} aria-hidden="true" />

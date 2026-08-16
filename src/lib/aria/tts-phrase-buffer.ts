@@ -34,19 +34,23 @@ const SENTENCE_BOUNDARY = /[.!?]+["')\]]*\s+|\n+/;
  * Word-level streaming buffer for the single-context Cartesia WebSocket path.
  * Unlike VoicePhraseBuffer (which holds text until a full sentence — adding
  * most of a sentence's worth of latency before the first audio), this flushes
- * small word-aligned fragments as the LLM streams. Cartesia's continuation
- * mode plus `max_buffer_delay_ms` joins the fragments into natural phrases, so
- * prosody stays continuous while first-audio latency drops to roughly one
- * LLM-token round trip. Never splits mid-word.
+ * small word-aligned fragments as the LLM streams. The first flush is shorter
+ * so first-audio is one short clause; later flushes stay a bit larger so
+ * Cartesia's continuation mode can join them. Never splits mid-word.
  */
 export class WordStreamBuffer {
   private buffer = "";
+  private emitted = 0;
 
-  constructor(private readonly minChars = 12) {}
+  constructor(
+    private readonly firstMinChars = 8,
+    private readonly nextMinChars = 12
+  ) {}
 
   push(token: string): string[] {
     this.buffer += token;
-    if (this.buffer.length < this.minChars) return [];
+    const minimum = this.emitted === 0 ? this.firstMinChars : this.nextMinChars;
+    if (this.buffer.length < minimum) return [];
     // Flush up to the last whitespace so words stay intact; keep the tail.
     const cut = Math.max(
       this.buffer.lastIndexOf(" "),
@@ -55,7 +59,9 @@ export class WordStreamBuffer {
     if (cut <= 0) return [];
     const out = this.buffer.slice(0, cut + 1);
     this.buffer = this.buffer.slice(cut + 1);
-    return out.trim() ? [out] : [];
+    if (!out.trim()) return [];
+    this.emitted += 1;
+    return [out];
   }
 
   finish(): string[] {

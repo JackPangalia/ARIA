@@ -36,6 +36,8 @@ vi.mock("@/lib/aria/agent", () => ({
 vi.mock("@/lib/aria/context/build-context", () => ({
   buildContextBundle: async ({ question }: { question: string }) => ({
     messages: "context",
+    stableContext: "context",
+    liveTranscript: "",
     history: [],
     question,
     tokenEstimate: 4,
