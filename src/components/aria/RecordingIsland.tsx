@@ -10,7 +10,7 @@ import type { AriaStatus } from "@/lib/types";
 /**
  * Quiet recording control in the session header — timer, live status, and
  * Start/Stop. Styled like the Overview/Resume tabs, not a floating device.
- * Status labels stay one muted color; the word ring carries the live speech.
+ * Status labels stay one muted color; the orb and live transcript carry the room.
  */
 export function RecordingIsland(props: {
   isRunning: boolean;

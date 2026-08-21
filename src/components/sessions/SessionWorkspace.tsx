@@ -41,6 +41,7 @@ import {
   getOnboardingStatus,
   isOnboardingPreview,
 } from "@/lib/onboarding/client";
+import { LiveListeningStream } from "@/components/sessions/LiveListeningStream";
 import { OverviewView } from "@/components/sessions/OverviewView";
 import type { SpeakerCorrectionProps } from "@/components/sessions/SessionInsightsPanel";
 import {
@@ -1085,17 +1086,24 @@ export function SessionWorkspace() {
         ) : null}
 
         {showVoicePanel ? (
-          <div className="pointer-events-none flex min-h-0 flex-1 items-center justify-center">
-            <div className="kivo-voice-stage pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
-              <div className="flex flex-col items-center">
-                <OrbVisualizer
-                  onActivate={
-                    detail?.session.status === "archived" || recording.isRunning
-                      ? undefined
-                      : handleRecordingStart
-                  }
-                />
-                {!recording.isRunning ? (
+          recording.isRunning ? (
+            <div className="relative min-h-0 flex-1">
+              <LiveListeningStream lines={transcriptLines} />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex justify-center pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                <OrbVisualizer compact />
+              </div>
+            </div>
+          ) : (
+            <div className="pointer-events-none flex min-h-0 flex-1 items-center justify-center">
+              <div className="kivo-voice-stage pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
+                <div className="flex flex-col items-center">
+                  <OrbVisualizer
+                    onActivate={
+                      detail?.session.status === "archived"
+                        ? undefined
+                        : handleRecordingStart
+                    }
+                  />
                   <button
                     type="button"
                     onClick={handleRecordingStart}
@@ -1110,10 +1118,10 @@ export function SessionWorkspace() {
                         ? "Resume"
                         : "Start"}
                   </button>
-                ) : null}
+                </div>
               </div>
             </div>
-          </div>
+          )
         ) : null}
 
         <ConfirmDialog

@@ -1,20 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
-import { WordRing } from "@/components/aria/WordRing";
+import { GlowOrb } from "@/components/aria/GlowOrb";
 import { modeFor } from "@/components/aria/visual-state";
 import { useAriaStore } from "@/lib/store";
-import {
-  ringContentFor,
-  ringTextFromUtterances,
-} from "@/lib/voice/word-ring-text";
 
 export function OrbVisualizer(props: {
-  /** Tap the idle ring to begin recording; omitted when it can't be started. */
+  /** Tap the idle orb to begin recording; omitted when it can't be started. */
   onActivate?: () => void;
+  /** Smaller orb for the live listening dock at the bottom of the stage. */
+  compact?: boolean;
 }) {
   const status = useAriaStore((s) => s.status);
-  const utterances = useAriaStore((s) => s.utterances);
   const error = useAriaStore((s) => s.errorMessage);
   const notice = useAriaStore((s) => s.notice);
 
@@ -22,20 +18,17 @@ export function OrbVisualizer(props: {
   const idle = mode === "idle";
   const hasMessage = Boolean(error || notice);
 
-  const liveText = useMemo(
-    () => ringTextFromUtterances(utterances),
-    [utterances],
-  );
-
-  // Going idle is the one thing that wipes the ring; while a session is live it
-  // holds the last speech it heard through Kivo's own turns (see `WordRing`).
-  const content = ringContentFor(mode, idle ? "" : liveText);
-
   return (
     <div
-      className={`flex flex-col items-center ${hasMessage ? "gap-6 sm:gap-8" : ""}`}
+      className={`flex flex-col items-center ${hasMessage ? "gap-5 sm:gap-6" : ""}`}
     >
-      <div className="group relative aspect-square w-[min(26rem,72vmin)] origin-center select-none max-sm:w-[min(22rem,86vw)]">
+      <div
+        className={`group relative aspect-square origin-center select-none ${
+          props.compact
+            ? "w-[min(13rem,40vmin)]"
+            : "w-[min(16.5rem,50vmin)] max-sm:w-[min(14.5rem,70vw)]"
+        }`}
+      >
         {idle && props.onActivate ? (
           <button
             type="button"
@@ -44,10 +37,8 @@ export function OrbVisualizer(props: {
             className="absolute inset-0 z-10 cursor-pointer rounded-full outline-none ring-app-muted/40 transition-shadow focus-visible:ring-2"
           />
         ) : null}
-        {/* The ring's own motion lives in transform, so the hover lift rides an
-            outer box to keep the two from fighting for the same property. */}
-        <div className="absolute inset-0 transition-transform duration-500 ease-out group-hover:scale-[1.015]">
-          <WordRing text={content.text} voice={content.voice} mode={mode} />
+        <div className="absolute inset-0 transition-transform duration-500 ease-out group-hover:scale-[1.02]">
+          <GlowOrb mode={mode} />
         </div>
       </div>
 
