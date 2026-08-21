@@ -43,7 +43,8 @@ export function OnboardingGuide() {
             {index + 1}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="font-sans text-[15px] font-medium leading-snug tracking-[-0.02em] text-app">
+            <p className="kivo-kicker">{step.phase}</p>
+            <p className="kivo-display mt-1 text-[1.35rem] text-app">
               {step.title}
             </p>
             <p className="mt-1 text-[13px] leading-[1.55] text-app-muted">

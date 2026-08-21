@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { TranscriptLines } from "@/components/sessions/SessionInsightsPanel";
+import {
+  TranscriptLines,
+  type SpeakerCorrectionProps,
+} from "@/components/sessions/SessionInsightsPanel";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
 import type { MeetingSummaryDoc } from "@/lib/sessions/types";
 
@@ -11,12 +14,11 @@ function ContentModeToggle(props: {
   mode: OverviewContentMode;
   onChange: (mode: OverviewContentMode) => void;
 }) {
-  // Same pill tabs as the hub surfaces.
   const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+    `px-3 py-1.5 text-sm font-medium transition-colors ${
       active
-        ? "bg-surface text-app"
-        : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
+        ? "text-app"
+        : "text-app-subtle hover:text-app-secondary"
     }`;
 
   return (
@@ -59,10 +61,10 @@ function EmptySessionPrompt(props: {
 }) {
   return (
     <div className="flex flex-col items-center px-6 text-center">
-      <p className="text-[15px] font-medium text-app">
+      <p className="text-xl font-medium tracking-[-0.02em] text-app sm:text-2xl">
         {props.resume ? "Pick up where you left off" : "Ready when you are"}
       </p>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-app-muted">
+      <p className="mt-4 max-w-sm text-sm leading-relaxed text-app-muted">
         {props.resume
           ? "No summary or transcript yet. Resume listening and Kivo will pick up from here."
           : "Start a conversation and Kivo will listen, answer when you ask, and build a summary when you stop."}
@@ -71,7 +73,7 @@ function EmptySessionPrompt(props: {
         type="button"
         onClick={props.onStart}
         disabled={props.busy || props.disabled}
-        className="mt-6 px-1 py-1 text-[13px] font-medium text-app-muted transition-colors hover:text-app-secondary disabled:cursor-not-allowed disabled:opacity-40"
+        className="mt-8 text-sm font-medium text-app-muted transition-colors hover:text-app disabled:cursor-not-allowed disabled:opacity-40"
       >
         {props.disabled ? "Archived" : props.resume ? "Resume" : "Start conversation"}
       </button>
@@ -81,7 +83,7 @@ function EmptySessionPrompt(props: {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-1 text-xs font-medium uppercase tracking-wider text-app-subtle">
+    <p className="px-1 text-xs font-medium text-app-muted">
       {children}
     </p>
   );
@@ -142,7 +144,7 @@ function SummaryCard(props: {
         <SummarySkeleton />
       ) : props.summary ? (
         <div className="kivo-fade-in space-y-7">
-          <p className="px-1 text-[15px] leading-[1.7] text-app sm:leading-[1.75]">
+          <p className="px-1 text-[15px] leading-relaxed text-app">
             {props.summary.overview}
           </p>
 
@@ -168,7 +170,7 @@ function SummaryCard(props: {
           ) : null}
         </div>
       ) : (
-        <p className="px-3 py-3 text-sm font-normal leading-relaxed text-app-subtle">
+        <p className="px-1 py-3 text-sm leading-relaxed text-app-subtle">
           {props.isRunning
             ? "The summary appears here once you stop the recording."
             : "Not enough conversation yet to summarize."}
@@ -191,6 +193,7 @@ export function OverviewView(props: {
   resume: boolean;
   archived?: boolean;
   busy?: boolean;
+  speakerCorrection?: SpeakerCorrectionProps;
   onStart: () => void;
 }) {
   const [contentMode, setContentMode] = useState<OverviewContentMode>("summary");
@@ -241,7 +244,11 @@ export function OverviewView(props: {
             hidden={contentMode !== "transcript"}
           >
             <div className="kivo-overview-surface px-1 pb-6 pt-0 sm:pb-7">
-              <TranscriptLines lines={props.transcriptLines} large />
+              <TranscriptLines
+                lines={props.transcriptLines}
+                large
+                speakerCorrection={props.speakerCorrection}
+              />
             </div>
           </div>
         </div>

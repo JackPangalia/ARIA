@@ -121,8 +121,9 @@ export type StreamImage = {
 
 export type ImageStreamHeroProps = {
   /**
-   * Images cycled onto the rails. Both rails run the same sequence, so the
-   * corridor reads as one mirrored stream. Fewer than `cards` simply repeat.
+   * Images cycled onto the rails. Each rail begins at a different point in the
+   * sequence and travels at a different phase, so the corridor never reads as
+   * a mirrored loop. Fewer than `cards` simply repeat.
    */
   images: readonly StreamImage[];
   /**
@@ -164,6 +165,18 @@ export function ImageStreamHero({
   const right = `ish-r-${id}`;
   const left = `ish-l-${id}`;
   const card = `ish-c-${id}`;
+  const imageCount = Math.max(images.length, 1);
+  // A deliberately non-half phase means arrivals never pair across the axis.
+  // The left rail also starts in the other half of the image sequence, so the
+  // two sides feel editorially related but never duplicated.
+  const rails = [
+    { animation: right, imageOffset: 0, phase: 0 },
+    {
+      animation: left,
+      imageOffset: Math.max(1, Math.floor(imageCount / 2)),
+      phase: 0.53,
+    },
+  ] as const;
 
   const p = React.useMemo(() => ({ ...PATH, ...path }), [path]);
 
@@ -183,7 +196,7 @@ export function ImageStreamHero({
       {...props}
       style={{ containerType: "inline-size", ...props.style }}
     >
-      <style>{css}</style>
+      <style suppressHydrationWarning>{css}</style>
 
       <div
         aria-hidden
@@ -197,14 +210,12 @@ export function ImageStreamHero({
           className="absolute inset-0"
           style={{ transformStyle: "preserve-3d" }}
         >
-          {[right, left].map((name) =>
+          {rails.map(({ animation, imageOffset, phase }) =>
             Array.from({ length: cards }, (_, i) => {
-              // Both rails walk the same sequence, so the left side mirrors
-              // the right at every depth.
-              const img = images[i % Math.max(images.length, 1)];
+              const img = images[(i + imageOffset) % imageCount];
               return (
                 <div
-                  key={`${name}-${i}`}
+                  key={`${animation}-${i}`}
                   className={cn(card, "absolute overflow-hidden")}
                   style={{
                     left: "50%",
@@ -214,10 +225,12 @@ export function ImageStreamHero({
                     marginLeft: `${-p.cardWidth / 2}cqw`,
                     marginTop: `${-p.cardHeight / 2}cqw`,
                     borderRadius: `${p.cardRadius}cqw`,
-                    animation: `${name} ${speed}s linear infinite`,
+                    animation: `${animation} ${speed}s linear infinite`,
                     // Negative delay drops each card mid-flight, so the
-                    // corridor is already full on the first frame.
-                    animationDelay: `${-(i * speed) / cards}s`,
+                    // corridor is already full on the first frame. The phase
+                    // offset keeps the two rails from introducing cards in
+                    // lockstep.
+                    animationDelay: `${-((i + phase) * speed) / cards}s`,
                     backfaceVisibility: "hidden",
                   }}
                 >

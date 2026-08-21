@@ -15,10 +15,10 @@ export function SessionHeader(props: {
         <input
           defaultValue={props.session.title}
           onBlur={(event) => props.onRename(event.target.value)}
-          className="w-full bg-transparent text-base font-medium text-zinc-100 outline-none lg:text-lg"
+          className="w-full bg-transparent text-base font-medium tracking-[-0.01em] text-app outline-none lg:text-lg"
           aria-label="Conversation title"
         />
-        <p className="mt-0.5 text-xs text-zinc-500">
+        <p className="kivo-kicker mt-1.5">
           {props.session.status.toUpperCase()} · Updated{" "}
           {new Date(props.session.updatedAt).toLocaleString()}
         </p>
@@ -29,7 +29,7 @@ export function SessionHeader(props: {
           type="button"
           disabled={props.busy || props.session.status === "ended"}
           onClick={props.onEnd}
-          className="rounded-full border border-zinc-700 px-3 py-1.5 text-[10px] tracking-[0.14em] text-zinc-300 hover:border-zinc-500 disabled:opacity-40"
+          className="rounded-full border border-app-strong px-3 py-1.5 text-[10px] tracking-[0.14em] text-app-secondary hover:border-app disabled:opacity-40"
         >
           END
         </button>
@@ -37,7 +37,7 @@ export function SessionHeader(props: {
           type="button"
           disabled={props.busy || props.session.status === "archived"}
           onClick={props.onArchive}
-          className="rounded-full border border-zinc-800 px-3 py-1.5 text-[10px] tracking-[0.14em] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300 disabled:opacity-40"
+          className="rounded-full border border-app px-3 py-1.5 text-[10px] tracking-[0.14em] text-app-subtle hover:border-app-strong hover:text-app-secondary disabled:opacity-40"
         >
           ARCHIVE
         </button>

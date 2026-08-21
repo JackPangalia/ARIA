@@ -32,11 +32,15 @@ describe("VoicePhraseBuffer", () => {
 
 
 describe("WordStreamBuffer", () => {
-  it("flushes the first fragment sooner than later ones", () => {
+  it("holds a tiny opener until it has a short spoken clause", () => {
     const buffer = new WordStreamBuffer();
-    expect(buffer.push("The free ")).toEqual(["The free "]);
+    expect(buffer.push("The free ")).toEqual([]);
     expect(buffer.push("plan ")).toEqual([]);
-    expect(buffer.push("gets people ")).toEqual(["plan gets people "]);
+    expect(buffer.push("gets people ")).toEqual([
+      "The free plan gets people ",
+    ]);
+    expect(buffer.push("in the ")).toEqual([]);
+    expect(buffer.push("door today ")).toEqual(["in the door today "]);
     expect(buffer.finish()).toEqual([]);
   });
 

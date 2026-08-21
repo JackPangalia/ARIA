@@ -1,5 +1,6 @@
 import { joinText } from "@/lib/text/join-text";
 import type { TurnDoc, TurnRole } from "@/lib/sessions/types";
+import { speakerClusterKeyForTurn } from "@/lib/speakers/session-learning";
 import type { TranscriptUtterance } from "@/lib/types";
 
 const LIVE_MERGE_GAP_SECONDS = 3;
@@ -12,6 +13,8 @@ export interface TranscriptLine {
   speakerName: string | null;
   /** Diarization label backing this line — the handle for speaker correction. */
   providerSpeakerLabel: string | null;
+  /** Provider label scoped to one recognition stream; safe correction key. */
+  speakerClusterKey: string | null;
   sourceUtteranceIds: string[];
   isPartial: boolean;
 }
@@ -21,7 +24,13 @@ function labelForUtterance(utterance: TranscriptUtterance): string | null {
 }
 
 function speakerKey(utterance: TranscriptUtterance): string {
-  return utterance.providerSpeakerLabel ?? `speaker:${utterance.speaker}`;
+  return (
+    speakerClusterKeyForTurn({
+      providerSpeakerLabel: utterance.providerSpeakerLabel,
+      sourceUtteranceIds: [utterance.id],
+    }) ??
+    `speaker:${utterance.speaker}:${utterance.id}`
+  );
 }
 
 function turnToLine(turn: TurnDoc): TranscriptLine {
@@ -32,6 +41,7 @@ function turnToLine(turn: TurnDoc): TranscriptLine {
     speaker: turn.speaker,
     speakerName: turn.speakerName,
     providerSpeakerLabel: turn.providerSpeakerLabel ?? null,
+    speakerClusterKey: speakerClusterKeyForTurn(turn),
     sourceUtteranceIds: turn.sourceUtteranceIds,
     isPartial: false,
   };
@@ -67,6 +77,10 @@ function liveGroups(utterances: TranscriptUtterance[]): TranscriptLine[] {
       speaker: utterance.speaker,
       speakerName: labelForUtterance(utterance),
       providerSpeakerLabel: utterance.providerSpeakerLabel ?? null,
+      speakerClusterKey: speakerClusterKeyForTurn({
+        providerSpeakerLabel: utterance.providerSpeakerLabel,
+        sourceUtteranceIds: [utterance.id],
+      }),
       sourceUtteranceIds: [utterance.id],
       isPartial: !utterance.isFinal,
       end: utterance.end,
@@ -81,6 +95,7 @@ function liveGroups(utterances: TranscriptUtterance[]): TranscriptLine[] {
     speaker: group.speaker,
     speakerName: group.speakerName,
     providerSpeakerLabel: group.providerSpeakerLabel,
+    speakerClusterKey: group.speakerClusterKey,
     sourceUtteranceIds: group.sourceUtteranceIds,
     isPartial: group.isPartial,
   }));

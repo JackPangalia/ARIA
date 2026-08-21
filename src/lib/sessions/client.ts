@@ -261,6 +261,10 @@ function mapTurnDoc(id: string, data: DocumentData): TurnDoc {
     text: String(data.text ?? ""),
     speaker: data.speaker == null ? null : Number(data.speaker),
     speakerName: data.speakerName == null ? null : String(data.speakerName),
+    providerSpeakerLabel:
+      data.providerSpeakerLabel == null
+        ? null
+        : String(data.providerSpeakerLabel),
     sourceUtteranceIds: Array.isArray(data.sourceUtteranceIds)
       ? data.sourceUtteranceIds.map(String)
       : [],

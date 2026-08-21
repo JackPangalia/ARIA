@@ -3,6 +3,12 @@ import type { AriaStatus } from "@/lib/types";
 export interface OrbState {
   status: AriaStatus;
   micLevel: number;
+  /**
+   * Kivo's own answer audio, tapped after echo cancellation has ducked it out
+   * of `micLevel`. Without it the widget goes dead exactly while Kivo speaks.
+   * Optional so a widget running against an older shell still renders.
+   */
+  playbackLevel?: number;
 }
 
 export interface KivoDesktopApi {

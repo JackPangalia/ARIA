@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 
 const SESSION_TITLE_DISPLAY =
-  "block max-w-[8rem] truncate text-left text-[13px] font-medium leading-snug sm:max-w-[12rem]";
+  "block max-w-[9rem] truncate text-left text-[15px] font-medium tracking-[-0.01em] sm:max-w-[14rem]";
 
 const SESSION_TITLE_EDIT =
-  "block w-[min(100vw-10rem,14rem)] text-left text-[13px] font-medium leading-snug sm:w-56";
+  "block w-[min(100vw-10rem,16rem)] text-left text-[15px] font-medium tracking-[-0.01em] sm:w-64";
 
 export function EditableSessionTitle(props: {
   title: string;

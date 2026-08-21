@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-import gsap from "gsap";
 
 export function useLandingEffects() {
   useEffect(() => {
@@ -29,11 +27,33 @@ export function useLandingEffects() {
     toggle?.addEventListener("click", onToggle);
 
     const menuLinks = Array.from(
-      document.querySelectorAll<HTMLAnchorElement>(
-        ".lp-mobile-menu a, .lp-nav-mobile .lp-btn",
-      ),
+      document.querySelectorAll<HTMLAnchorElement>(".lp-mobile-menu a"),
     );
     menuLinks.forEach((link) => link.addEventListener("click", closeMenu));
+
+    const revealTargets = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-lp-reveal]"),
+    );
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    let revealObserver: IntersectionObserver | undefined;
+
+    if (reduceMotion || !("IntersectionObserver" in window)) {
+      revealTargets.forEach((target) => target.classList.add("is-revealed"));
+    } else {
+      revealObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add("is-revealed");
+            revealObserver?.unobserve(entry.target);
+          });
+        },
+        { rootMargin: "0px 0px -12%", threshold: 0.12 },
+      );
+      revealTargets.forEach((target) => revealObserver?.observe(target));
+    }
 
     return () => {
       window.removeEventListener("scroll", onScroll);
@@ -41,66 +61,8 @@ export function useLandingEffects() {
       menuLinks.forEach((link) =>
         link.removeEventListener("click", closeMenu),
       );
+      revealObserver?.disconnect();
       document.body.classList.remove("menu-locked");
-    };
-  }, []);
-
-  useEffect(() => {
-    if (
-      window.matchMedia(
-        "(max-width: 899px), (prefers-reduced-motion: reduce)",
-      ).matches
-    ) {
-      return;
-    }
-
-    const sequence = document.querySelector<HTMLElement>(".lp-scene-sequence");
-    const scene = sequence?.querySelector<HTMLElement>("[data-room-scene]");
-    const moments = sequence
-      ? Array.from(
-          sequence.querySelectorAll<HTMLElement>("[data-room-moment]"),
-        )
-      : [];
-
-    if (!sequence || !scene || moments.length < 2) return;
-
-    gsap.registerPlugin(ScrollTrigger);
-
-    const setActive = (activeIndex: number) => {
-      moments.forEach((moment, index) => {
-        const isActive = index === activeIndex;
-        if (isActive) moment.dataset.active = "true";
-        else delete moment.dataset.active;
-        moment.toggleAttribute("aria-hidden", !isActive);
-      });
-    };
-
-    setActive(0);
-    const context = gsap.context(() => {
-      ScrollTrigger.create({
-        trigger: sequence,
-        start: "top top+=24",
-        end: () => `+=${Math.max(window.innerHeight * 2.5, 1800)}`,
-        pin: scene,
-        pinSpacing: true,
-        scrub: true,
-        onUpdate: (self) => {
-          const index = Math.min(
-            moments.length - 1,
-            Math.floor(self.progress * moments.length),
-          );
-          setActive(index);
-        },
-      });
-    }, sequence);
-
-    return () => {
-      context.revert();
-      moments.forEach((moment, index) => {
-        moment.removeAttribute("aria-hidden");
-        if (index === 0) moment.dataset.active = "true";
-        else delete moment.dataset.active;
-      });
     };
   }, []);
 }

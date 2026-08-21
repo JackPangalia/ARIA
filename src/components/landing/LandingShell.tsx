@@ -22,7 +22,16 @@ export function LandingShell({
 }) {
   useEffect(() => {
     applyLandingTheme();
+    const root = document.documentElement;
+    const shell = document.querySelector(".lp-shell");
+    const shellInter = shell
+      ? getComputedStyle(shell).getPropertyValue("--font-inter").trim()
+      : "";
+    if (shellInter) {
+      root.style.setProperty("--font-inter", shellInter);
+    }
     return () => {
+      root.style.removeProperty("--font-inter");
       clearLandingTheme();
       applyTheme(readStoredTheme());
     };

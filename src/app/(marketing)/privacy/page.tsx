@@ -59,10 +59,13 @@ export default function PrivacyPage() {
             summaries, and notes/pins you create.
           </li>
           <li>
-            <strong>Voice profiles</strong> — if you enroll a speaker, we store
-            the speaker-identifier strings our speech provider derives from
-            their voice, under your account, so future sessions can label them
-            by name. Enroll a voice only with that person&apos;s permission.
+            <strong>Voice profiles</strong> — if you enroll a speaker or
+            explicitly identify them in a transcript, we may store the
+            speaker-identifier strings our speech provider derives from that
+            voice under your account, so future sessions can label them by
+            name. Enroll or identify a voice only with that person&apos;s
+            permission. Kivo does not silently save anonymous guest voice
+            identifiers.
           </li>
           <li>
             <strong>Project files</strong> — documents you upload as project

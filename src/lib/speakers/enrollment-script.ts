@@ -32,4 +32,4 @@ export const ENROLLMENT_PASSES: EnrollmentPass[] = [
 ];
 
 export const ENROLLMENT_IDLE_HINT =
-  "Two short recordings (15 seconds each) in a quiet room: one read aloud, one just talking.";
+  "Two clean 15-second recordings are required: one read aloud, one just talking. Re-enroll existing voices once for the improved listening profile.";

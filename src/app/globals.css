@@ -4,63 +4,63 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #fafafa;
-  --foreground: #18181b;
-  --app-bg: #fafafa;
-  --app-fg: #18181b;
-  --app-fg-secondary: #3f3f46;
-  --app-fg-muted: #71717a;
-  --app-fg-subtle: #a1a1aa;
-  --app-surface: #f4f4f5;
-  --app-surface-strong: #e4e4e7;
-  --app-surface-hover: #e4e4e7;
-  --app-surface-selected: #e4e4e7;
-  --app-border: #e4e4e7;
-  --app-border-subtle: #ebebeb;
-  --app-border-strong: #d4d4d8;
-  --app-menu: #ffffff;
-  --app-menu-ring: #e4e4e7;
-  --app-overlay: rgba(0, 0, 0, 0.45);
+  --background: #f4f1e9;
+  --foreground: #141513;
+  --app-bg: #f4f1e9;
+  --app-fg: #141513;
+  --app-fg-secondary: #3f413c;
+  --app-fg-muted: #716f67;
+  --app-fg-subtle: #9b988e;
+  --app-surface: #ebe7dc;
+  --app-surface-strong: #e4dfd2;
+  --app-surface-hover: #e4dfd2;
+  --app-surface-selected: #e4dfd2;
+  --app-border: rgba(20, 21, 19, 0.16);
+  --app-border-subtle: rgba(20, 21, 19, 0.08);
+  --app-border-strong: rgba(20, 21, 19, 0.24);
+  --app-menu: #faf8f2;
+  --app-menu-ring: rgba(20, 21, 19, 0.16);
+  --app-overlay: rgba(20, 21, 19, 0.45);
   --app-danger-bg: rgba(254, 242, 242, 0.95);
   --app-danger-fg: #991b1b;
-  --app-accent: #18181b;
-  --app-accent-fg: #fafafa;
-  --app-input-bg: #f4f4f5;
-  --app-slider-track: #d4d4d8;
-  --app-slider-fill: #18181b;
-  --app-slider-thumb-bg: #fafafa;
-  --app-slider-thumb-border: #18181b;
-  --app-shadow: rgba(0, 0, 0, 0.08);
+  --app-accent: #141513;
+  --app-accent-fg: #f4f1e9;
+  --app-input-bg: #ebe7dc;
+  --app-slider-track: #d8d3c6;
+  --app-slider-fill: #141513;
+  --app-slider-thumb-bg: #f4f1e9;
+  --app-slider-thumb-border: #141513;
+  --app-shadow: rgba(20, 21, 19, 0.08);
   color-scheme: light;
 }
 
 .dark {
-  --background: #090909;
-  --foreground: #f4f4f5;
-  --app-bg: #090909;
-  --app-fg: #f4f4f5;
-  --app-fg-secondary: #d4d4d8;
-  --app-fg-muted: #a1a1aa;
-  --app-fg-subtle: #71717a;
-  --app-surface: #18181b;
-  --app-surface-strong: #090909;
-  --app-surface-hover: #27272a;
-  --app-surface-selected: #18181b;
-  --app-border: #27272a;
-  --app-border-subtle: #101010;
-  --app-border-strong: #3f3f46;
-  --app-menu: #090909;
-  --app-menu-ring: #27272a;
+  --background: #090b0a;
+  --foreground: #f7f4ec;
+  --app-bg: #090b0a;
+  --app-fg: #f7f4ec;
+  --app-fg-secondary: #d4d0c4;
+  --app-fg-muted: #a8a499;
+  --app-fg-subtle: #7a776e;
+  --app-surface: #141614;
+  --app-surface-strong: #090b0a;
+  --app-surface-hover: #1c1e1b;
+  --app-surface-selected: #141614;
+  --app-border: rgba(247, 244, 236, 0.1);
+  --app-border-subtle: rgba(247, 244, 236, 0.06);
+  --app-border-strong: rgba(247, 244, 236, 0.18);
+  --app-menu: #090b0a;
+  --app-menu-ring: rgba(247, 244, 236, 0.1);
   --app-overlay: rgba(0, 0, 0, 0.7);
   --app-danger-bg: rgba(69, 10, 10, 0.9);
   --app-danger-fg: #fecaca;
-  --app-accent: #f4f4f5;
-  --app-accent-fg: #090909;
-  --app-input-bg: rgba(24, 24, 27, 0.8);
-  --app-slider-track: #3f3f46;
-  --app-slider-fill: #f4f4f5;
-  --app-slider-thumb-bg: #090909;
-  --app-slider-thumb-border: #f4f4f5;
+  --app-accent: #f7f4ec;
+  --app-accent-fg: #090b0a;
+  --app-input-bg: rgba(20, 22, 20, 0.8);
+  --app-slider-track: #3a3c37;
+  --app-slider-fill: #f7f4ec;
+  --app-slider-thumb-bg: #090b0a;
+  --app-slider-thumb-border: #f7f4ec;
   --app-shadow: rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
@@ -68,23 +68,43 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 html {
   background: var(--background);
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-geist-sans: var(--font-inter);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-  font-weight: 500;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: -0.012em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   /* Mobile: kill the grey tap flash and rubber-band scroll so the app feels native. */
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--app-fg) 20%, transparent);
+  color: var(--app-fg);
 }
 
 /* Keep inputs from triggering iOS auto-zoom on focus (needs >=16px font). */
@@ -134,13 +154,84 @@ body {
   color: var(--app-fg-subtle);
 }
 
-/* Brand wordmark — same treatment as the landing nav (.lp-wordmark). */
+/* Brand wordmark — same Newsreader treatment as the landing nav (.lp-wordmark). */
 .kivo-wordmark {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 1.25rem;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+/* In-app titles use the same sans as the rest of the product. */
+.kivo-display {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+/* Named actions — Resume, Stop, Overview. */
+.kivo-action {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+/* Live status — Listening, Thinking. */
+.kivo-status {
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* Session summary and transcript body. */
+.kivo-prose {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  letter-spacing: -0.011em;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.aria-confirm-title {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* Section labels — landing .lp-scene-label. */
+.kivo-kicker {
+  font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.42em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  /* Optical balance: tracking adds space after each glyph, so nudge left. */
-  padding-left: 0.42em;
+  color: var(--app-fg-subtle);
+}
+
+.kivo-settings-page-title {
+  font-family: var(--font-sans);
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.kivo-settings-group-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.grok-settings-stack-title {
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
 }
 
 /* Onboarding: extend stagger for the 5-step how-it-works list. */

@@ -18,12 +18,12 @@ export function FolderIcon({ className }: { className?: string }) {
 
 /**
  * The Kivo wordmark, and the way back to the home hub from anywhere.
- * Uses `.kivo-wordmark` — same uppercase / tracking as the landing nav.
+ * Uses `.kivo-wordmark` — same Newsreader mark as the landing nav.
  */
 export function KivoMark(props: { onClick?: () => void; dimmed?: boolean }) {
   if (!props.onClick) {
     return (
-      <span className="kivo-wordmark shrink-0 select-none text-[11px] text-app-muted">
+      <span className="kivo-wordmark shrink-0 select-none text-app-muted">
         Kivo
       </span>
     );
@@ -34,7 +34,7 @@ export function KivoMark(props: { onClick?: () => void; dimmed?: boolean }) {
       type="button"
       onClick={props.onClick}
       aria-label="Return to Kivo home"
-      className={`kivo-wordmark shrink-0 select-none rounded-lg text-[11px] text-app-muted transition-colors hover:text-app focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
+      className={`kivo-wordmark shrink-0 select-none rounded-lg text-app-muted transition-colors hover:text-app focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
         props.dimmed ? "opacity-0 focus-visible:opacity-100" : ""
       }`}
     >
@@ -59,7 +59,7 @@ export function BreadcrumbCrumb(props: { icon?: ReactNode; children: ReactNode }
   return (
     <span className="flex min-w-0 items-center gap-1.5">
       {props.icon ? <span className="shrink-0 text-app-muted">{props.icon}</span> : null}
-      <span className="min-w-0 truncate text-[13px] font-medium text-app">
+      <span className="min-w-0 truncate text-[15px] font-medium tracking-[-0.01em] text-app">
         {props.children}
       </span>
     </span>
@@ -115,7 +115,7 @@ export function HeaderPrimaryButton(props: {
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
-      className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
+      className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
     >
       {props.children}
     </button>

@@ -686,7 +686,7 @@ export function SessionSidebar(props: {
         ) : null}
         {!props.onClose ? (
           <span
-            className="kivo-wordmark flex select-none text-[10px] text-app-subtle"
+            className="kivo-wordmark flex select-none text-app-subtle"
             aria-label="Kivo"
           >
             Kivo

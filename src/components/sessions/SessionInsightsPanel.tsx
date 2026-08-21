@@ -6,6 +6,8 @@ import type { TranscriptLine } from "@/lib/sessions/live-transcript";
 /** Wiring for "that wasn't Jack" — offered on speaker lines while listening. */
 export interface SpeakerCorrectionProps {
   enrolledNames: string[];
+  /** Allow a transcript tag to create a new learned speaker profile. */
+  allowCreate?: boolean;
   onCorrect: (
     line: TranscriptLine,
     correctedName: string | null
@@ -58,10 +60,10 @@ export function TranscriptExpandButton(props: { onClick: () => void }) {
 
 function turnLabel(line: TranscriptLine): string {
   if (line.role === "assistant") return "Kivo";
-  if (line.role === "user_question") {
-    return line.speakerName ?? "Other speaker";
-  }
-  return line.speakerName ?? "Other speaker";
+  return (
+    line.speakerName ??
+    (line.speaker != null ? `Speaker ${line.speaker + 1}` : "Other speaker")
+  );
 }
 
 // Deterministic hue per speaker name so each person keeps a consistent dot
@@ -119,7 +121,7 @@ export function SessionInsightsPanel(props: {
       {/* Mobile: a real header bar with a tappable close control. */}
       {props.onCollapse ? (
         <div className="flex shrink-0 items-center justify-between px-1 pb-2 lg:hidden">
-          <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-app-muted">
+          <span className="text-xs font-medium text-app-muted">
             Transcript
           </span>
           <button
@@ -190,18 +192,30 @@ function SpeakerLabelMenu(props: {
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const [creating, setCreating] = useState(false);
+  const [newSpeakerName, setNewSpeakerName] = useState("");
   const choices = correctionChoices(props.line, props.correction.enrolledNames);
-  if (choices.length === 0) return <>{props.children}</>;
+  const currentLabel = props.line.speakerName ?? "Other speaker";
+
+  useEffect(() => {
+    if (props.open) return;
+    setCreating(false);
+    setNewSpeakerName("");
+  }, [props.open]);
+
+  if (choices.length === 0 && !props.correction.allowCreate) {
+    return <>{props.children}</>;
+  }
 
   return (
     <span className="relative inline-flex max-w-full">
       <button
         type="button"
         onClick={props.onToggle}
-        aria-label={`Correct speaker for this line (currently ${
-          props.line.speakerName ?? "Other speaker"
-        })`}
-        className="inline-flex max-w-full items-center rounded-sm underline decoration-dotted decoration-app-subtle/60 underline-offset-4 transition-colors hover:text-app-secondary focus:outline-none focus-visible:text-app-secondary"
+        aria-haspopup="menu"
+        aria-expanded={props.open}
+        aria-label={`Identify speaker (currently ${currentLabel})`}
+        className="inline-flex max-w-full items-center rounded-sm text-left font-medium transition-colors hover:text-app focus:outline-none focus-visible:text-app"
       >
         {props.children}
       </button>
@@ -214,14 +228,18 @@ function SpeakerLabelMenu(props: {
             onClick={props.onClose}
             className="fixed inset-0 z-20 cursor-default"
           />
-          <div className="absolute left-0 top-full z-30 mt-1.5 w-max min-w-[9rem] overflow-hidden rounded-xl border border-app-strong bg-app py-1 shadow-lg">
-            <p className="px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-app-subtle">
-              Wrong speaker?
+          <div
+            role="menu"
+            className="absolute left-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-app bg-app py-1 shadow-menu"
+          >
+            <p className="px-3 pb-1 pt-2 text-[11px] font-medium text-app-subtle">
+              Currently {currentLabel}
             </p>
             {choices.map((choice) => (
               <button
                 key={choice.key}
                 type="button"
+                role="menuitem"
                 onClick={() => {
                   props.onClose();
                   void props.correction.onCorrect(
@@ -229,11 +247,54 @@ function SpeakerLabelMenu(props: {
                     choice.correctedName
                   );
                 }}
-                className="block w-full px-3 py-1.5 text-left text-xs normal-case tracking-normal text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
+                className="block w-full px-3 py-2 text-left text-sm text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
               >
                 {choice.label}
               </button>
             ))}
+            {props.correction.allowCreate ? (
+              <>
+                <div className="my-1 border-t border-app" />
+                {creating ? (
+                  <form
+                    className="flex items-center gap-1.5 px-2 py-1.5"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const name = newSpeakerName.trim();
+                      if (!name) return;
+                      props.onClose();
+                      void props.correction.onCorrect(props.line, name);
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      value={newSpeakerName}
+                      onChange={(event) => setNewSpeakerName(event.target.value)}
+                      maxLength={100}
+                      placeholder="Name"
+                      aria-label="New speaker name"
+                      className="min-w-0 flex-1 rounded-lg border border-app bg-surface px-2.5 py-1.5 text-sm text-app outline-none placeholder:text-app-subtle focus:border-app-strong"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!newSpeakerName.trim()}
+                      className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-medium text-app disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setCreating(true)}
+                    className="block w-full px-3 py-2 text-left text-sm text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
+                  >
+                    New speaker
+                  </button>
+                )}
+              </>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -249,9 +310,9 @@ export function TranscriptLines(props: {
 }) {
   const [openMenuLineId, setOpenMenuLineId] = useState<string | null>(null);
   const bodyTextClass = props.large
-    ? "text-[15px] leading-[1.7]"
+    ? "text-[15px] leading-relaxed"
     : "text-sm leading-[1.65]";
-  const labelTextClass = props.large ? "text-[13px]" : "text-xs";
+  const labelTextClass = props.large ? "text-[13px] font-medium" : "text-xs font-medium";
 
   if (props.lines.length === 0) {
     return (
@@ -271,7 +332,7 @@ export function TranscriptLines(props: {
         const correctable =
           props.speakerCorrection != null &&
           line.role === "speaker" &&
-          line.providerSpeakerLabel != null;
+          line.speakerClusterKey != null;
         const labelContent = (
           <>
             <SpeakerDot line={line} />
@@ -288,7 +349,7 @@ export function TranscriptLines(props: {
           }
         >
           <span
-            className={`flex max-w-full items-center gap-1.5 font-medium leading-[1.5] ${labelTextClass} ${
+            className={`flex max-w-full items-center gap-1.5 leading-[1.5] ${labelTextClass} ${
               line.role === "assistant" ? "text-app-secondary" : "text-app-muted"
             } ${
               props.gutter

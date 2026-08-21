@@ -23,6 +23,7 @@ import {
   getSessionDetail,
   listSessions,
   patchSession,
+  relabelSessionTurns,
   subscribeSessionTurns,
 } from "@/lib/sessions/client";
 import { useSessionStore } from "@/lib/sessions/session-store";
@@ -41,7 +42,16 @@ import {
   isOnboardingPreview,
 } from "@/lib/onboarding/client";
 import { OverviewView } from "@/components/sessions/OverviewView";
-import { buildLiveTranscriptLines } from "@/lib/sessions/live-transcript";
+import type { SpeakerCorrectionProps } from "@/components/sessions/SessionInsightsPanel";
+import {
+  buildLiveTranscriptLines,
+  type TranscriptLine,
+} from "@/lib/sessions/live-transcript";
+import {
+  learnSpeakerProfile,
+  listSpeakerProfiles,
+} from "@/lib/speakers/client";
+import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { ProjectHubView } from "@/components/sessions/ProjectHubView";
 import { ConfirmDialog } from "@/components/sessions/ConfirmDialog";
 import {
@@ -213,6 +223,10 @@ export function SessionWorkspace() {
   // Opens in overview when a session is selected; Start switches to voice.
   const [overviewMode, setOverviewMode] = useState(true);
   const [onboardingNeeded, setOnboardingNeeded] = useState<boolean | null>(null);
+  const [speakerProfileState, setSpeakerProfileState] = useState<{
+    sessionId: string;
+    profiles: SpeakerProfileDoc[];
+  } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -344,6 +358,28 @@ export function SessionWorkspace() {
     };
   }, [loading]);
 
+  useEffect(() => {
+    if (
+      !selectedSessionId ||
+      detail?.session.transcriptionMode !== "speaker"
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void listSpeakerProfiles()
+      .then((profiles) => {
+        if (!cancelled) {
+          setSpeakerProfileState({ sessionId: selectedSessionId, profiles });
+        }
+      })
+      .catch(() => {
+        // Speaker tagging still relabels the transcript if profiles fail to load.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detail?.session.transcriptionMode, selectedSessionId]);
+
   const goToStartScreen = useCallback(() => {
     setSelectedSessionId(null);
     setDetail(null);
@@ -415,6 +451,99 @@ export function SessionWorkspace() {
       }),
     [detail?.turns, liveUtterances, recording.isRunning, micLive]
   );
+
+  const currentSpeakerProfiles = useMemo(
+    () =>
+      speakerProfileState?.sessionId === selectedSessionId
+        ? speakerProfileState.profiles
+        : [],
+    [selectedSessionId, speakerProfileState]
+  );
+
+  const handleSpeakerCorrection = useCallback(
+    async (line: TranscriptLine, correctedName: string | null) => {
+      if (!selectedSessionId || !line.speakerClusterKey) return;
+      const turnIds = transcriptLines
+        .filter(
+          (candidate) =>
+            candidate.role === "speaker" &&
+            candidate.speakerClusterKey === line.speakerClusterKey &&
+            !candidate.id.startsWith("live:")
+        )
+        .map((candidate) => candidate.id);
+      if (turnIds.length === 0) return;
+
+      setError(null);
+      try {
+        await relabelSessionTurns(
+          selectedSessionId,
+          turnIds,
+          correctedName
+        );
+        await refreshDetail(selectedSessionId);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to identify speaker."
+        );
+        return;
+      }
+
+      const cluster = recording.speakerClusters.find(
+        (candidate) => candidate.clusterKey === line.speakerClusterKey
+      );
+      if (
+        correctedName == null ||
+        !cluster ||
+        cluster.speakerIdentifiers.length === 0
+      ) {
+        return;
+      }
+
+      try {
+        const learned = await learnSpeakerProfile({
+          name: correctedName,
+          speakerIdentifiers: cluster.speakerIdentifiers,
+        });
+        setSpeakerProfileState((current) => {
+          const profiles =
+            current?.sessionId === selectedSessionId ? current.profiles : [];
+          return {
+            sessionId: selectedSessionId,
+            profiles: [
+              learned,
+              ...profiles.filter((profile) => profile.id !== learned.id),
+            ],
+          };
+        });
+      } catch (err) {
+        setError(
+          `Speaker label saved, but Kivo could not learn this voice: ${
+            err instanceof Error ? err.message : "unknown error"
+          }`
+        );
+      }
+    },
+    [
+      recording.speakerClusters,
+      refreshDetail,
+      selectedSessionId,
+      setError,
+      transcriptLines,
+    ]
+  );
+
+  const speakerCorrection = useMemo<SpeakerCorrectionProps | undefined>(() => {
+    if (detail?.session.transcriptionMode !== "speaker") return undefined;
+    return {
+      enrolledNames: currentSpeakerProfiles.map((profile) => profile.name),
+      allowCreate: true,
+      onCorrect: handleSpeakerCorrection,
+    };
+  }, [
+    currentSpeakerProfiles,
+    detail?.session.transcriptionMode,
+    handleSpeakerCorrection,
+  ]);
 
   const conversationIsEmpty = useMemo(() => {
     if (!detail || recording.isRunning) return false;
@@ -949,6 +1078,7 @@ export function SessionWorkspace() {
               resume={Boolean(detail.session.turnCount > 0)}
               archived={detail.session.status === "archived"}
               busy={recording.busy}
+              speakerCorrection={speakerCorrection}
               onStart={handleRecordingStart}
             />
           </div>
@@ -972,7 +1102,7 @@ export function SessionWorkspace() {
                     disabled={
                       recording.busy || detail?.session.status === "archived"
                     }
-                    className="pointer-events-auto relative z-20 mt-2 rounded-lg px-3 py-1.5 text-[13px] font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary disabled:cursor-not-allowed disabled:opacity-40"
+                    className="pointer-events-auto relative z-20 mt-3 px-3 py-1.5 text-sm font-medium text-app-muted transition-colors hover:text-app disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {detail?.session.status === "archived"
                       ? "Archived"

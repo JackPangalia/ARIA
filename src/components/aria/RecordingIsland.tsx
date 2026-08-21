@@ -10,7 +10,7 @@ import type { AriaStatus } from "@/lib/types";
 /**
  * Quiet recording control in the session header — timer, live status, and
  * Start/Stop. Styled like the Overview/Resume tabs, not a floating device.
- * Status labels stay one muted color; the orb carries the mode accent.
+ * Status labels stay one muted color; the word ring carries the live speech.
  */
 export function RecordingIsland(props: {
   isRunning: boolean;
@@ -33,7 +33,7 @@ export function RecordingIsland(props: {
     props.status === "speaking";
 
   const actionClass =
-    "rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary disabled:cursor-not-allowed disabled:opacity-40";
+    "rounded-lg px-2.5 py-1.5 text-sm font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app disabled:cursor-not-allowed disabled:opacity-40";
 
   if (!props.isRunning) {
     return (
@@ -61,7 +61,7 @@ export function RecordingIsland(props: {
         </span>
         {liveStatus ? (
           <span
-            className="truncate text-[13px] font-medium text-app-secondary"
+            className="truncate text-sm font-medium text-app-secondary"
             aria-live="polite"
           >
             {liveStatus}

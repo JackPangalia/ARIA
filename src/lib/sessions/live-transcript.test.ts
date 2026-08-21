@@ -137,9 +137,38 @@ describe("buildLiveTranscriptLines", () => {
         speaker: 0,
         speakerName: "Conversation",
         providerSpeakerLabel: "conversation",
+        speakerClusterKey: "1:conversation",
         sourceUtteranceIds: ["u1", "u2"],
         isPartial: true,
       },
+    ]);
+  });
+
+  it("does not merge a reused provider label across reconnect streams", () => {
+    const lines = buildLiveTranscriptLines({
+      turns: [],
+      utterances: [
+        utterance({
+          id: "u1",
+          providerSpeakerLabel: "S1",
+          text: "before reconnect",
+          isFinal: true,
+        }),
+        utterance({
+          id: "2:0.1-0",
+          providerSpeakerLabel: "S1",
+          text: "after reconnect",
+          start: 0.1,
+          end: 0.5,
+          isFinal: true,
+        }),
+      ],
+    });
+
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => line.speakerClusterKey)).toEqual([
+      "1:S1",
+      "2:S1",
     ]);
   });
 });

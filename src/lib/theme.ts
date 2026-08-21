@@ -59,7 +59,6 @@ export function applyLandingTheme() {
   root.classList.add("landing-active");
   root.classList.remove("dark");
   root.style.colorScheme = "light";
-  document.body?.classList.add("landing-active");
 }
 
 export function clearLandingTheme() {

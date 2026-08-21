@@ -33,10 +33,10 @@ export function SignInForm() {
   return (
     <div className="w-full max-w-[19rem]">
       <div className="mb-10 text-center">
-        <h1 className="text-[10px] font-medium tracking-[0.55em] text-app-muted">
-          ENTER
+        <h1 className="kivo-display text-[2rem] text-app">
+          {mode === "sign-in" ? "Sign in" : "Create an account"}
         </h1>
-        <p className="mt-3 text-[11px] leading-relaxed text-app-subtle">
+        <p className="mt-3 text-sm leading-relaxed text-app-muted">
           Sign in to open the conversation.
         </p>
       </div>
@@ -45,22 +45,20 @@ export function SignInForm() {
         type="button"
         onClick={signInWithGoogle}
         disabled={submitting}
-        className="mb-8 inline-flex w-full items-center justify-center rounded-full bg-accent px-6 py-3 text-sm font-medium tracking-[0.12em] text-accent-fg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="mb-8 inline-flex w-full items-center justify-center rounded-full bg-accent px-6 py-3 text-sm font-semibold tracking-[-0.018em] text-accent-fg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        GOOGLE
+        Continue with Google
       </button>
 
       <div className="mb-6 flex items-center gap-3">
         <span className="h-px flex-1 bg-[var(--app-border)]" />
-        <span className="text-[9px] tracking-[0.28em] text-app-subtle">OR</span>
+        <span className="kivo-kicker">or</span>
         <span className="h-px flex-1 bg-[var(--app-border)]" />
       </div>
 
       <form className="space-y-5" onSubmit={onSubmit}>
         <label className="block">
-          <span className="text-[9px] tracking-[0.2em] text-app-muted">
-            EMAIL
-          </span>
+          <span className="kivo-kicker">Email</span>
           <input
             type="email"
             value={email}
@@ -75,9 +73,7 @@ export function SignInForm() {
         </label>
 
         <label className="block">
-          <span className="text-[9px] tracking-[0.2em] text-app-muted">
-            PASSWORD
-          </span>
+          <span className="kivo-kicker">Password</span>
           <input
             type="password"
             value={password}
@@ -103,13 +99,13 @@ export function SignInForm() {
         <button
           type="submit"
           disabled={submitting}
-          className="mt-2 inline-flex w-full items-center justify-center rounded-full border border-app-strong bg-surface px-6 py-3 text-sm font-medium tracking-[0.14em] text-app transition-opacity hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-2 inline-flex w-full items-center justify-center rounded-full border border-app-strong bg-surface px-6 py-3 text-sm font-semibold tracking-[-0.018em] text-app transition-opacity hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting
             ? "…"
             : mode === "sign-in"
-              ? "SIGN IN"
-              : "CREATE"}
+              ? "Sign in"
+              : "Create account"}
         </button>
       </form>
 
@@ -119,9 +115,9 @@ export function SignInForm() {
           clearError();
           setMode(mode === "sign-in" ? "sign-up" : "sign-in");
         }}
-        className="mt-6 w-full text-center text-[10px] tracking-[0.12em] text-app-subtle transition-colors hover:text-app-muted"
+        className="mt-6 w-full text-center text-sm text-app-subtle transition-colors hover:text-app-muted"
       >
-        {mode === "sign-in" ? "NEW ACCOUNT" : "HAVE ACCOUNT"}
+        {mode === "sign-in" ? "New account" : "Have an account?"}
       </button>
     </div>
   );

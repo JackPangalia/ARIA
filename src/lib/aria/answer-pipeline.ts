@@ -47,10 +47,9 @@ import { encodeMuxAudio, encodeMuxEvent, encodeMuxText } from "@/lib/audio/answe
  * way every time.
  */
 export const SEARCH_FILLER_PHRASES = [
-  "Let me look that up.",
-  "One second, checking.",
-  "Let me check on that.",
-  "Give me a second to check.",
+  "One second.",
+  "Checking.",
+  "Just a moment.",
 ] as const;
 
 export function isAbortError(err: unknown, signal?: AbortSignal): boolean {

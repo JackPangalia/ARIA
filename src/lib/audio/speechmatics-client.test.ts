@@ -128,10 +128,73 @@ describe("SpeechmaticsLiveClient start config", () => {
     const config = message.transcription_config;
 
     expect(config).toMatchObject({
-      operating_point: "enhanced",
+      model: "enhanced",
       diarization: "speaker",
     });
+    expect(config).not.toHaveProperty("operating_point");
     expect(config).toHaveProperty("speaker_diarization_config");
+    expect(config.speaker_diarization_config).toMatchObject({
+      get_speakers: true,
+    });
+  });
+
+  it("biases recognition toward Kivo's core product vocabulary", () => {
+    const client = new SpeechmaticsLiveClient(callbacks, [], {
+      transcriptionMode: "speaker",
+    });
+    const config = client.buildStartRecognitionMessage().transcription_config;
+    const vocabulary = config.additional_vocab as Array<{
+      content: string;
+      sounds_like?: string[];
+    }>;
+
+    expect(vocabulary).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ content: "Kivo" }),
+        expect.objectContaining({
+          content: "Speechmatics",
+          sounds_like: expect.arrayContaining([
+            "speech matics",
+            "speech mattox",
+            "speech matters",
+          ]),
+        }),
+        expect.objectContaining({ content: "Cartesia" }),
+        expect.objectContaining({ content: "Anthropic" }),
+        expect.objectContaining({ content: "Claude" }),
+      ])
+    );
+  });
+
+  it("namespaces captured voiceprints to their recognition stream", () => {
+    const results: Array<{
+      label: string;
+      speakerIdentifiers: string[];
+      streamEpoch: number;
+    }> = [];
+    const client = new SpeechmaticsLiveClient({
+      ...callbacks,
+      onSpeakersResult: (speakers) => results.push(...speakers),
+    });
+    const handleMessage = (
+      client as unknown as {
+        handleMessage: (message: unknown) => void;
+      }
+    ).handleMessage.bind(client);
+
+    handleMessage({ message: "RecognitionStarted" });
+    handleMessage({
+      message: "SpeakersResult",
+      speakers: [{ label: "S1", speaker_identifiers: ["voice-a"] }],
+    });
+
+    expect(results).toEqual([
+      {
+        label: "S1",
+        speakerIdentifiers: ["voice-a"],
+        streamEpoch: 1,
+      },
+    ]);
   });
 
   it("uses standard transcription with diarization disabled for basic mode", () => {
@@ -142,9 +205,10 @@ describe("SpeechmaticsLiveClient start config", () => {
     const config = message.transcription_config;
 
     expect(config).toMatchObject({
-      operating_point: "standard",
+      model: "standard",
       diarization: "none",
     });
+    expect(config).not.toHaveProperty("operating_point");
     expect(config).not.toHaveProperty("speaker_diarization_config");
   });
 
@@ -157,13 +221,29 @@ describe("SpeechmaticsLiveClient start config", () => {
 
     expect(config).toMatchObject({
       enable_partials: true,
-      max_delay: 0.7,
-      max_delay_mode: "fixed",
+      max_delay: 1,
+      max_delay_mode: "flexible",
       conversation_config: {
         // Must stay LESS than max_delay per Speechmatics turn-detection docs.
         end_of_utterance_silence_trigger: 0.6,
       },
     });
+  });
+
+  it("keeps V2 end-of-utterance silence below max delay", () => {
+    const client = new SpeechmaticsLiveClient(callbacks, [], {
+      transcriptionMode: "speaker",
+      voiceEngineV2: true,
+    });
+    const config = client.buildStartRecognitionMessage().transcription_config;
+    const conversation = config.conversation_config as {
+      end_of_utterance_silence_trigger: number;
+    };
+
+    expect(conversation.end_of_utterance_silence_trigger).toBe(0.55);
+    expect(conversation.end_of_utterance_silence_trigger).toBeLessThan(
+      config.max_delay as number
+    );
   });
 
   it("uses the same utterance id for partial and final events from one span", () => {

@@ -43,7 +43,7 @@ export class WordStreamBuffer {
   private emitted = 0;
 
   constructor(
-    private readonly firstMinChars = 8,
+    private readonly firstMinChars = 20,
     private readonly nextMinChars = 12
   ) {}
 

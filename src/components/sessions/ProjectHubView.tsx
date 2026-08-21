@@ -256,10 +256,10 @@ export function ProjectHubView(props: {
   };
 
   const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+    `px-3 py-1.5 text-sm font-medium transition-colors ${
       active
-        ? "bg-surface text-app"
-        : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
+        ? "text-app"
+        : "text-app-subtle hover:text-app-secondary"
     }`;
 
   return (
@@ -307,7 +307,7 @@ export function ProjectHubView(props: {
                         >
                           <div className="flex min-w-0 items-center gap-2.5">
                             <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                            <span className="truncate text-sm text-app">{session.title}</span>
+                            <span className="truncate text-sm font-medium text-app">{session.title}</span>
                           </div>
                           <span className="shrink-0 text-xs text-app-subtle">
                             {formatSessionDate(session.updatedAt)}
@@ -371,7 +371,7 @@ export function ProjectHubView(props: {
                       className="group flex items-center gap-2 rounded-xl px-3 py-3 transition-colors hover:bg-surface-hover"
                     >
                       <FileIcon className="shrink-0 text-app-muted" />
-                      <p className="min-w-0 flex-1 truncate text-sm text-app">{source.name}</p>
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-app">{source.name}</p>
                       <button
                         type="button"
                         onClick={() => void handleDeleteSource(source.id)}

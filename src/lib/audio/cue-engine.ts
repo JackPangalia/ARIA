@@ -99,6 +99,8 @@ export class CueEngine {
       onPlay?: () => void;
       onEnded?: () => void;
       onError?: (err: unknown) => void;
+      /** If set, the clip is routed here instead of straight into master. */
+      destination?: AudioNode;
     } = {}
   ): Promise<{ stop: () => void } | null> {
     try {
@@ -116,7 +118,7 @@ export class CueEngine {
       const audioBuffer = await ctx.decodeAudioData(data);
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(this.master);
+      source.connect(handlers.destination ?? this.master);
       let ended = false;
       const finish = () => {
         if (ended) return;

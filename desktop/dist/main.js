@@ -29,6 +29,7 @@ let micLive = false;
 let latestOrbState = {
     status: "idle",
     micLevel: 0,
+    playbackLevel: 0,
 };
 // Cursor-to-window offset while the widget is being dragged (see the
 // kivo:widget-drag-* IPC handlers).
@@ -186,10 +187,14 @@ function setupIpc() {
             return;
         if (!rawState || typeof rawState !== "object")
             return;
-        const { status, micLevel } = rawState;
+        const { status, micLevel, playbackLevel } = rawState;
         if (typeof status !== "string" || typeof micLevel !== "number")
             return;
-        latestOrbState = { status, micLevel };
+        latestOrbState = {
+            status,
+            micLevel,
+            playbackLevel: typeof playbackLevel === "number" ? playbackLevel : 0,
+        };
         micLive = status !== "idle" && status !== "error";
         updateWidgetVisibility();
         widgetWindow?.webContents.send("kivo:orb-state", latestOrbState);

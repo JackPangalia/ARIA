@@ -25,7 +25,7 @@ const GHOST_BTN =
 
 function KivoWordmark() {
   return (
-    <p className="kivo-wordmark select-none text-center text-[11px] text-app-muted">
+    <p className="kivo-wordmark select-none text-center text-app-muted">
       Kivo
     </p>
   );
@@ -58,7 +58,7 @@ function OnboardingStepHeader(props: { title: string; description?: string }) {
     <div className="flex flex-col items-center text-center">
       <h1
         id="onboarding-title"
-        className="max-w-sm text-balance font-sans text-[1.75rem] font-medium leading-[1.1] tracking-[-0.03em] text-app sm:text-[2rem]"
+        className="kivo-display max-w-sm text-[1.75rem] text-app sm:text-[2rem]"
       >
         {props.title}
       </h1>
@@ -137,7 +137,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
         {step > 1 ? (
           <div className="w-full">
             <ProgressRail step={step} />
-            <p className="mt-3 text-center text-[11px] font-medium tracking-[0.08em] text-app-subtle uppercase">
+            <p className="kivo-kicker mt-3 text-center">
               {step} of {TOTAL_STEPS}
             </p>
           </div>
@@ -151,7 +151,7 @@ export function OnboardingFlow({ onComplete, preview = false }: OnboardingFlowPr
               <div className="flex max-w-sm flex-col items-center">
                 <h1
                   id="onboarding-title"
-                  className="text-balance font-sans text-[2.25rem] font-medium leading-[1.05] tracking-[-0.04em] text-app sm:text-[2.75rem]"
+                  className="kivo-display text-[2.25rem] text-app sm:text-[2.75rem]"
                 >
                   Welcome
                 </h1>

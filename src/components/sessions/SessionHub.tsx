@@ -108,10 +108,10 @@ export function SessionHub(props: {
   const recentSessions = useMemo(() => sortedSessions.slice(0, 8), [sortedSessions]);
 
   const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+    `px-3 py-1.5 text-sm font-medium transition-colors ${
       active
-        ? "bg-surface text-app"
-        : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
+        ? "text-app"
+        : "text-app-subtle hover:text-app-secondary"
     }`;
 
   return (
@@ -161,7 +161,7 @@ export function SessionHub(props: {
               {/* Projects Section */}
               <section aria-labelledby="home-projects-heading">
                 <div className="flex items-center justify-between px-1">
-                  <h2 id="home-projects-heading" className="text-xs font-medium uppercase tracking-wider text-app-subtle">
+                  <h2 id="home-projects-heading" className="text-xs font-medium text-app-muted">
                     Projects ({props.projects.length})
                   </h2>
                   <button
@@ -187,7 +187,7 @@ export function SessionHub(props: {
                           >
                             <div className="flex min-w-0 items-center gap-2.5">
                               <FolderIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                              <span className="truncate text-sm text-app">{project.name}</span>
+                              <span className="truncate text-sm font-medium text-app">{project.name}</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-app-subtle">
                               <span>{count} {count === 1 ? "conversation" : "conversations"}</span>
@@ -218,7 +218,7 @@ export function SessionHub(props: {
               {/* Recent Conversations Section */}
               <section aria-labelledby="home-recent-conversations-heading">
                 <div className="flex items-center justify-between px-1">
-                  <h2 id="home-recent-conversations-heading" className="text-xs font-medium uppercase tracking-wider text-app-subtle">
+                  <h2 id="home-recent-conversations-heading" className="text-xs font-medium text-app-muted">
                     Recent conversations ({sortedSessions.length})
                   </h2>
                   {sortedSessions.length > recentSessions.length ? (
@@ -243,7 +243,7 @@ export function SessionHub(props: {
                         >
                           <div className="flex min-w-0 items-center gap-2.5">
                             <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                            <span className="truncate text-sm text-app">{session.title}</span>
+                            <span className="truncate text-sm font-medium text-app">{session.title}</span>
                           </div>
                           <time className="shrink-0 text-xs text-app-subtle" dateTime={new Date(session.updatedAt).toISOString()}>
                             {formatDate(session.updatedAt)}
@@ -289,7 +289,7 @@ export function SessionHub(props: {
                         >
                           <div className="flex min-w-0 items-center gap-2.5">
                             <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                            <span className="truncate text-sm text-app">{session.title}</span>
+                            <span className="truncate text-sm font-medium text-app">{session.title}</span>
                           </div>
                           <time className="shrink-0 text-xs text-app-subtle" dateTime={new Date(session.updatedAt).toISOString()}>
                             {formatDate(session.updatedAt)}
@@ -325,8 +325,8 @@ export function SessionHub(props: {
           {tab === "projects" ? (
             <div className="mt-5 space-y-3">
               <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-medium uppercase tracking-wider text-app-subtle">
-                  All Projects ({props.projects.length})
+                <span className="text-xs font-medium text-app-muted">
+                  All projects ({props.projects.length})
                 </span>
                 <button
                   type="button"
@@ -356,7 +356,7 @@ export function SessionHub(props: {
                           >
                             <div className="flex min-w-0 items-center gap-2.5">
                               <FolderIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                              <span className="truncate text-sm text-app">{project.name}</span>
+                              <span className="truncate text-sm font-medium text-app">{project.name}</span>
                             </div>
                             <div className="flex items-center gap-1.5 text-xs text-app-subtle">
                               <span>{count} {count === 1 ? "conversation" : "conversations"}</span>

@@ -565,11 +565,12 @@ function TranscriptionModeSettings() {
   const speakerRemaining = preference?.speakerSecondsRemaining ?? null;
   const speakerCapped = preference != null && preference.speakerSecondsCap !== null;
 
-  let speakerDescription = "Use enrolled speaker profiles and Speechmatics diarization.";
+  let speakerDescription =
+    "Separate voices in the room and remember people you name in the transcript.";
   if (speakerCapped) {
     speakerDescription = speakerExhausted
       ? "You've used this month's Speaker recognition minutes. Upgrade for unlimited access."
-      : `${formatMinutes(speakerRemaining ?? 0)} left this month · uses enrolled speaker profiles.`;
+      : `${formatMinutes(speakerRemaining ?? 0)} left this month · speaker-aware transcription.`;
   }
 
   return (
@@ -821,10 +822,10 @@ export function SettingsTabContent(props: {
         <SettingsGroup label="Speaker profiles">
           <div className="px-4 py-3">
             <p className="mb-3 text-[13px] leading-relaxed text-app-muted">
-              Teach Kivo who is speaking. Enroll one person at a time in a quiet
-              room.
+              Speakers are named from the transcript after a session. Rename or
+              remove them here.
             </p>
-            <SpeakerProfilesManager embedded grok />
+            <SpeakerProfilesManager embedded grok allowEnrollment={false} />
           </div>
         </SettingsGroup>
       </div>

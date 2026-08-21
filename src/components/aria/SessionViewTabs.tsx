@@ -14,12 +14,12 @@ export function SessionViewTabs(props: {
   overviewDisabled?: boolean;
 }) {
   const tabClass = (active: boolean, disabled?: boolean) =>
-    `rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
+    `rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors ${
       disabled
         ? "cursor-not-allowed opacity-40"
         : active
           ? "bg-surface text-app"
-          : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
+          : "text-app-muted hover:bg-surface-hover hover:text-app"
     }`;
 
   return (

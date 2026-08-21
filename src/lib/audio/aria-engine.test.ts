@@ -8,6 +8,7 @@ const mockStore = vi.hoisted(() => {
     setError: ReturnType<typeof vi.fn>;
     setStatus: ReturnType<typeof vi.fn>;
     setMicLevel: ReturnType<typeof vi.fn>;
+    setPlaybackLevel: ReturnType<typeof vi.fn>;
     upsertUtterance: ReturnType<typeof vi.fn>;
     removeUtterances: ReturnType<typeof vi.fn>;
   } = {
@@ -18,6 +19,7 @@ const mockStore = vi.hoisted(() => {
       store.status = status;
     }),
     setMicLevel: vi.fn(),
+    setPlaybackLevel: vi.fn(),
     upsertUtterance: vi.fn(),
     removeUtterances: vi.fn(),
   };

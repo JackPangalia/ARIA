@@ -76,6 +76,8 @@ type SpeakersResultMessage = {
 export interface SpeechmaticsSpeakerResult {
   label: string;
   speakerIdentifiers: string[];
+  /** Recognition-stream namespace; provider labels restart after reconnects. */
+  streamEpoch: number;
 }
 
 export interface SpeechmaticsClientCallbacks {
@@ -223,6 +225,10 @@ export class SpeechmaticsLiveClient {
   // new stream). Speechmatics timestamps restart at zero per stream, so the
   // epoch namespaces utterance ids and scopes the audio timeline below.
   private streamEpoch = 0;
+  private finishSpeakersResolver:
+    | ((speakers: SpeechmaticsSpeakerResult[]) => void)
+    | null = null;
+  private finishSpeakersTimer: ReturnType<typeof setTimeout> | null = null;
   // Seconds of mic PCM delivered to the *current* stream — the same timeline
   // Speechmatics uses for word start_time/end_time. Reset when a new stream
   // starts; counted at actual socket send so frames queued during an outage
@@ -394,6 +400,10 @@ export class SpeechmaticsLiveClient {
     return this.ws?.readyState === WebSocket.OPEN && this.recognitionStarted;
   }
 
+  get currentStreamEpoch(): number {
+    return this.streamEpoch;
+  }
+
   buildStartRecognitionMessage() {
     const profileCount = this.profiles.length;
     const enrolledIdentifierCount = this.profiles.reduce(
@@ -409,11 +419,12 @@ export class SpeechmaticsLiveClient {
     const speakerDiarizationConfig: Record<string, unknown> = {
       max_speakers: maxSpeakers,
       prefer_current_speaker: preferCurrentSpeaker,
+      // Capture anonymous cluster voiceprints too. They remain ephemeral until
+      // the user explicitly names that cluster in the transcript.
+      get_speakers: true,
     };
 
-    if (this.options.enrollment) {
-      speakerDiarizationConfig.get_speakers = true;
-    } else if (profileCount > 0) {
+    if (!this.options.enrollment && profileCount > 0) {
       speakerDiarizationConfig.speakers = this.profiles.map((profile) => ({
         label: safeSpeakerLabel(profile.name),
         speaker_identifiers: profile.speakerIdentifiers,
@@ -441,11 +452,14 @@ export class SpeechmaticsLiveClient {
 
     const transcriptionConfig: Record<string, unknown> = {
       language: "en",
-      operating_point: basicMode ? "standard" : "enhanced",
+      model: basicMode ? "standard" : "enhanced",
       diarization: basicMode ? "none" : "speaker",
       enable_partials: true,
-      max_delay: 0.7,
-      max_delay_mode: "fixed",
+      // Speechmatics' 0.7–1.5s voice-agent band: one second gives final
+      // transcripts more context for names/numbers while our semantic
+      // ForceEndOfUtterance path still closes confident asks immediately.
+      max_delay: 1,
+      max_delay_mode: "flexible",
       additional_vocab: [
         {
           content: "Kivo",
@@ -467,11 +481,32 @@ export class SpeechmaticsLiveClient {
             "hey quivo",
           ],
         },
+        {
+          content: "Speechmatics",
+          sounds_like: [
+            "speech matics",
+            "speech mattics",
+            "speech mattox",
+            "speech maddox",
+            "speech matters",
+          ],
+        },
+        {
+          content: "Cartesia",
+          sounds_like: ["car tesia", "cart asia", "carte sia"],
+        },
+        {
+          content: "Anthropic",
+          sounds_like: ["an thropic", "anthro pic", "an throw pick"],
+        },
+        {
+          content: "Claude",
+        },
       ],
       conversation_config: {
         // Silence gap (s) before EndOfUtterance fires — the main knob for how
         // quickly Kivo reacts when a speaker stops. Speechmatics requires this
-        // to be LESS than max_delay (0.7 above) or end-of-turn turns unreliable.
+        // to be LESS than max_delay (1.0 above) or end-of-turn turns unreliable.
         end_of_utterance_silence_trigger: this.options.voiceEngineV2
           ? VOICE_ENGINE_V2_TIMING.endOfUtteranceSilenceSeconds
           : 0.6,
@@ -530,12 +565,13 @@ export class SpeechmaticsLiveClient {
 
     if (msg.message === "SpeakersResult") {
       const result = msg as SpeakersResultMessage;
-      this.callbacks.onSpeakersResult?.(
-        result.speakers.map((speaker) => ({
+      const speakers = result.speakers.map((speaker) => ({
           label: speaker.label,
           speakerIdentifiers: speaker.speaker_identifiers,
-        }))
-      );
+          streamEpoch: this.streamEpoch,
+        }));
+      this.callbacks.onSpeakersResult?.(speakers);
+      this.resolveFinishedSpeakers(speakers);
       return;
     }
 
@@ -751,6 +787,44 @@ export class SpeechmaticsLiveClient {
     this.sendJson({ message: "GetSpeakers", final: options.final ?? false });
   }
 
+  /**
+   * Gracefully ends the stream and waits briefly for its final voiceprints.
+   * A timeout keeps stopping a session responsive if the provider is delayed.
+   */
+  async finishAndGetSpeakers(
+    timeoutMs = 2500
+  ): Promise<SpeechmaticsSpeakerResult[]> {
+    if (!this.isConnected) {
+      this.close();
+      return [];
+    }
+
+    const result = await new Promise<SpeechmaticsSpeakerResult[]>((resolve) => {
+      this.finishSpeakersResolver = resolve;
+      this.finishSpeakersTimer = setTimeout(
+        () => this.resolveFinishedSpeakers([]),
+        timeoutMs
+      );
+      this.requestSpeakers({ final: true });
+      this.sendEndOfStream();
+    });
+    this.close();
+    return result;
+  }
+
+  private resolveFinishedSpeakers(
+    speakers: SpeechmaticsSpeakerResult[]
+  ): void {
+    if (!this.finishSpeakersResolver) return;
+    if (this.finishSpeakersTimer) {
+      clearTimeout(this.finishSpeakersTimer);
+      this.finishSpeakersTimer = null;
+    }
+    const resolve = this.finishSpeakersResolver;
+    this.finishSpeakersResolver = null;
+    resolve(speakers);
+  }
+
   /** Ends recognition; required before `GetSpeakers({ final: true })` can return. */
   sendEndOfStream() {
     const ws = this.ws;
@@ -778,6 +852,7 @@ export class SpeechmaticsLiveClient {
     } catch {
       // ignore close failures
     } finally {
+      this.resolveFinishedSpeakers([]);
       this.ws = null;
       this.recognitionStarted = false;
       this.audioQueue = [];

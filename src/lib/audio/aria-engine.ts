@@ -11,7 +11,10 @@ import {
   type LocalSpeechDetector,
 } from "./speech-activity-detector";
 import { SileroVadDetector } from "./silero-vad-detector";
-import { SpeechmaticsLiveClient } from "./speechmatics-client";
+import {
+  SpeechmaticsLiveClient,
+  type SpeechmaticsSpeakerResult,
+} from "./speechmatics-client";
 import {
   VOICE_ENGINE_V2_ENABLED,
   VOICE_ENGINE_V2_TIMING,
@@ -22,7 +25,10 @@ import {
   TranscriptTurnAssembler,
   type AssembledTranscriptTurn,
 } from "./turn-assembler";
-import { VisualMicLevelNormalizer } from "./visual-level";
+import {
+  VisualMicLevelNormalizer,
+  playbackRmsToLevel,
+} from "./visual-level";
 import { track } from "@/lib/analytics/client";
 import { devLog } from "@/lib/client/dev-log";
 import {
@@ -34,6 +40,11 @@ import {
   reportAnswerInterrupted,
 } from "@/lib/sessions/client";
 import { listSpeakerProfiles } from "@/lib/speakers/client";
+import {
+  mergeSessionSpeakerClusters,
+  speakerClusterKey,
+  type SessionSpeakerClusterSnapshot,
+} from "@/lib/speakers/session-learning";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { sendHeartbeat } from "@/lib/plan/client";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
@@ -64,6 +75,7 @@ import type { TranscriptionMode } from "@/lib/sessions/types";
 import type { AriaStatus, TranscriptUtterance } from "@/lib/types";
 
 const PLAYBACK_STT_COOLDOWN_MS = 300;
+const SPEAKER_SNAPSHOT_INTERVAL_MS = 30_000;
 // Once somebody accepts the wake-free follow-up window, transcript/provider
 // edge cases must not strand Kivo in capture forever. Refreshed whenever
 // meaningful transcript text arrives; normal semantic endpointing resolves
@@ -190,6 +202,10 @@ export class AriaEngine {
   /** Dedicated gain node for raw-PCM answer playback, so barge-in ducking can
    * drop the answer volume without touching the shared cue/master gain. */
   private answerGain: GainNode | null = null;
+  private playbackAnalyser: AnalyserNode | null = null;
+  private playbackTimeDomain: Uint8Array | null = null;
+  private playbackMeterRaf = 0;
+  private htmlAudioSource: MediaElementAudioSourceNode | null = null;
   private ducked = false;
   private isAssistantSpeaking = false;
   private suppressSttUntilMs = 0;
@@ -216,6 +232,8 @@ export class AriaEngine {
   // streams' turns under the same label were attributed by different clusters
   // and are deliberately left alone.
   private streamTurnIdsByLabel = new Map<string, string[]>();
+  private speakerClusters: SessionSpeakerClusterSnapshot[] = [];
+  private lastSpeakerSnapshotRequestAt = new Map<number, number>();
   private currentTurnTelemetry: VoiceTurnTelemetry | null = null;
   /** Cached at session start so speculative asks don't await AudioContext. */
   private playbackSampleRate: number | null = null;
@@ -256,6 +274,8 @@ export class AriaEngine {
     activeAriaEngine = this;
     const store = useAriaStore.getState();
     store.clearTranscript();
+    this.speakerClusters = [];
+    this.lastSpeakerSnapshotRequestAt.clear();
     this.visualMicLevel.reset();
     store.setError(null);
     store.setStatus("listening");
@@ -322,6 +342,12 @@ export class AriaEngine {
         // A fresh stream means fresh diarization clusters — turns persisted
         // under the previous stream's labels are no longer correction targets.
         this.streamTurnIdsByLabel.clear();
+        if (this.stt) {
+          this.lastSpeakerSnapshotRequestAt.set(
+            this.stt.currentStreamEpoch,
+            Date.now()
+          );
+        }
         useAriaStore.getState().setNotice(null);
       },
       onClose: () => {
@@ -338,6 +364,7 @@ export class AriaEngine {
       },
       onUtterance: (u) => this.handleUtterance(u),
       onUtteranceEnd: () => this.handleUtteranceEnd(),
+      onSpeakersResult: (speakers) => this.captureSpeakerResults(speakers),
     }, profiles, {
       transcriptionMode: this.transcriptionMode,
       voiceEngineV2: this.voiceEngineV2,
@@ -347,7 +374,7 @@ export class AriaEngine {
     return profiles.length;
   }
 
-  async stop() {
+  async stop(): Promise<SessionSpeakerClusterSnapshot[]> {
     this.currentTurnTelemetry?.finish("aborted", { reason: "session_stop" });
     this.currentTurnTelemetry = null;
     this.localSpeechDetector.reset();
@@ -361,7 +388,12 @@ export class AriaEngine {
     await this.mic?.stop();
     this.mic = null;
     if (this.stt) {
-      this.stt.close();
+      if (this.transcriptionMode === "speaker") {
+        const finalSpeakers = await this.stt.finishAndGetSpeakers();
+        this.captureSpeakerResults(finalSpeakers);
+      } else {
+        this.stt.close();
+      }
       this.stt = null;
     }
     useAriaStore.getState().setNotice(null);
@@ -369,14 +401,17 @@ export class AriaEngine {
     this.stopFollowUpWindow();
     this.clearFollowUpStartTimer();
     this.clearTurnFlushTimer();
-    void this.flushPersistedSpeakerTurn().then(() => this.finalizeTitle());
+    await this.flushPersistedSpeakerTurn();
+    this.finalizeTitle();
     this.abortActiveFetch();
     this.stopPlayback();
     this.cues.stopWorkCue();
     void this.cues.dispose();
     this.visualMicLevel.reset();
     useAriaStore.getState().setMicLevel(0);
+    useAriaStore.getState().setPlaybackLevel(0);
     useAriaStore.getState().setStatus("idle");
+    return [...this.speakerClusters];
   }
 
   private onVisibilityChange = () => {
@@ -1061,8 +1096,7 @@ export class AriaEngine {
     const answerGain = ctx.createGain();
     answerGain.gain.value = 1;
     answerGain.connect(master);
-    this.answerGain = answerGain;
-    this.ducked = false;
+    this.armAnswerPlayback(ctx, answerGain);
 
     const state = {
       ctx,
@@ -1335,6 +1369,15 @@ export class AriaEngine {
   private teardownBargeIn() {
     this.bargeIn.stop();
     this.ducked = false;
+    this.stopPlaybackTap();
+    if (this.htmlAudioSource) {
+      try {
+        this.htmlAudioSource.disconnect();
+      } catch {
+        // ignore
+      }
+      this.htmlAudioSource = null;
+    }
     if (this.answerGain) {
       try {
         this.answerGain.disconnect();
@@ -1345,9 +1388,77 @@ export class AriaEngine {
     }
   }
 
-  /** Return the mic to its raw base (echo cancellation off in speaker mode) at
-   * a moment when the user isn't mid-sentence, so recognition/diarization runs
-   * on untouched audio again. Safe to call redundantly. */
+  /** Route answer audio through a tap so the word ring can pulse off Kivo's
+   * actual voice, not the AEC-ducked room mic. */
+  private armAnswerPlayback(ctx: AudioContext, answerGain: GainNode) {
+    this.answerGain = answerGain;
+    this.ducked = false;
+    this.armPlaybackTap(ctx, answerGain);
+  }
+
+  private armPlaybackTap(ctx: AudioContext, answerGain: GainNode) {
+    this.stopPlaybackTap();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.28;
+    answerGain.connect(analyser);
+    this.playbackAnalyser = analyser;
+    this.playbackTimeDomain = new Uint8Array(analyser.fftSize);
+    const tick = () => {
+      const node = this.playbackAnalyser;
+      const samples = this.playbackTimeDomain;
+      if (!node || !samples) {
+        this.playbackMeterRaf = 0;
+        return;
+      }
+      node.getByteTimeDomainData(
+        samples as Parameters<AnalyserNode["getByteTimeDomainData"]>[0],
+      );
+      const level = this.isAssistantSpeaking
+        ? playbackRmsToLevel(samples)
+        : 0;
+      useAriaStore.getState().setPlaybackLevel(level);
+      this.playbackMeterRaf = requestAnimationFrame(tick);
+    };
+    this.playbackMeterRaf = requestAnimationFrame(tick);
+  }
+
+  private stopPlaybackTap() {
+    if (this.playbackMeterRaf) {
+      cancelAnimationFrame(this.playbackMeterRaf);
+      this.playbackMeterRaf = 0;
+    }
+    if (this.playbackAnalyser) {
+      try {
+        this.playbackAnalyser.disconnect();
+      } catch {
+        // ignore
+      }
+      this.playbackAnalyser = null;
+    }
+    this.playbackTimeDomain = null;
+    useAriaStore.getState().setPlaybackLevel(0);
+  }
+
+  private async routeHtmlAudioThroughTap(audio: HTMLAudioElement) {
+    try {
+      const playback = await this.cues.getPlaybackContext();
+      if (!playback || this.currentAudio !== audio) return;
+      const answerGain = playback.ctx.createGain();
+      answerGain.gain.value = 1;
+      answerGain.connect(playback.master);
+      const source = playback.ctx.createMediaElementSource(audio);
+      source.connect(answerGain);
+      this.htmlAudioSource = source;
+      this.armAnswerPlayback(playback.ctx, answerGain);
+    } catch {
+      // Keep the element's default output; the ring just won't hear this path.
+    }
+  }
+
+  /** Return the mic to its configured base after playback. V2 keeps AEC on so
+   * live speaker matching stays in the same acoustic domain as enrollment;
+   * this call is still safe and useful for non-V2/base configurations. */
   private releaseEchoCancellation() {
     void this.mic?.setPlaybackEchoCancellation(false).then((state) => {
       this.currentTurnTelemetry?.mark("aec_state", {
@@ -2020,8 +2131,7 @@ export class AriaEngine {
     const answerGain = ctx.createGain();
     answerGain.gain.value = 1;
     answerGain.connect(master);
-    this.answerGain = answerGain;
-    this.ducked = false;
+    this.armAnswerPlayback(ctx, answerGain);
 
     const state = {
       ctx,
@@ -2194,7 +2304,18 @@ export class AriaEngine {
     this.stopPlayback();
     const generation = this.playbackGeneration;
 
+    let destination: AudioNode | undefined;
+    const playback = await this.cues.getPlaybackContext();
+    if (playback && generation === this.playbackGeneration) {
+      const answerGain = playback.ctx.createGain();
+      answerGain.gain.value = 1;
+      answerGain.connect(playback.master);
+      this.armAnswerPlayback(playback.ctx, answerGain);
+      destination = answerGain;
+    }
+
     const handle = await this.cues.playClip(buf, {
+      destination,
       onPlay: () => {
         if (generation !== this.playbackGeneration) return;
         this.clearFollowUpStartTimer();
@@ -2214,6 +2335,7 @@ export class AriaEngine {
         if (generation !== this.playbackGeneration) return;
         this.currentClipStop = null;
         this.isAssistantSpeaking = false;
+        this.teardownBargeIn();
         this.stt?.markAssistantSpeechEnd();
         this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
         useAriaStore.getState().setStatus("listening");
@@ -2231,6 +2353,7 @@ export class AriaEngine {
         if (generation !== this.playbackGeneration) return;
         this.currentClipStop = null;
         this.isAssistantSpeaking = false;
+        this.teardownBargeIn();
         this.stt?.markAssistantSpeechEnd();
         this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
         this.cues.stopWorkCue();
@@ -2242,7 +2365,10 @@ export class AriaEngine {
       },
     });
 
-    if (!handle) return;
+    if (!handle) {
+      if (generation === this.playbackGeneration) this.teardownBargeIn();
+      return;
+    }
     if (generation !== this.playbackGeneration) {
       // A newer turn started while we were decoding — discard this one.
       handle.stop();
@@ -2325,10 +2451,13 @@ export class AriaEngine {
       });
       this.currentTurnTelemetry = null;
     };
-    void audio.play().catch((err) => {
+    void this.routeHtmlAudioThroughTap(audio).then(() => {
       if (this.currentAudio !== audio) return;
-      const msg = err instanceof Error ? err.message : "play failed";
-      useAriaStore.getState().setError(msg);
+      void audio.play().catch((err) => {
+        if (this.currentAudio !== audio) return;
+        const msg = err instanceof Error ? err.message : "play failed";
+        useAriaStore.getState().setError(msg);
+      });
     });
     devLog("tts", logMessage);
   }
@@ -2503,6 +2632,7 @@ export class AriaEngine {
         ids.push(persisted.id);
         this.streamTurnIdsByLabel.set(u.providerSpeakerLabel, ids);
       }
+      this.maybeRequestSpeakerSnapshot();
       this.onSessionActivity?.();
     } catch (err) {
       for (const id of turn.sourceUtteranceIds) {
@@ -2511,6 +2641,34 @@ export class AriaEngine {
       const msg = err instanceof Error ? err.message : "unknown error";
       devLog("session", `Failed to persist speaker turn: ${msg}`);
     }
+  }
+
+  private captureSpeakerResults(
+    speakers: SpeechmaticsSpeakerResult[]
+  ): void {
+    if (speakers.length === 0) return;
+    this.speakerClusters = mergeSessionSpeakerClusters(
+      this.speakerClusters,
+      speakers.map((speaker) => ({
+        clusterKey: speakerClusterKey(
+          speaker.streamEpoch,
+          speaker.label
+        ),
+        streamEpoch: speaker.streamEpoch,
+        providerSpeakerLabel: speaker.label,
+        speakerIdentifiers: speaker.speakerIdentifiers,
+      }))
+    );
+  }
+
+  private maybeRequestSpeakerSnapshot(): void {
+    if (this.transcriptionMode !== "speaker" || !this.stt?.isConnected) return;
+    const epoch = this.stt.currentStreamEpoch;
+    const now = Date.now();
+    const last = this.lastSpeakerSnapshotRequestAt.get(epoch) ?? 0;
+    if (now - last < SPEAKER_SNAPSHOT_INTERVAL_MS) return;
+    this.lastSpeakerSnapshotRequestAt.set(epoch, now);
+    this.stt.requestSpeakers();
   }
 
   /** Names available as correction targets in the transcript UI. */

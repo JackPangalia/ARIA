@@ -28,7 +28,7 @@ export function SignInScreen() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-app px-6 pb-24">
-      <p className="kivo-wordmark mb-14 select-none text-xs text-app-secondary">
+      <p className="kivo-wordmark mb-14 select-none text-app-secondary">
         Kivo
       </p>
       <SignInForm />
