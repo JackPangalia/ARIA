@@ -1,457 +1,266 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { ImageStreamHero } from "@/components/ui/image-stream-hero";
+import { AskKivoVisual } from "@/components/landing/AskKivoVisual";
+import { FAQ_ITEMS } from "@/components/landing/faq-content";
+import { HearTheRoomVisual } from "@/components/landing/HearTheRoomVisual";
+import { KeepTheRoomVisual } from "@/components/landing/KeepTheRoomVisual";
 import { useLandingEffects } from "@/components/landing/useLandingEffects";
-import { planFeatureBullets, PLANS, MARKETING_TIERS } from "@/lib/plan/tiers";
+import { ImageStreamHero } from "@/components/ui/image-stream-hero";
+import { MARKETING_TIERS, PLANS, planFeatureBullets } from "@/lib/plan/tiers";
 
 const HERO_IMAGES = [
+  { src: "/landing/kivo-hero-whiteboard-workshop-motion-v2.png", alt: "A team collaborating around a whiteboard" },
+  { src: "/landing/kivo-hero-night-build-motion-v2.png", alt: "Founders working together late at night" },
+  { src: "/landing/kivo-hero-bali-brainstorm-motion-v2.png", alt: "A small team brainstorming around a table" },
+  { src: "/landing/kivo-hero-study-session-motion-v2.png", alt: "A group working together around a shared table" },
+  { src: "/landing/kivo-hero-production-review-motion-v2.png", alt: "A creative team reviewing a project" },
+  { src: "/landing/kivo-hero-pitch-practice-motion-v2.png", alt: "A founder presenting an idea to a team" },
+  { src: "/landing/kivo-hero-whiteboard-critique-motion-v2.png", alt: "A product team discussing work at a whiteboard" },
+  { src: "/landing/kivo-hero-city-boardroom-motion-v2.png", alt: "A team preparing for a meeting" },
+  { src: "/landing/kivo-hero-oceanfounders-motion-v2.png", alt: "Founders talking together overlooking the ocean" },
+  { src: "/landing/kivo-hero-cinematic-meeting-motion-v2.png", alt: "A small team in a thoughtful in-person meeting" },
+] as const;
+
+const TRUST_ITEMS = [
   {
-    src: "/landing/kivo-hero-whiteboard-workshop.png",
-    alt: "Young team collaborating around a whiteboard in a loft studio",
+    title: "Raw audio isn’t stored.",
+    body: "Your microphone audio is streamed for live transcription. Kivo keeps the text, not an audio recording.",
+    image: "/landing/nature-privacy-water-v1.png",
+    alt: "Pale blue water flowing over smooth cream-colored stone",
+    className: "lp-trust-item lp-trust-item-wide",
   },
   {
-    src: "/landing/kivo-hero-night-build.png",
-    alt: "Young founders working late at a desk overlooking the city",
+    title: "Your conversations don’t train AI models.",
+    body: "Kivo does not sell your data or use your conversations to train its own or third-party models.",
+    image: "/landing/kivo-lifestyle-bouldering-motion-v2.png",
+    alt: "Two friends bouldering beneath a dark rock face in a green forest",
+    className: "lp-trust-item lp-trust-item-tall",
   },
   {
-    src: "/landing/kivo-hero-bali-brainstorm.png",
-    alt: "Young founders brainstorming at a tropical work villa",
-  },
-  {
-    src: "/landing/kivo-hero-study-session.png",
-    alt: "Young people working together around a busy study table",
-  },
-  {
-    src: "/landing/kivo-hero-production-review.png",
-    alt: "Young creative team reviewing a project in a production studio",
-  },
-  {
-    src: "/landing/kivo-hero-pitch-practice.png",
-    alt: "Young founder presenting an idea to a team in a meeting room",
-  },
-  {
-    src: "/landing/kivo-hero-whiteboard-critique.png",
-    alt: "Young product team reviewing wireframes on a whiteboard",
-  },
-  {
-    src: "/landing/kivo-hero-city-boardroom.png",
-    alt: "Young founders preparing for a meeting in a city boardroom",
-  },
-  {
-    src: "/landing/kivo-hero-oceanfounders.png",
-    alt: "Young founders working together overlooking the ocean at sunset",
-  },
-  {
-    src: "/landing/kivo-hero-cinematic-meeting.png",
-    alt: "Small team in a thoughtful in-person meeting",
-  },
-  {
-    src: "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=900&q=80",
-    alt: "Team together",
-  },
-  {
-    src: "https://images.unsplash.com/photo-1559136555-9303baea8ebd?auto=format&fit=crop&w=900&q=80",
-    alt: "Open workspace",
+    title: "Delete it when you choose.",
+    body: "Remove a session whenever you want, or delete your account and its associated conversation history.",
+    image: "/landing/kivo-lifestyle-golf-pair-motion-v2.png",
+    alt: "Two friends playing golf together across a softly blurred green",
+    className: "lp-trust-item lp-trust-item-portrait",
   },
 ] as const;
 
-const STORY = [
-  {
-    step: "1",
-    title: "Start listening",
-    body: "Start a Kivo session before your meeting or conversation. Kivo listens through your microphone and creates a live, speaker-attributed transcript.",
-  },
-  {
-    step: "2",
-    title: "Ask Kivo",
-    body: "Say “Hey Kivo” whenever you need something. Ask a question, clarify something that was discussed, summarize a point, or get help without leaving the conversation.",
-  },
-  {
-    step: "3",
-    title: "Keep the context",
-    body: "When the meeting ends, Kivo gives you the transcript, decisions, action items, and a clear summary of what happened.",
-  },
-] as const;
+function SiteHeader() {
+  return (
+    <header className="lp-nav">
+      <div className="lp-wrap lp-nav-inner">
+        <a href="#top" className="lp-wordmark" aria-label="Kivo, back to top">Kivo</a>
+        <nav className="lp-nav-links" aria-label="Primary">
+          <a href="#how" className="lp-link">How it works</a>
+          <a href="#pricing" className="lp-link">Pricing</a>
+          <a href="#faq" className="lp-link">FAQ</a>
+        </nav>
+        <div className="lp-nav-cta">
+          <Link href="/sign-in" className="lp-link">Sign in</Link>
+          <Link href="/sign-in" className="lp-btn lp-btn-primary">Start free</Link>
+        </div>
+        <button type="button" className="lp-nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobile-menu">
+          <span /><span /><span />
+        </button>
+      </div>
+      <div className="lp-wrap lp-mobile-menu" id="mobile-menu">
+        <nav aria-label="Mobile">
+          <a href="#how">How it works</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+          <Link href="/sign-in">Sign in</Link>
+        </nav>
+        <Link href="/sign-in" className="lp-btn lp-btn-primary">Start free</Link>
+      </div>
+    </header>
+  );
+}
 
-const CAPABILITIES = [
-  {
-    title: "Knows who’s speaking",
-    body: "Kivo separates speakers so it can understand who said what.",
-  },
-  {
-    title: "Understands the conversation",
-    body: "Ask about something discussed five minutes ago without explaining the context again.",
-  },
-  {
-    title: "Speaks when invited",
-    body: "Kivo doesn’t constantly interrupt. It listens and responds when someone asks for it.",
-  },
-  {
-    title: "Remembers the meeting",
-    body: "Every session becomes searchable context you can return to later.",
-  },
-] as const;
+function Hero() {
+  return (
+    <section className="lp-hero" id="top">
+      <ImageStreamHero images={HERO_IMAGES} className="lp-hero-stream">
+        <div className="lp-hero-stream-scrim" aria-hidden />
+        <div className="lp-hero-stream-inner">
+          <h1 className="lp-display">The voice AI built for the room.</h1>
+          <div className="lp-hero-stream-foot">
+            <p className="lp-lead">Kivo listens to everyone, understands who said what, and answers out loud when you ask.</p>
+            <Link href="/sign-in" className="lp-btn lp-btn-primary">Start free</Link>
+            <p className="lp-note">No credit card required.</p>
+          </div>
+        </div>
+      </ImageStreamHero>
+    </section>
+  );
+}
 
-const ROOM_MOMENTS = [
-  {
-    title: "Team meetings.",
-    body: "Keep the conversation clear, even when every voice matters.",
-  },
-  {
-    title: "Brainstorming.",
-    body: "Stay with the ideas while Kivo holds onto the context.",
-  },
-  {
-    title: "Planning.",
-    body: "Bring decisions, tradeoffs, and next steps into focus.",
-  },
-  {
-    title: "Everyday conversations.",
-    body: "A shared memory for the conversations that move work forward.",
-  },
-] as const;
+function Manifesto() {
+  return (
+    <section className="lp-manifesto" aria-labelledby="manifesto-heading">
+      <div className="lp-wrap lp-manifesto-grid">
+        <p className="lp-section-index">01 / The room</p>
+        <h2 id="manifesto-heading" className="lp-manifesto-copy" data-lp-reveal>
+          <span>Six people are talking. Everything that matters is said out loud, once.</span>{" "}
+          <span>Kivo hears all of it.</span>
+        </h2>
+      </div>
+    </section>
+  );
+}
 
-const FAQ_ITEMS = [
-  {
-    q: "Is Kivo a meeting recorder?",
-    a: "Kivo can transcribe and summarize meetings, but that isn’t the main idea. Kivo is a voice AI you can interact with during the conversation itself.",
-  },
-  {
-    q: "Does Kivo join Zoom or Google Meet calls?",
-    a: "Kivo is designed primarily for conversations happening around you. It listens through your device instead of joining as a meeting bot.",
-  },
-  {
-    q: "How does Kivo know who’s speaking?",
-    a: "Kivo uses speaker recognition to distinguish between people in the conversation and keep track of who said what.",
-  },
-  {
-    q: "What can I ask Kivo?",
-    a: "You can ask questions about the conversation, request summaries, clarify something that was said, brainstorm ideas, retrieve earlier points, or ask general questions.",
-  },
-  {
-    q: "Does Kivo listen all the time?",
-    a: "Kivo only listens while you have an active session running.",
-  },
-  {
-    q: "Is my data private?",
-    a: "Your conversations are handled according to Kivo’s privacy policy. You remain in control of your sessions and stored conversation history.",
-  },
-];
+function HowItWorks() {
+  return (
+    <section className="lp-story" id="how" aria-labelledby="how-heading">
+      <div className="lp-wrap lp-story-intro" data-lp-reveal>
+        <p className="lp-section-index">02 / How it works</p>
+        <h2 className="lp-editorial-title" id="how-heading">Present for the conversation.<br />Quiet until you need it.</h2>
+      </div>
+      <div className="lp-wrap lp-scenes">
+        <article className="lp-scene" data-lp-reveal>
+          <div className="lp-scene-copy">
+            <span className="lp-scene-number">01</span>
+            <p className="lp-scene-label">Listen</p>
+            <h3>Kivo hears the whole room.</h3>
+            <p>Start a session and Kivo follows the live conversation, separating speakers as they talk.</p>
+          </div>
+          <HearTheRoomVisual />
+        </article>
+
+        <article className="lp-scene lp-scene-reverse" data-lp-reveal>
+          <div className="lp-scene-copy">
+            <span className="lp-scene-number">02</span>
+            <p className="lp-scene-label">Ask</p>
+            <h3>Say, “Hey Kivo.”</h3>
+            <p>Ask about what is being discussed. Kivo already has the context, so you do not have to explain it again.</p>
+          </div>
+          <AskKivoVisual />
+        </article>
+
+        <article className="lp-scene" data-lp-reveal>
+          <div className="lp-scene-copy">
+            <span className="lp-scene-number">03</span>
+            <p className="lp-scene-label">Keep</p>
+            <h3>Leave with the conversation intact.</h3>
+            <p>Return to the transcript and overview after the session, with the speakers and important context still connected.</p>
+          </div>
+          <KeepTheRoomVisual />
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function ProductShowcase() {
+  return (
+    <section className="lp-showcase" aria-labelledby="showcase-heading">
+      <div className="lp-wrap">
+        <div className="lp-showcase-panel" data-lp-reveal>
+          <Image src="/landing/kivo-session-afterglow-motion-v1.png" alt="A warmly lit meeting room after a conversation, with figures leaving through the doorway" fill sizes="(max-width: 760px) 100vw, 1200px" className="lp-showcase-bg" />
+          <div className="lp-showcase-copy">
+            <p className="lp-section-index">03 / After the meeting</p>
+            <h2 className="lp-editorial-title" id="showcase-heading">Every session stays with you.</h2>
+            <p>The overview and transcript remain available after an in-person session ends, so the conversation does not disappear when everyone leaves the room.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TrustSection() {
+  return (
+    <section className="lp-trust" aria-labelledby="trust-heading">
+      <div className="lp-wrap">
+        <div className="lp-trust-head" data-lp-reveal>
+          <p className="lp-section-index">04 / Your data</p>
+          <div><h2 className="lp-editorial-title" id="trust-heading">Your conversations stay yours.</h2><p>Kivo is designed to be useful in the room without turning the room into an audio archive.</p></div>
+        </div>
+        <div className="lp-trust-grid">
+          {TRUST_ITEMS.map((item) => (
+            <article key={item.title} className={item.className} data-lp-reveal>
+              <figure><Image src={item.image} alt={item.alt} fill sizes="(max-width: 760px) 100vw, 40vw" /></figure>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Pricing() {
+  return (
+    <section className="lp-pricing" id="pricing" aria-labelledby="pricing-heading">
+      <div className="lp-wrap">
+        <div className="lp-pricing-head" data-lp-reveal>
+          <p className="lp-section-index">05 / Pricing</p>
+          <div><h2 className="lp-editorial-title" id="pricing-heading">Start with the next conversation.</h2><p>Try Kivo free. Upgrade when you need more listening time.</p></div>
+        </div>
+        <ul className="lp-plans">
+          {MARKETING_TIERS.map((tier) => {
+            const { display } = PLANS[tier];
+            return (
+              <li key={tier} className="lp-plan" data-lp-reveal>
+                <div className="lp-plan-name-row"><span className="lp-plan-name">{display.name}</span>{display.featured ? <span className="lp-plan-tag">For regular use</span> : null}</div>
+                <p className="lp-plan-price">{display.priceMonthlyUsd === 0 ? "$0" : `$${display.priceMonthlyUsd}`}<span> / month</span></p>
+                <p className="lp-plan-desc">{display.tagline}</p>
+                <ul className="lp-plan-feats">{planFeatureBullets(tier).map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>
+                <Link href={tier === "free" ? "/sign-in" : `/sign-in?plan=${tier}`} className={display.featured ? "lp-btn lp-btn-primary lp-plan-btn" : "lp-btn lp-btn-outline lp-plan-btn"}>{display.ctaLabel}</Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function Faq() {
+  return (
+    <section className="lp-faq-section" id="faq" aria-labelledby="faq-heading">
+      <div className="lp-wrap lp-faq-layout">
+        <div className="lp-faq-heading" data-lp-reveal><p className="lp-section-index">06 / Details</p><h2 className="lp-editorial-title" id="faq-heading">A few good questions.</h2></div>
+        <div className="lp-faq">
+          {FAQ_ITEMS.map((item) => (
+            <details key={item.q} className="lp-faq-item" name="faq">
+              <summary className="lp-faq-q">{item.q}<span className="pm" aria-hidden /></summary>
+              <div className="lp-faq-a-inner">{item.q === "Is my data private?" ? <>Your conversations are handled according to Kivo’s <Link href="/privacy" className="lp-inline-link">privacy policy</Link>. You remain in control of your sessions and stored conversation history.</> : item.a}</div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Closing() {
+  return (
+    <footer className="lp-footer">
+      <div className="lp-wrap">
+        <section className="lp-closing" aria-labelledby="close-heading" data-lp-reveal>
+          <div className="lp-closing-copy"><p className="lp-section-index">The next conversation</p><h2 className="lp-editorial-title" id="close-heading">Bring AI into the conversation.</h2><p>Kivo is ready when the room is.</p><Link href="/sign-in" className="lp-btn lp-btn-light">Start free</Link></div>
+        </section>
+        <div className="lp-footer-meta">
+          <a href="#top" className="lp-footer-wordmark">Kivo</a>
+          <div className="lp-footer-links"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="mailto:hello@kivo.ai">Contact</a></div>
+          <p>© 2026 Centonis AI Inc.</p>
+        </div>
+      </div>
+    </footer>
+  );
+}
 
 export function LandingPage() {
   useLandingEffects();
-  const year = new Date().getFullYear();
-
   return (
     <>
-      <header className="lp-nav">
-        <div className="lp-wrap lp-nav-inner">
-          <a href="#top" className="lp-wordmark">
-            Kivo
-          </a>
-
-          <div className="lp-nav-mobile">
-            <Link href="/sign-in" className="lp-btn lp-btn-primary">
-              Start free
-            </Link>
-            <button
-              type="button"
-              className="lp-nav-toggle"
-              aria-label="Toggle menu"
-              aria-expanded="false"
-              aria-controls="mobile-menu"
-            >
-              <span />
-              <span />
-              <span />
-            </button>
-          </div>
-
-          <div className="lp-nav-cta">
-            <nav className="lp-nav-links" aria-label="Primary">
-              <a href="#pricing" className="lp-link">
-                Pricing
-              </a>
-              <a href="#faq" className="lp-link">
-                FAQ
-              </a>
-            </nav>
-            <Link href="/sign-in" className="lp-link">
-              Sign in
-            </Link>
-            <Link href="/sign-in" className="lp-btn lp-btn-primary">
-              Start free
-            </Link>
-          </div>
-        </div>
-
-        <div className="lp-wrap lp-mobile-menu" id="mobile-menu">
-          <nav aria-label="Mobile">
-            <a href="#pricing">Pricing</a>
-            <a href="#faq">FAQ</a>
-            <Link href="/sign-in">Sign in</Link>
-          </nav>
-          <div className="lp-mobile-menu-cta">
-            <Link href="/sign-in" className="lp-btn lp-btn-primary">
-              Start free
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main>
-        <section className="lp-hero" id="top">
-          <ImageStreamHero images={HERO_IMAGES} className="lp-hero-stream">
-            <div className="lp-hero-stream-scrim" aria-hidden />
-            <div className="lp-hero-stream-inner">
-              <h1 className="lp-display">
-                The voice AI
-                <br />
-                built for meetings.
-              </h1>
-              <div className="lp-hero-stream-foot">
-                <p className="lp-lead">
-                  Kivo listens to the conversation, understands who’s speaking,
-                  and answers out loud when you ask it to.
-                </p>
-                <div className="lp-hero-actions">
-                  <Link href="/sign-in" className="lp-btn lp-btn-primary">
-                    Start free
-                  </Link>
-                </div>
-                <p className="lp-note">No credit card required.</p>
-              </div>
-            </div>
-          </ImageStreamHero>
-        </section>
-
-        <section className="lp-section" aria-labelledby="pitch-heading">
-          <div className="lp-wrap lp-split">
-            <h2 className="lp-display lp-split-title" id="pitch-heading">
-              Kivo understands the room.
-            </h2>
-            <div className="lp-split-copy">
-              <p>ChatGPT understands you. Most voice AI is built for one person talking to an AI.</p>
-              <p>
-                Kivo is built for everyone at the table. It follows the
-                conversation, keeps track of who said what, and stays quiet
-                until someone asks for it.
-              </p>
-            </div>
-          </div>
-
-          <div className="lp-wrap lp-stage">
-            <figure className="lp-stage-main">
-              <img
-                src="/landing/kivo-tidal-water.png"
-                alt="Tide moving over dark coastal stone"
-                width={1600}
-                height={1066}
-              />
-            </figure>
-            <figure className="lp-stage-side">
-              <img
-                src="/landing/kivo-alpine-dawn.png"
-                alt="Mountain ridge above clouds at dawn"
-                width={1200}
-                height={1600}
-              />
-            </figure>
-          </div>
-        </section>
-
-        <section className="lp-section" id="how" aria-labelledby="story-heading">
-          <div className="lp-wrap lp-split">
-            <h2 className="lp-display lp-split-title" id="story-heading">
-              Start. Ask. Keep.
-            </h2>
-            <ol className="lp-story">
-              {STORY.map((item) => (
-                <li key={item.step} className="lp-story-item">
-                  <span className="lp-story-step" aria-hidden>
-                    {item.step.padStart(2, "0")}
-                  </span>
-                  <div className="lp-story-copy">
-                    <h3 className="lp-story-title">{item.title}.</h3>
-                    <p className="lp-story-body">{item.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        <section
-          className="lp-section lp-section-scene lp-scene-sequence"
-          aria-labelledby="scene-heading"
-        >
-          <div className="lp-wrap">
-            <figure className="lp-scene" data-room-scene>
-              <img
-                src="/landing/kivo-whole-room.png"
-                alt="People talking across a table"
-                width={1800}
-                height={1200}
-              />
-              <div className="lp-scene-scrim" aria-hidden />
-              <figcaption className="lp-scene-copy">
-                <h2 className="lp-scene-title" id="scene-heading">
-                  The whole room.
-                </h2>
-                {ROOM_MOMENTS.map((moment, index) => (
-                  <div
-                    className="lp-room-moment"
-                    data-room-moment
-                    data-active={index === 0 ? "true" : undefined}
-                    key={moment.title}
-                  >
-                    <h3>{moment.title}</h3>
-                    <p>{moment.body}</p>
-                  </div>
-                ))}
-              </figcaption>
-            </figure>
-          </div>
-        </section>
-
-        <section
-          className="lp-section"
-          id="capabilities"
-          aria-labelledby="capabilities-heading"
-        >
-          <div className="lp-wrap">
-            <h2 className="lp-display lp-caps-title" id="capabilities-heading">
-              One AI. The whole conversation.
-            </h2>
-            <ul className="lp-caps">
-              {CAPABILITIES.map((item) => (
-                <li key={item.title} className="lp-cap">
-                  <h3 className="lp-cap-title">{item.title}.</h3>
-                  <p className="lp-cap-body">{item.body}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        <section
-          className="lp-section"
-          id="pricing"
-          aria-labelledby="pricing-heading"
-        >
-          <div className="lp-wrap">
-            <div className="lp-section-head">
-              <h2 className="lp-display" id="pricing-heading">
-                Two plans.
-              </h2>
-              <p className="lp-lead">Start free. Upgrade when you need more time.</p>
-            </div>
-            <ul className="lp-plans">
-              {MARKETING_TIERS.map((tier) => {
-                const { display } = PLANS[tier];
-                return (
-                  <li
-                    key={tier}
-                    className={`lp-plan${display.featured ? " featured" : ""}`}
-                  >
-                    <div className="lp-plan-top">
-                      <span className="lp-plan-name">{display.name}</span>
-                      <span className="lp-plan-price">
-                        {display.priceMonthlyUsd === 0
-                          ? "$0"
-                          : `$${display.priceMonthlyUsd}`}
-                        <span className="lp-plan-period">/mo</span>
-                      </span>
-                      <p className="lp-plan-desc">{display.tagline}</p>
-                    </div>
-                    <ul className="lp-plan-feats">
-                      {planFeatureBullets(tier).map((bullet) => (
-                        <li key={bullet}>{bullet}</li>
-                      ))}
-                    </ul>
-                    <Link
-                      href={
-                        tier === "free" ? "/sign-in" : `/sign-in?plan=${tier}`
-                      }
-                      className={
-                        display.featured
-                          ? "lp-btn lp-btn-primary lp-plan-btn"
-                          : "lp-btn lp-btn-ghost lp-plan-btn"
-                      }
-                    >
-                      {display.ctaLabel}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </section>
-
-        <section className="lp-section" id="faq" aria-labelledby="faq-heading">
-          <div className="lp-wrap lp-split">
-            <h2 className="lp-display lp-split-title" id="faq-heading">
-              Questions.
-            </h2>
-            <div className="lp-faq">
-              {FAQ_ITEMS.map((item) => (
-                <details key={item.q} className="lp-faq-item" name="faq">
-                  <summary className="lp-faq-q">
-                    {item.q}
-                    <span className="pm" aria-hidden />
-                  </summary>
-                  <div className="lp-faq-a">
-                    <div className="lp-faq-a-inner">
-                      {item.q === "Is my data private?" ? (
-                        <>
-                          Your conversations are handled according to Kivo’s{" "}
-                          <Link href="/privacy" className="lp-inline-link">
-                            privacy policy
-                          </Link>
-                          . You remain in control of your sessions and stored
-                          conversation history.
-                        </>
-                      ) : (
-                        item.a
-                      )}
-                    </div>
-                  </div>
-                </details>
-              ))}
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="lp-footer">
-        <div className="lp-wrap lp-footer-cta">
-          <h2 className="lp-display" id="close-heading">
-            Bring AI into the conversation.
-          </h2>
-          <div className="lp-hero-actions">
-            <Link href="/sign-in" className="lp-btn lp-btn-primary">
-              Start free
-            </Link>
-          </div>
-          <p className="lp-note">No credit card required.</p>
-        </div>
-
-        <a href="#top" className="lp-footer-mark" aria-label="Kivo, back to top">
-          Kivo
-        </a>
-
-        <div className="lp-wrap lp-footer-meta">
-          <div className="lp-footer-links">
-            <Link href="/privacy">Privacy</Link>
-            <Link href="/terms">Terms</Link>
-            <a href="mailto:hello@kivo.ai">Contact</a>
-          </div>
-          <p className="lp-footer-copy">
-            © {year} Centonis AI Inc. All rights reserved.
-          </p>
-        </div>
-      </footer>
+      <a href="#top" className="lp-skip">Skip to content</a>
+      <SiteHeader />
+      <main><Hero /><Manifesto /><HowItWorks /><ProductShowcase /><TrustSection /><Pricing /><Faq /></main>
+      <Closing />
     </>
   );
 }

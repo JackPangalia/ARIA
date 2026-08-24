@@ -101,7 +101,7 @@ function DesktopAuthScreen() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-app px-6 pb-24">
-      <p className="mb-14 flex select-none items-baseline gap-2 text-xs text-app-secondary">
+      <p className="mb-14 flex select-none items-baseline gap-2 text-app-secondary">
         <span className="kivo-wordmark">Kivo</span>
         <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1.5 py-0.5 text-[8px] font-medium tracking-[0.2em] text-app-subtle">
           DESKTOP

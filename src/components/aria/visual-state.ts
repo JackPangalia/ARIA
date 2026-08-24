@@ -36,6 +36,14 @@ const ACCENT: Record<Mode, string> = {
 // muddy gray smear on white.
 const LIGHT_IDLE_ACCENT = "#a1a1aa";
 
+/** Floor under speak-mode energy — see `energyFor`. */
+const SPEAK_FLOOR = 0.12;
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
 const STATUS_LABEL: Record<AriaStatus, string> = {
   idle: "Tap start",
   listening: "Listening",
@@ -59,23 +67,27 @@ export function accentFor(mode: Mode, isLight: boolean): string {
 }
 
 /**
- * `micLevel` is a live room-audio meter for the whole session — the engine
- * feeds it every captured mic frame, even while Kivo is speaking (its own
- * voice bleeds back through the room mic). So we drive the orb straight off
- * real audio in every active state instead of faking a flat level. A per-mode
- * floor keeps it breathing when the room is silent — most importantly while
- * thinking, when nobody is talking and pure mic-level would flatline.
+ * The 0..1 envelope every orb surface animates on.
+ *
+ * `micLevel` is a live room-audio meter for the whole session. Echo cancellation
+ * ducks Kivo's own voice out of that signal while it speaks, so speak mode rides
+ * a separate tap on the answer playback instead. Other modes ride the mic, with
+ * a per-mode floor so thinking doesn't go dead when the room is quiet.
  */
-export function energyFor(mode: Mode, micLevel: number): number {
+export function energyFor(
+  mode: Mode,
+  micLevel: number,
+  playbackLevel = 0,
+): number {
   if (mode === "idle") return 0;
-  const floor =
-    mode === "think" || mode === "search"
-      ? 0.4
-      : mode === "speak"
-        ? 0.12
-        : 0.06;
+  if (mode === "speak") {
+    // A small floor keeps the orb alive through the gap between a turn starting
+    // and the first audio landing, and if a playback path ships no tap at all.
+    return clamp01(Math.max(SPEAK_FLOOR, playbackLevel));
+  }
+  const floor = mode === "think" || mode === "search" ? 0.4 : 0.06;
   const micGain = mode === "think" || mode === "search" ? 0.5 : 1;
-  return Math.min(1, floor + micLevel * micGain);
+  return clamp01(floor + clamp01(micLevel) * micGain);
 }
 
 /**

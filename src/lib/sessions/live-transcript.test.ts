@@ -137,9 +137,89 @@ describe("buildLiveTranscriptLines", () => {
         speaker: 0,
         speakerName: "Conversation",
         providerSpeakerLabel: "conversation",
+        speakerClusterKey: "1:conversation",
         sourceUtteranceIds: ["u1", "u2"],
         isPartial: true,
       },
     ]);
+  });
+
+  it("does not merge a reused provider label across reconnect streams", () => {
+    const lines = buildLiveTranscriptLines({
+      turns: [],
+      utterances: [
+        utterance({
+          id: "u1",
+          providerSpeakerLabel: "S1",
+          text: "before reconnect",
+          isFinal: true,
+        }),
+        utterance({
+          id: "2:0.1-0",
+          providerSpeakerLabel: "S1",
+          text: "after reconnect",
+          start: 0.1,
+          end: 0.5,
+          isFinal: true,
+        }),
+      ],
+    });
+
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => line.speakerClusterKey)).toEqual([
+      "1:S1",
+      "2:S1",
+    ]);
+  });
+});
+
+describe("correction handles on question turns", () => {
+  it("gives a spoken question the same cluster key as the asker's other speech", () => {
+    // Regression: questions are persisted by the ask pipeline, not the
+    // transcript path. Without a providerSpeakerLabel they carried no cluster
+    // key, so they were the one kind of line that could never be corrected —
+    // visibly, a transcript where some lines had the speaker menu and some
+    // didn't.
+    const lines = buildLiveTranscriptLines({
+      turns: [
+        turn({
+          id: "t1",
+          text: "That's some bullshit.",
+          role: "speaker",
+          speakerName: "jack",
+          providerSpeakerLabel: "jack",
+          sourceUtteranceIds: ["12.4"],
+        }),
+        turn({
+          id: "t2",
+          text: "What have we been talking about?",
+          role: "user_question",
+          speakerName: "jack",
+          providerSpeakerLabel: "jack",
+          sourceUtteranceIds: ["18.1"],
+        }),
+      ],
+      utterances: [],
+    });
+
+    expect(lines[0]!.speakerClusterKey).toBe("1:jack");
+    expect(lines[1]!.speakerClusterKey).toBe("1:jack");
+  });
+
+  it("leaves a typed chat question uncorrectable", () => {
+    // No microphone, no diarization label, nothing to learn a voice from.
+    const lines = buildLiveTranscriptLines({
+      turns: [
+        turn({
+          id: "t1",
+          text: "typed in the chat dock",
+          role: "user_question",
+          sourceUtteranceIds: [],
+        }),
+      ],
+      utterances: [],
+    });
+
+    expect(lines[0]!.speakerClusterKey).toBeNull();
   });
 });

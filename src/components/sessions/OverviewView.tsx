@@ -1,29 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import { TranscriptLines } from "@/components/sessions/SessionInsightsPanel";
+import {
+  TranscriptLines,
+  type SpeakerCorrectionProps,
+} from "@/components/sessions/SessionInsightsPanel";
+import { HubEmptyState, SessionIcon } from "@/components/sessions/icons";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
 import type { MeetingSummaryDoc } from "@/lib/sessions/types";
 
-type OverviewContentMode = "summary" | "transcript";
+export type OverviewContentMode = "summary" | "transcript";
 
-function ContentModeToggle(props: {
+export function ContentModeToggle(props: {
   mode: OverviewContentMode;
   onChange: (mode: OverviewContentMode) => void;
+  header?: boolean;
 }) {
-  // Same pill tabs as the hub surfaces.
   const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-      active
-        ? "bg-surface text-app"
-        : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
-    }`;
+    `kivo-overview-tab ${active ? "is-active" : ""}`;
 
   return (
     <div
       role="tablist"
       aria-label="Overview content"
-      className="mb-5 flex items-center gap-1"
+      className={`kivo-overview-tabs ${props.header ? "kivo-overview-tabs--header" : ""}`}
     >
       <button
         id="overview-tab-summary"
@@ -59,10 +58,10 @@ function EmptySessionPrompt(props: {
 }) {
   return (
     <div className="flex flex-col items-center px-6 text-center">
-      <p className="text-[15px] font-medium text-app">
+      <p className="font-serif text-[2rem] font-normal leading-tight tracking-[-0.04em] text-app sm:text-[2.6rem]">
         {props.resume ? "Pick up where you left off" : "Ready when you are"}
       </p>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-app-muted">
+      <p className="mt-4 max-w-sm text-sm leading-relaxed text-app-muted">
         {props.resume
           ? "No summary or transcript yet. Resume listening and Kivo will pick up from here."
           : "Start a conversation and Kivo will listen, answer when you ask, and build a summary when you stop."}
@@ -71,32 +70,25 @@ function EmptySessionPrompt(props: {
         type="button"
         onClick={props.onStart}
         disabled={props.busy || props.disabled}
-        className="mt-6 px-1 py-1 text-[13px] font-medium text-app-muted transition-colors hover:text-app-secondary disabled:cursor-not-allowed disabled:opacity-40"
+        className="mt-8 text-sm font-medium text-app-muted transition-colors hover:text-app disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {props.disabled ? "Archived" : props.resume ? "Resume" : "Start conversation"}
+        {props.disabled
+          ? "Archived"
+          : props.resume
+            ? "Resume"
+            : "Start conversation"}
       </button>
     </div>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="px-1 text-xs font-medium uppercase tracking-wider text-app-subtle">
-      {children}
-    </p>
   );
 }
 
 function BulletList({ items }: { items: string[] }) {
   if (items.length === 0) return null;
   return (
-    <ul className="mt-2 space-y-0.5">
+    <ul className="kivo-summary-list">
       {items.map((item, index) => (
-        <li
-          key={index}
-          className="flex items-start gap-2.5 rounded-xl px-3 py-2.5 text-sm leading-relaxed text-app-secondary transition-colors hover:bg-surface-hover"
-        >
-          <span aria-hidden className="mt-[0.45rem] h-1 w-1 shrink-0 rounded-full bg-app-subtle" />
+        <li key={index}>
+          <span aria-hidden className="kivo-summary-bullet" />
           <span className="min-w-0">{item}</span>
         </li>
       ))}
@@ -104,29 +96,101 @@ function BulletList({ items }: { items: string[] }) {
   );
 }
 
+function SummarySection(props: { title: string; items: string[] }) {
+  if (props.items.length === 0) return null;
+  return (
+    <section className="kivo-summary-section">
+      <h2>{props.title}</h2>
+      <BulletList items={props.items} />
+    </section>
+  );
+}
+
+/** Placeholder rows sized like the real summary: one lead paragraph, then two
+ * short titled lists. Matching the finished shape keeps the swap from shifting
+ * the page around. */
+const SUMMARY_SKELETON_BLOCKS: Array<{ label?: string; widths: string[] }> = [
+  { widths: ["w-full", "w-11/12", "w-4/5", "w-2/3"] },
+  { label: "w-24", widths: ["w-5/6", "w-3/4"] },
+  { label: "w-28", widths: ["w-4/5", "w-2/3"] },
+];
+
 function SummarySkeleton() {
+  let index = 0;
   return (
     <div
-      className="kivo-fade-in space-y-5 px-1"
+      className="kivo-fade-in kivo-summary-loading"
       aria-busy="true"
-      aria-label="Generating summary"
+      aria-label="Writing summary"
     >
-      <div className="space-y-2.5">
-        <div className="kivo-skeleton h-4 w-full rounded-full" />
-        <div className="kivo-skeleton h-4 w-11/12 rounded-full" />
-        <div className="kivo-skeleton h-4 w-4/5 rounded-full" />
-        <div className="kivo-skeleton h-4 w-2/3 rounded-full" />
-      </div>
-      <div className="space-y-2.5 pt-1">
-        <div className="kivo-skeleton h-3 w-24 rounded-full" />
-        <div className="kivo-skeleton h-4 w-5/6 rounded-full" />
-        <div className="kivo-skeleton h-4 w-3/4 rounded-full" />
-      </div>
-      <div className="space-y-2.5 pt-1">
-        <div className="kivo-skeleton h-3 w-28 rounded-full" />
-        <div className="kivo-skeleton h-4 w-4/5 rounded-full" />
-        <div className="kivo-skeleton h-4 w-2/3 rounded-full" />
-      </div>
+      {SUMMARY_SKELETON_BLOCKS.map((block, blockIndex) => (
+        <div
+          key={blockIndex}
+          className={`kivo-skeleton-wave space-y-2.5 ${blockIndex > 0 ? "pt-1" : ""}`}
+        >
+          {block.label ? (
+            <div
+              className={`kivo-skeleton h-3 rounded-full ${block.label}`}
+              style={
+                { "--kivo-skeleton-index": index++ } as React.CSSProperties
+              }
+            />
+          ) : null}
+          {block.widths.map((width) => (
+            <div
+              key={width}
+              className={`kivo-skeleton h-4 rounded-full ${width}`}
+              style={
+                { "--kivo-skeleton-index": index++ } as React.CSSProperties
+              }
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Placeholder rows sized like the real transcript: speaker label, then one
+ * or two lines of copy. Matching the finished shape keeps the swap from
+ * shifting the page around. */
+const TRANSCRIPT_SKELETON_ROWS: Array<{ speaker: string; lines: string[] }> = [
+  { speaker: "w-16", lines: ["w-11/12", "w-4/5"] },
+  { speaker: "w-20", lines: ["w-full"] },
+  { speaker: "w-14", lines: ["w-5/6", "w-2/3"] },
+  { speaker: "w-[4.5rem]", lines: ["w-10/12"] },
+  { speaker: "w-16", lines: ["w-4/5", "w-3/5"] },
+];
+
+function TranscriptSkeleton() {
+  let index = 0;
+  return (
+    <div
+      className="kivo-fade-in kivo-transcript-loading"
+      aria-busy="true"
+      aria-label="Writing transcript"
+    >
+      {TRANSCRIPT_SKELETON_ROWS.map((row, rowIndex) => (
+        <div key={rowIndex} className="kivo-transcript-line">
+          <div
+            className={`kivo-skeleton h-3 rounded-full ${row.speaker}`}
+            style={
+              { "--kivo-skeleton-index": index++ } as React.CSSProperties
+            }
+          />
+          <div className="kivo-skeleton-wave space-y-2.5">
+            {row.lines.map((width) => (
+              <div
+                key={width}
+                className={`kivo-skeleton h-4 rounded-full ${width}`}
+                style={
+                  { "--kivo-skeleton-index": index++ } as React.CSSProperties
+                }
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -137,42 +201,37 @@ function SummaryCard(props: {
   generating: boolean;
 }) {
   return (
-    <div className="kivo-overview-surface pb-6 pt-0 sm:pb-7">
+    <div className="kivo-overview-surface">
       {props.generating ? (
         <SummarySkeleton />
       ) : props.summary ? (
-        <div className="kivo-fade-in space-y-7">
-          <p className="px-1 text-[15px] leading-[1.7] text-app sm:leading-[1.75]">
-            {props.summary.overview}
-          </p>
+        <article className="kivo-fade-in">
+          <section className="kivo-summary-lead">
+            <p>{props.summary.overview}</p>
+          </section>
 
-          {props.summary.decisions.length > 0 ? (
-            <div>
-              <SectionLabel>Decisions</SectionLabel>
-              <BulletList items={props.summary.decisions} />
-            </div>
-          ) : null}
-
-          {props.summary.keyPoints.length > 0 ? (
-            <div>
-              <SectionLabel>Key points</SectionLabel>
-              <BulletList items={props.summary.keyPoints} />
-            </div>
-          ) : null}
-
-          {props.summary.actionItems.length > 0 ? (
-            <div>
-              <SectionLabel>Action items</SectionLabel>
-              <BulletList items={props.summary.actionItems} />
-            </div>
-          ) : null}
-        </div>
+          <div className="kivo-summary-grid">
+            <SummarySection title="Decisions" items={props.summary.decisions} />
+            <SummarySection
+              title="Key points"
+              items={props.summary.keyPoints}
+            />
+            <SummarySection
+              title="Action items"
+              items={props.summary.actionItems}
+            />
+          </div>
+        </article>
       ) : (
-        <p className="px-3 py-3 text-sm font-normal leading-relaxed text-app-subtle">
-          {props.isRunning
-            ? "The summary appears here once you stop the recording."
-            : "Not enough conversation yet to summarize."}
-        </p>
+        <HubEmptyState
+          icon={<SessionIcon size={20} />}
+          title={props.isRunning ? "Still listening" : "No summary yet"}
+          description={
+            props.isRunning
+              ? "The summary appears here once you stop the recording."
+              : "Not enough conversation yet to summarize."
+          }
+        />
       )}
     </div>
   );
@@ -185,15 +244,16 @@ function SummaryCard(props: {
 export function OverviewView(props: {
   summary: MeetingSummaryDoc | null;
   transcriptLines: TranscriptLine[];
+  contentMode: OverviewContentMode;
   isRunning: boolean;
   generating: boolean;
   /** True when this session has prior turns (Resume vs Start). */
   resume: boolean;
   archived?: boolean;
   busy?: boolean;
+  speakerCorrection?: SpeakerCorrectionProps;
   onStart: () => void;
 }) {
-  const [contentMode, setContentMode] = useState<OverviewContentMode>("summary");
   const isEmpty =
     !props.generating &&
     !props.isRunning &&
@@ -217,34 +277,54 @@ export function OverviewView(props: {
 
   return (
     <div className="kivo-overview-root flex h-full min-h-0 w-full flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* Same column, gutters and top offset as the hub surfaces. */}
-        <div className="mx-auto w-full max-w-3xl px-6 pb-8 pt-6 sm:px-10 sm:pb-10 sm:pt-8">
-          <ContentModeToggle mode={contentMode} onChange={setContentMode} />
-
-          <div
-            id="overview-panel-summary"
-            role="tabpanel"
-            aria-labelledby="overview-tab-summary"
-            hidden={contentMode !== "summary"}
-          >
+      <div className="kivo-overview-split">
+        <section
+          id="overview-panel-summary"
+          aria-labelledby="overview-pane-summary-label"
+          className={`kivo-overview-pane kivo-overview-pane--summary ${
+            props.contentMode === "summary" ? "is-active" : ""
+          }`}
+        >
+          <h2 id="overview-pane-summary-label" className="kivo-overview-pane-label">
+            Summary
+          </h2>
+          <div className="kivo-overview-pane-scroll">
             <SummaryCard
               summary={props.summary}
               isRunning={props.isRunning}
               generating={props.generating}
             />
           </div>
-          <div
-            id="overview-panel-transcript"
-            role="tabpanel"
-            aria-labelledby="overview-tab-transcript"
-            hidden={contentMode !== "transcript"}
+        </section>
+        <section
+          id="overview-panel-transcript"
+          aria-labelledby="overview-pane-transcript-label"
+          className={`kivo-overview-pane kivo-overview-pane--transcript ${
+            props.contentMode === "transcript" ? "is-active" : ""
+          }`}
+        >
+          <h2
+            id="overview-pane-transcript-label"
+            className="kivo-overview-pane-label"
           >
-            <div className="kivo-overview-surface px-1 pb-6 pt-0 sm:pb-7">
-              <TranscriptLines lines={props.transcriptLines} large />
+            Transcript
+          </h2>
+          <div className="kivo-overview-pane-scroll">
+            <div className="kivo-transcript-sheet">
+              {props.generating ? (
+                <TranscriptSkeleton />
+              ) : (
+                <div className="kivo-fade-in">
+                  <TranscriptLines
+                    lines={props.transcriptLines}
+                    large
+                    speakerCorrection={props.speakerCorrection}
+                  />
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

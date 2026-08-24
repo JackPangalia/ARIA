@@ -1,6 +1,7 @@
 "use client";
 
 import { devLog } from "@/lib/client/dev-log";
+import { selectSpeakerIdentifierBudget } from "@/lib/speakers/identifier-budget";
 import {
   maxSpeakersForProfiles,
   preferCurrentSpeakerForProfiles,
@@ -76,6 +77,8 @@ type SpeakersResultMessage = {
 export interface SpeechmaticsSpeakerResult {
   label: string;
   speakerIdentifiers: string[];
+  /** Recognition-stream namespace; provider labels restart after reconnects. */
+  streamEpoch: number;
 }
 
 export interface SpeechmaticsClientCallbacks {
@@ -103,6 +106,8 @@ type SpeakerGroup = {
   start: number;
   end: number;
   confidence: number;
+  /** Whether this run's audio fell inside a known assistant-speech interval. */
+  overlapsAssistantSpeech: boolean;
 };
 
 const BASIC_PROVIDER_SPEAKER_LABEL = "conversation";
@@ -121,7 +126,7 @@ const ASSISTANT_SPEECH_PRE_ROLL_SECONDS = 0.15;
 const ASSISTANT_SPEECH_ECHO_TAIL_SECONDS = 0.6;
 const ASSISTANT_SPEECH_INTERVAL_MAX_AGE_SECONDS = 60;
 
-function safeSpeakerLabel(label: string): string {
+export function safeSpeakerLabel(label: string): string {
   const clean = label.trim().replace(/\s+/g, " ").slice(0, 100);
   if (!clean) return "Unknown speaker";
   // Speechmatics reserves labels like S1/S2 for internal generic speakers.
@@ -135,29 +140,49 @@ function appendToken(current: string, token: string, type: string): string {
 }
 
 export function groupSpeechmaticsResultsBySpeaker(
-  results: SpeechmaticsTranscriptResult[]
+  results: SpeechmaticsTranscriptResult[],
+  isEcho: (item: SpeechmaticsTranscriptResult) => boolean = () => false
 ): SpeakerGroup[] {
   const groups: SpeakerGroup[] = [];
   let current: SpeakerGroup | null = null;
-  let lastSpeaker = "S1";
+  let lastSpeaker: string = "S1";
 
   for (const item of results) {
     const alt = item.alternatives?.[0];
     if (!alt?.content) continue;
 
-    const speaker = alt.speaker ?? lastSpeaker;
-    lastSpeaker = speaker;
+    // Punctuation carries no speech of its own: it inherits the run it
+    // terminates. Letting it open a run strands it as its own utterance,
+    // which downstream rejoins with a space (" ." instead of ".").
+    const punctuation = item.type === "punctuation";
+    let speaker = alt.speaker ?? lastSpeaker;
+    let echo = isEcho(item);
+    if (punctuation && current) {
+      speaker = current.providerSpeakerLabel;
+      echo = current.overlapsAssistantSpeech;
+    } else {
+      lastSpeaker = speaker;
+    }
+
     const start: number = item.start_time ?? current?.end ?? 0;
     const end: number = item.end_time ?? start;
     const confidence: number = alt.confidence ?? current?.confidence ?? 0;
 
-    if (!current || current.providerSpeakerLabel !== speaker) {
+    // A run breaks on a speaker change or an echo-flag change. Both are
+    // emitted in this same chronological pass, so a run of Kivo's own echo in
+    // the middle of a sentence no longer reorders the words around it.
+    if (
+      !current ||
+      current.providerSpeakerLabel !== speaker ||
+      current.overlapsAssistantSpeech !== echo
+    ) {
       current = {
         providerSpeakerLabel: speaker,
         text: "",
         start,
         end,
         confidence,
+        overlapsAssistantSpeech: echo,
       };
       groups.push(current);
     }
@@ -202,6 +227,7 @@ export function groupSpeechmaticsResultsAsConversation(
       start,
       end,
       confidence,
+      overlapsAssistantSpeech: false,
     },
   ];
 }
@@ -223,6 +249,10 @@ export class SpeechmaticsLiveClient {
   // new stream). Speechmatics timestamps restart at zero per stream, so the
   // epoch namespaces utterance ids and scopes the audio timeline below.
   private streamEpoch = 0;
+  private finishSpeakersResolver:
+    | ((speakers: SpeechmaticsSpeakerResult[]) => void)
+    | null = null;
+  private finishSpeakersTimer: ReturnType<typeof setTimeout> | null = null;
   // Seconds of mic PCM delivered to the *current* stream — the same timeline
   // Speechmatics uses for word start_time/end_time. Reset when a new stream
   // starts; counted at actual socket send so frames queued during an outage
@@ -243,6 +273,19 @@ export class SpeechmaticsLiveClient {
       const label = safeSpeakerLabel(profile.name);
       this.speakerLabelToName.set(label, profile.name);
     }
+  }
+
+  /**
+   * Swaps the enrolled voiceprints used to seed diarization. Takes effect on
+   * the next StartRecognition — pair it with restartRecognition() when a voice
+   * is learned mid-session, or the new profile sits unused until the next one.
+   */
+  setSpeakerProfiles(profiles: SpeakerProfileDoc[]): void {
+    this.profiles = profiles;
+    for (const profile of profiles) {
+      this.speakerLabelToName.set(safeSpeakerLabel(profile.name), profile.name);
+    }
+    this.loggedStartConfig = false;
   }
 
   async connect(): Promise<void> {
@@ -394,6 +437,10 @@ export class SpeechmaticsLiveClient {
     return this.ws?.readyState === WebSocket.OPEN && this.recognitionStarted;
   }
 
+  get currentStreamEpoch(): number {
+    return this.streamEpoch;
+  }
+
   buildStartRecognitionMessage() {
     const profileCount = this.profiles.length;
     const enrolledIdentifierCount = this.profiles.reduce(
@@ -401,24 +448,49 @@ export class SpeechmaticsLiveClient {
       0
     );
     const basicMode = this.transcriptionMode === "basic";
-    const preferCurrentSpeaker = preferCurrentSpeakerForProfiles(profileCount);
-    const speakerSensitivity = speakerSensitivityForProfiles(profileCount);
+    const preferCurrentSpeaker = preferCurrentSpeakerForProfiles();
+    const speakerSensitivity = speakerSensitivityForProfiles(
+      this.profiles.map((profile) => profile.speakerIdentifiers.length)
+    );
     const maxSpeakers = this.options.enrollment
       ? 2
       : maxSpeakersForProfiles(profileCount);
     const speakerDiarizationConfig: Record<string, unknown> = {
       max_speakers: maxSpeakers,
       prefer_current_speaker: preferCurrentSpeaker,
+      // Capture anonymous cluster voiceprints too. They remain ephemeral until
+      // the user explicitly names that cluster in the transcript.
+      get_speakers: true,
     };
 
-    if (this.options.enrollment) {
-      speakerDiarizationConfig.get_speakers = true;
-    } else if (profileCount > 0) {
-      speakerDiarizationConfig.speakers = this.profiles.map((profile) => ({
-        label: safeSpeakerLabel(profile.name),
-        speaker_identifiers: profile.speakerIdentifiers,
+    if (!this.options.enrollment && profileCount > 0) {
+      // The provider caps identifiers across *all* speakers, not per speaker,
+      // and rejects the whole recognition when the total is exceeded.
+      const budgeted = selectSpeakerIdentifierBudget(
+        this.profiles.map((profile) => ({
+          label: safeSpeakerLabel(profile.name),
+          speakerIdentifiers: profile.speakerIdentifiers,
+        }))
+      );
+      speakerDiarizationConfig.speakers = budgeted.map((entry) => ({
+        label: entry.label,
+        speaker_identifiers: entry.speakerIdentifiers,
       }));
+      if (budgeted.length < profileCount) {
+        devLog(
+          "speaker",
+          `Speaker identifier budget trimmed ${profileCount - budgeted.length} profile(s) from this stream.`
+        );
+      }
       if (speakerSensitivity != null) {
+        // `speaker_sensitivity`, singular. Speechmatics' *speaker
+        // identification* pages document `speakers_sensitivity` (plural) as
+        // the knob for favouring enrolled speakers — that field does not
+        // exist on the realtime API. Probed 2026-08-24: it is rejected with
+        // the same "Additional property ... is not allowed" error as a
+        // made-up field name, which kills the entire recognition. The plural
+        // form appears to be batch-only. Do not "correct" this to match the
+        // docs without probing first.
         speakerDiarizationConfig.speaker_sensitivity = speakerSensitivity;
       }
     }
@@ -439,14 +511,42 @@ export class SpeechmaticsLiveClient {
       devLog("speaker", `Speechmatics profile counts: ${profileSummary}`);
     }
 
+    // NOTE: the realtime StartRecognition schema is closed — an unrecognised
+    // property anywhere in transcription_config fails the whole session with a
+    // protocol_error, rather than being ignored. Probe any new field against
+    // the API before shipping it (scratch probes live in git history for this
+    // commit); a typo here takes the mic down for every user at once.
     const transcriptionConfig: Record<string, unknown> = {
       language: "en",
-      operating_point: basicMode ? "standard" : "enhanced",
+      // `model` and `operating_point` are aliases accepting the same enum:
+      // "standard" | "enhanced" | "melia-1". melia-1 is the newest and most
+      // accurate model, but in realtime it only permits diarization "none" or
+      // "channel" — no speaker diarization, no speaker identification, no
+      // additional_vocab, no max_delay (probed 2026-08-24). It is therefore
+      // unusable for the in-person product; "enhanced" is the accuracy ceiling
+      // for anything that needs to know who is talking.
+      model: basicMode ? "standard" : "enhanced",
       diarization: basicMode ? "none" : "speaker",
       enable_partials: true,
-      max_delay: 0.7,
-      max_delay_mode: "fixed",
+      // How long Speechmatics may hold audio before committing to a final.
+      // Range is 0.7–4.0 and the API default is 4; more delay means more
+      // right-hand context per word, which their docs say is a direct accuracy
+      // win ("lowering this value can reduce latency but may also decrease
+      // accuracy"). Parked at the ceiling deliberately to see the accuracy
+      // headroom — our semantic ForceEndOfUtterance path still short-circuits
+      // this for confident asks, so it costs less response time than the raw
+      // number suggests. Dial toward 2 (their "balanced" example) if answers
+      // feel slow.
+      max_delay: 4,
+      max_delay_mode: "flexible",
+      // Custom dictionary. The recognizer maps anything outside its vocabulary
+      // to the nearest real word, so the entries that earn their place are
+      // words a *speaker in the room* actually says that aren't standard
+      // English: the wake word, product names, and the tools people discuss.
+      // Vendor names we only use in code don't belong here. Cap is 1000; a
+      // large list costs a one-off init delay, then caches for 24h.
       additional_vocab: [
+        // Wake word — must be right or Kivo never triggers.
         {
           content: "Kivo",
           sounds_like: [
@@ -467,11 +567,56 @@ export class SpeechmaticsLiveClient {
             "hey quivo",
           ],
         },
+        // Models and AI tools that come up constantly in conversation.
+        { content: "Claude" },
+        { content: "ChatGPT", sounds_like: ["chat gpt", "chat g p t"] },
+        { content: "Anthropic", sounds_like: ["an thropic", "anthro pic", "an throw pick"] },
+        { content: "OpenAI", sounds_like: ["open ai", "open a i"] },
+        { content: "Gemini", sounds_like: ["gemin i", "jem in eye"] },
+        { content: "Sonnet" },
+        { content: "Opus" },
+        { content: "Haiku", sounds_like: ["hi ku", "high koo"] },
+        { content: "nano banana" },
+        { content: "LLM", sounds_like: ["l l m", "el el em"] },
+        // Dev tools.
+        { content: "Cursor" },
+        { content: "Copilot", sounds_like: ["co pilot"] },
+        { content: "Vercel", sounds_like: ["ver sell", "vur sell"] },
+        { content: "Firestore", sounds_like: ["fire store"] },
+        { content: "Firebase", sounds_like: ["fire base"] },
+        { content: "Supabase", sounds_like: ["supa base", "super base"] },
+        // Competitors / comparables in this product's space.
+        { content: "Granola" },
+        { content: "Otter" },
+        { content: "Notion" },
+        // Vendors behind Kivo — discussed out loud often enough to keep.
+        {
+          content: "Speechmatics",
+          sounds_like: [
+            "speech matics",
+            "speech mattics",
+            "speech mattox",
+            "speech maddox",
+            "speech matters",
+          ],
+        },
+        {
+          content: "Cartesia",
+          sounds_like: ["car tesia", "cart asia", "carte sia"],
+        },
       ],
+      // Strip hesitation sounds ("um", "uh", "hmm") server-side so the stored
+      // transcript reads cleanly. English-only, and it adjusts capitalization
+      // and spacing around what it removes. Note the removal list also covers
+      // acknowledgement tokens (`mhm`, `uh-huh`, `uh-uh`), so a speaker who
+      // agrees by grunting leaves no trace in the transcript.
+      transcript_filtering_config: {
+        remove_disfluencies: true,
+      },
       conversation_config: {
         // Silence gap (s) before EndOfUtterance fires — the main knob for how
         // quickly Kivo reacts when a speaker stops. Speechmatics requires this
-        // to be LESS than max_delay (0.7 above) or end-of-turn turns unreliable.
+        // to be LESS than max_delay (1.0 above) or end-of-turn turns unreliable.
         end_of_utterance_silence_trigger: this.options.voiceEngineV2
           ? VOICE_ENGINE_V2_TIMING.endOfUtteranceSilenceSeconds
           : 0.6,
@@ -530,12 +675,13 @@ export class SpeechmaticsLiveClient {
 
     if (msg.message === "SpeakersResult") {
       const result = msg as SpeakersResultMessage;
-      this.callbacks.onSpeakersResult?.(
-        result.speakers.map((speaker) => ({
+      const speakers = result.speakers.map((speaker) => ({
           label: speaker.label,
           speakerIdentifiers: speaker.speaker_identifiers,
-        }))
-      );
+          streamEpoch: this.streamEpoch,
+        }));
+      this.callbacks.onSpeakersResult?.(speakers);
+      this.resolveFinishedSpeakers(speakers);
       return;
     }
 
@@ -563,31 +709,27 @@ export class SpeechmaticsLiveClient {
         ? `${this.streamEpoch}:${msg.metadata.start_time}`
         : `${msg.metadata.start_time}`;
 
-    // Partition words by whether their audio-timeline timestamp falls inside a
-    // known assistant-speech interval. This identifies Kivo's own echo by
+    // Classify each word by whether its audio-timeline timestamp falls inside
+    // a known assistant-speech interval. This identifies Kivo's own echo by
     // *when the audio was actually spoken*, not by current UI status — so it
     // still works even if the transcript for that audio arrives late (after
     // playback has already ended and the status has moved on).
-    const clean: SpeechmaticsTranscriptResult[] = [];
-    const flagged: SpeechmaticsTranscriptResult[] = [];
-    for (const item of msg.results) {
+    //
+    // The flag splits runs but never reorders them: words are emitted in the
+    // order Speechmatics sent them. Emitting all clean words before all
+    // flagged words scrambled any sentence that straddled a guard window
+    // ("Yes, I have been" -> "I Yes, have been").
+    const isEcho = (item: SpeechmaticsTranscriptResult) => {
       const start = item.start_time ?? 0;
       const end = item.end_time ?? start;
-      const midpoint = (start + end) / 2;
-      (this.overlapsAssistantSpeech(midpoint) ? flagged : clean).push(item);
-    }
+      return this.overlapsAssistantSpeech((start + end) / 2);
+    };
 
-    this.emitTranscriptGroups(clean, {
+    this.emitTranscriptGroups(msg.results, {
       isFinal,
       speechFinal,
       baseId,
-      overlapsAssistantSpeech: false,
-    });
-    this.emitTranscriptGroups(flagged, {
-      isFinal,
-      speechFinal,
-      baseId,
-      overlapsAssistantSpeech: true,
+      isEcho,
     });
   }
 
@@ -597,7 +739,7 @@ export class SpeechmaticsLiveClient {
       isFinal: boolean;
       speechFinal: boolean;
       baseId: string;
-      overlapsAssistantSpeech: boolean;
+      isEcho: (item: SpeechmaticsTranscriptResult) => boolean;
     }
   ) {
     if (results.length === 0) return;
@@ -605,7 +747,7 @@ export class SpeechmaticsLiveClient {
     const groups =
       this.transcriptionMode === "basic"
         ? groupSpeechmaticsResultsAsConversation(results)
-        : groupSpeechmaticsResultsBySpeaker(results);
+        : groupSpeechmaticsResultsBySpeaker(results, opts.isEcho);
 
     groups.forEach((group, index) => {
       const basicMode = this.transcriptionMode === "basic";
@@ -627,12 +769,12 @@ export class SpeechmaticsLiveClient {
           speakerName: speakerName ?? null,
           mappedAs: speakerName ?? "Other speaker",
           textPreview: group.text.slice(0, 120),
-          overlapsAssistantSpeech: opts.overlapsAssistantSpeech,
+          overlapsAssistantSpeech: group.overlapsAssistantSpeech,
         });
       }
 
       this.callbacks.onUtterance({
-        id: `${opts.baseId}${opts.overlapsAssistantSpeech ? "-echo" : ""}-${index}`,
+        id: `${opts.baseId}${group.overlapsAssistantSpeech ? "-echo" : ""}-${index}`,
         speaker,
         speakerName,
         providerSpeakerLabel: group.providerSpeakerLabel,
@@ -641,7 +783,7 @@ export class SpeechmaticsLiveClient {
         end: group.end,
         isFinal: opts.isFinal,
         speechFinal: opts.speechFinal,
-        overlapsAssistantSpeech: opts.overlapsAssistantSpeech,
+        overlapsAssistantSpeech: group.overlapsAssistantSpeech,
       });
     });
   }
@@ -751,6 +893,44 @@ export class SpeechmaticsLiveClient {
     this.sendJson({ message: "GetSpeakers", final: options.final ?? false });
   }
 
+  /**
+   * Gracefully ends the stream and waits briefly for its final voiceprints.
+   * A timeout keeps stopping a session responsive if the provider is delayed.
+   */
+  async finishAndGetSpeakers(
+    timeoutMs = 2500
+  ): Promise<SpeechmaticsSpeakerResult[]> {
+    if (!this.isConnected) {
+      this.close();
+      return [];
+    }
+
+    const result = await new Promise<SpeechmaticsSpeakerResult[]>((resolve) => {
+      this.finishSpeakersResolver = resolve;
+      this.finishSpeakersTimer = setTimeout(
+        () => this.resolveFinishedSpeakers([]),
+        timeoutMs
+      );
+      this.requestSpeakers({ final: true });
+      this.sendEndOfStream();
+    });
+    this.close();
+    return result;
+  }
+
+  private resolveFinishedSpeakers(
+    speakers: SpeechmaticsSpeakerResult[]
+  ): void {
+    if (!this.finishSpeakersResolver) return;
+    if (this.finishSpeakersTimer) {
+      clearTimeout(this.finishSpeakersTimer);
+      this.finishSpeakersTimer = null;
+    }
+    const resolve = this.finishSpeakersResolver;
+    this.finishSpeakersResolver = null;
+    resolve(speakers);
+  }
+
   /** Ends recognition; required before `GetSpeakers({ final: true })` can return. */
   sendEndOfStream() {
     const ws = this.ws;
@@ -778,6 +958,7 @@ export class SpeechmaticsLiveClient {
     } catch {
       // ignore close failures
     } finally {
+      this.resolveFinishedSpeakers([]);
       this.ws = null;
       this.recognitionStarted = false;
       this.audioQueue = [];

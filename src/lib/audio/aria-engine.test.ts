@@ -8,6 +8,7 @@ const mockStore = vi.hoisted(() => {
     setError: ReturnType<typeof vi.fn>;
     setStatus: ReturnType<typeof vi.fn>;
     setMicLevel: ReturnType<typeof vi.fn>;
+    setPlaybackLevel: ReturnType<typeof vi.fn>;
     upsertUtterance: ReturnType<typeof vi.fn>;
     removeUtterances: ReturnType<typeof vi.fn>;
   } = {
@@ -18,6 +19,7 @@ const mockStore = vi.hoisted(() => {
       store.status = status;
     }),
     setMicLevel: vi.fn(),
+    setPlaybackLevel: vi.fn(),
     upsertUtterance: vi.fn(),
     removeUtterances: vi.fn(),
   };
@@ -26,12 +28,9 @@ const mockStore = vi.hoisted(() => {
 
 const mockCueMethods = vi.hoisted(() => ({
   ensureReady: vi.fn(),
-  playError: vi.fn(),
   playWake: vi.fn(),
   playClose: vi.fn(),
-  playFollowUp: vi.fn(),
   playSearch: vi.fn(),
-  startThinkingLoop: vi.fn(),
   startSearchingLoop: vi.fn(),
   stopWorkCue: vi.fn(),
   dispose: vi.fn(),
@@ -170,6 +169,30 @@ describe("AriaEngine follow-up lifecycle", () => {
     vi.advanceTimersByTime(1);
     expect(mockStore.status).toBe("listening");
 
+  });
+
+  it("stays silent on a wake-free follow-up", () => {
+    // The wake tick means "Kivo was called in". Carrying on in the same
+    // conversation is not that, and a chime after every answer is exactly the
+    // gadget feel the cue set avoids.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as {
+        handleFollowUp: (
+          id: string,
+          speaker: number,
+          speakerName: string | null,
+          providerSpeakerLabel: string | null
+        ) => void;
+      }
+    ).handleFollowUp("u1", 0, null, null);
+
+    expect(mockStore.status).toBe("capturing-question");
+    expect(mockCueMethods.playWake).not.toHaveBeenCalled();
   });
 
   it("abandons a follow-up capture that never settles", () => {
@@ -531,7 +554,25 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     return stt;
   }
 
-  it("forces the endpoint when the voice stops on a question-shaped draft", () => {
+  it("forces the endpoint when the voice stops on an unambiguous ask", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = withFakeStt(engine);
+
+    armCaptureWithPartial(engine, "Kivo tell me what we should charge");
+    forceEndpoint(engine);
+
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+    // One force per voiced segment — a second silence must not re-fire.
+    forceEndpoint(engine);
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not force the endpoint on an unpunctuated question shape", () => {
+    // The most common mid-thought cut-off: question-shaped words that the
+    // speaker is still adding to. The acoustic end-of-turn decides these.
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
@@ -541,10 +582,7 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     armCaptureWithPartial(engine, "Kivo what should we charge for the pro tier");
     forceEndpoint(engine);
 
-    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
-    // One force per voiced segment — a second silence must not re-fire.
-    forceEndpoint(engine);
-    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
   });
 
   it("does not force the endpoint on a first-wake rambling statement", () => {
@@ -718,7 +756,9 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     armCaptureWithPartial(engine, "Kivo what should we charge for the pro tier");
     forceEndpoint(engine);
 
-    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
+    // Not forced (unpunctuated), but generation is already in flight — that is
+    // what makes the longer acoustic wait free.
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
     expect(askSessionQuestion).toHaveBeenCalledTimes(1);
     expect(askSessionQuestion).toHaveBeenLastCalledWith(
       "session-1",
@@ -877,5 +917,181 @@ describe("AriaEngine barge-in evidence fusion", () => {
 
     expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
     expect(mockStore.status).toBe("speaking");
+  });
+});
+
+describe("AriaEngine continuation after dispatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.status = "listening";
+  });
+
+  function dispatched(
+    engine: AriaEngine,
+    question: string,
+    overrides: Partial<{
+      sourceUtteranceIds: string[];
+      speaker: number | null;
+      providerSpeakerLabel: string | null;
+      atMs: number;
+    }> = {}
+  ) {
+    (
+      engine as unknown as {
+        lastDispatch: {
+          question: string;
+          sourceUtteranceIds: string[];
+          speaker: number | null;
+          providerSpeakerLabel: string | null;
+          atMs: number;
+        } | null;
+      }
+    ).lastDispatch = {
+      question,
+      sourceUtteranceIds: ["u1"],
+      speaker: 0,
+      providerSpeakerLabel: "conversation",
+      atMs: Date.now(),
+      ...overrides,
+    };
+    mockStore.status = "thinking";
+  }
+
+  it("takes the answer back when the asker keeps going", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    dispatched(engine, "what should we charge for the pro tier");
+
+    emit(engine, utterance("compared to the plus tier", "u2"));
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+    // The reopened capture carries the whole thought, not just the tail.
+    expect(capturedQuestion(engine)).toContain("what should we charge");
+    expect(capturedQuestion(engine)).toContain("compared to the plus tier");
+  });
+
+  it("ignores the dispatched question's own final re-arriving", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    dispatched(engine, "what should we charge for the pro tier");
+
+    // Same words, new id — captured from partials, finalized after dispatch.
+    emit(engine, utterance("What should we charge for the pro tier?", "u9"));
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+  });
+
+  it("ignores another person talking while Kivo thinks", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "speaker",
+    });
+    dispatched(engine, "what should we charge for the pro tier", {
+      providerSpeakerLabel: "Mose",
+    });
+
+    emit(
+      engine,
+      utterance("did you see the email from finance", "u2", {
+        speaker: 1,
+        speakerName: "Sam",
+        providerSpeakerLabel: "Sam",
+      })
+    );
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+  });
+
+  it("ignores a backchannel from the asker", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    dispatched(engine, "what should we charge for the pro tier");
+
+    emit(engine, utterance("yeah okay", "u2"));
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+  });
+
+  it("ignores speech once the continuation window has passed", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    dispatched(engine, "what should we charge for the pro tier", {
+      atMs: Date.now() - 5_000,
+    });
+
+    emit(engine, utterance("compared to the plus tier", "u2"));
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+  });
+});
+
+describe("AriaEngine local speech-end staging", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStore.status = "listening";
+  });
+
+  function silentEngine(draft: string) {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const stt = { forceEndOfUtterance: vi.fn() };
+    (engine as unknown as { stt: unknown }).stt = stt;
+    emit(engine, {
+      ...utterance(draft, "u1"),
+      isFinal: false,
+      speechFinal: false,
+    });
+    const internals = engine as unknown as {
+      localSpeechDetector: { process: () => { probability: number } };
+      localSpeechActive: boolean;
+      localSpeechLastPositiveMs: number;
+      observeLocalSpeech: (frame: Int16Array) => void;
+    };
+    internals.localSpeechDetector = { process: () => ({ probability: 0 }) };
+    internals.localSpeechActive = true;
+    const silentFor = (ms: number) => {
+      internals.localSpeechLastPositiveMs = performance.now() - ms;
+      internals.observeLocalSpeech(new Int16Array(512));
+    };
+    return { engine, stt, silentFor };
+  }
+
+  it("pre-warms an answer on a short gap without ending the turn", () => {
+    const { stt, silentFor } = silentEngine("Kivo tell me what we should charge");
+
+    silentFor(300);
+
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(askSessionQuestion).toHaveBeenLastCalledWith(
+      "session-1",
+      expect.any(String),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ speculative: true })
+    );
+    // A breath is not an endpoint.
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+  });
+
+  it("ends the turn only after a real pause", () => {
+    const { stt, silentFor } = silentEngine("Kivo tell me what we should charge");
+
+    silentFor(300);
+    expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
+
+    silentFor(600);
+    expect(stt.forceEndOfUtterance).toHaveBeenCalledTimes(1);
   });
 });

@@ -28,7 +28,12 @@ import type { UsageSummary } from "@/lib/plan/types";
 import { PLANS, TIERS, type Tier } from "@/lib/plan/tiers";
 import { openBillingPortal, startCheckout } from "@/lib/billing/client";
 import { PAID_TIERS, type PaidTier } from "@/lib/plan/tiers";
-import { GrokSettingsButton } from "@/components/settings/SettingsRow";
+import {
+  GrokSettingsButton,
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/settings/SettingsRow";
+import { TrashIcon } from "@/components/sessions/icons";
 import { VoiceSettingsPanel } from "@/components/settings/VoiceSettingsPanel";
 import { WidgetStyleSettings } from "@/components/settings/WidgetStyleSettings";
 import { useAriaStore } from "@/lib/store";
@@ -36,56 +41,6 @@ import {
   SETTINGS_TAB_META,
   type SettingsTab,
 } from "@/components/settings/settings-nav";
-
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SettingsGroup(props: {
-  label?: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={props.className ?? "mb-8"}>
-      {props.label ? (
-        <p className="kivo-settings-group-label">{props.label}</p>
-      ) : null}
-      <div className="kivo-settings-card">{props.children}</div>
-    </section>
-  );
-}
-
-function SettingsRow(props: {
-  title: React.ReactNode;
-  description?: React.ReactNode;
-  action?: React.ReactNode;
-  last?: boolean;
-}) {
-  return (
-    <div className={`kivo-settings-card-row${props.last ? " kivo-settings-card-row--last" : ""}`}>
-      <div className="min-w-0 flex-1">
-        <div className="kivo-settings-row-title">{props.title}</div>
-        {props.description ? (
-          <div className="kivo-settings-row-desc">{props.description}</div>
-        ) : null}
-      </div>
-      {props.action ? (
-        <div className="kivo-settings-row-action shrink-0">{props.action}</div>
-      ) : null}
-    </div>
-  );
-}
 
 function DeleteAccountDialog(props: {
   open: boolean;
@@ -436,14 +391,21 @@ function TrashPanel(props: {
   };
 
   if (loading) {
-    return <p className="kivo-settings-row-desc">Loading…</p>;
+    return (
+      <div className="kivo-settings-card">
+        <div className="space-y-0 px-4 py-4" aria-busy="true" aria-label="Loading trash">
+          <div className="kivo-skeleton mb-3 h-4 w-32 rounded-full" />
+          <div className="kivo-skeleton h-2 w-full rounded-full" />
+        </div>
+      </div>
+    );
   }
 
   if (sessions.length === 0) {
     return (
       <div className="kivo-settings-empty">
         <span className="kivo-settings-empty-icon">
-          <TrashIcon />
+          <TrashIcon size={20} />
         </span>
         <p className="kivo-settings-empty-title">Trash is empty</p>
         <p className="kivo-settings-empty-desc">
@@ -565,11 +527,12 @@ function TranscriptionModeSettings() {
   const speakerRemaining = preference?.speakerSecondsRemaining ?? null;
   const speakerCapped = preference != null && preference.speakerSecondsCap !== null;
 
-  let speakerDescription = "Use enrolled speaker profiles and Speechmatics diarization.";
+  let speakerDescription =
+    "Separate voices in the room and remember people you name in the transcript.";
   if (speakerCapped) {
     speakerDescription = speakerExhausted
       ? "You've used this month's Speaker recognition minutes. Upgrade for unlimited access."
-      : `${formatMinutes(speakerRemaining ?? 0)} left this month · uses enrolled speaker profiles.`;
+      : `${formatMinutes(speakerRemaining ?? 0)} left this month · speaker-aware transcription.`;
   }
 
   return (
@@ -821,10 +784,10 @@ export function SettingsTabContent(props: {
         <SettingsGroup label="Speaker profiles">
           <div className="px-4 py-3">
             <p className="mb-3 text-[13px] leading-relaxed text-app-muted">
-              Teach Kivo who is speaking. Enroll one person at a time in a quiet
-              room.
+              Speakers are named from the transcript after a session. Rename or
+              remove them here.
             </p>
-            <SpeakerProfilesManager embedded grok />
+            <SpeakerProfilesManager embedded grok allowEnrollment={false} />
           </div>
         </SettingsGroup>
       </div>
@@ -833,7 +796,7 @@ export function SettingsTabContent(props: {
 
   if (props.tab === "connectors") {
     if (!CONNECTORS_ENABLED) return null;
-    return <ConnectorsManager grok />;
+    return <ConnectorsManager />;
   }
 
   if (props.tab === "trash") {

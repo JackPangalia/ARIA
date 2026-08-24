@@ -10,91 +10,17 @@ import {
 import { PROJECT_SOURCES_TOKEN_BUDGET } from "@/lib/sessions/constants";
 import type { ProjectDoc, ProjectSourceDoc } from "@/lib/projects/types";
 import type { SessionDoc } from "@/lib/sessions/types";
-
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
-      <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function UploadIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 16V4M7 9l5-5 5 5M5 20h14"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function TextIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M5 6h14M5 12h10M5 18h7"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function FileIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M7 3.5h7l3.5 3.5V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M14 3.5V7h3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function SessionIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M5 10v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M9 7v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M13 9v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M17 5v14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M21 11v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function TrashIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+import {
+  FileIcon,
+  HubEmptyState,
+  HubRowsSkeleton,
+  PlusIcon,
+  SearchIcon,
+  SessionIcon,
+  TextIcon,
+  TrashIcon,
+  UploadIcon,
+} from "./icons";
 
 function formatSessionDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
@@ -256,21 +182,30 @@ export function ProjectHubView(props: {
   };
 
   const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+    `px-3 py-1.5 text-sm font-medium transition-colors ${
       active
-        ? "bg-surface text-app"
-        : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
+        ? "text-app"
+        : "text-app-subtle hover:text-app-secondary"
     }`;
 
   return (
-    <div className="pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-12 pt-6 sm:px-10 sm:pt-8">
+    <div className="pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-16 pt-5 sm:px-9 sm:pt-8 lg:px-12">
         <div>
+          <header className="mb-6 max-w-2xl">
+            <p className="kivo-kicker">Project workspace</p>
+            <h1 className="mt-1 font-serif text-[2.15rem] leading-tight tracking-[-0.04em] text-app sm:text-[2.55rem]">
+              {props.project.name}
+            </h1>
+            <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-app-muted">
+              {props.project.instructions || "Keep related conversations and source material together so Kivo answers with the right context."}
+            </p>
+          </header>
           <div>
             <button
               type="button"
               onClick={props.onOpenSearch}
-              className="group flex w-full items-center gap-2.5 rounded-2xl bg-surface/60 px-3.5 py-2.5 text-left text-sm text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+              className="group flex w-full items-center gap-2.5 rounded-2xl border border-app-subtle bg-[color-mix(in_srgb,var(--app-surface)_55%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
             >
               <SearchIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app-secondary" />
               <span className="flex-1 text-sm font-normal">Search conversations & project sources...</span>
@@ -280,7 +215,7 @@ export function ProjectHubView(props: {
             </button>
           </div>
 
-          <div className="mt-6 flex items-center gap-1">
+          <div className="mt-7 flex items-center gap-1 border-b border-app-subtle pb-1">
             <button type="button" onClick={() => setTab("sessions")} className={tabClass(tab === "sessions")}>
               Conversations ({sortedSessions.length})
             </button>
@@ -290,11 +225,13 @@ export function ProjectHubView(props: {
           </div>
 
           {tab === "sessions" ? (
-            <div className="mt-5">
+            <div key="sessions" className="kivo-fade-in mt-5">
               {sortedSessions.length === 0 ? (
-                <p className="px-3 py-3 text-sm font-normal text-app-subtle">
-                  No conversations in this project yet.
-                </p>
+                <HubEmptyState
+                  icon={<SessionIcon size={20} />}
+                  title="No conversations yet"
+                  description="Conversations in this project will appear here."
+                />
               ) : (
                 <div className="space-y-3">
                   <ul className="space-y-0.5">
@@ -307,7 +244,7 @@ export function ProjectHubView(props: {
                         >
                           <div className="flex min-w-0 items-center gap-2.5">
                             <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                            <span className="truncate text-sm text-app">{session.title}</span>
+                            <span className="truncate text-sm font-medium text-app">{session.title}</span>
                           </div>
                           <span className="shrink-0 text-xs text-app-subtle">
                             {formatSessionDate(session.updatedAt)}
@@ -339,7 +276,7 @@ export function ProjectHubView(props: {
               )}
             </div>
           ) : (
-            <div className="mt-5 space-y-5">
+            <div key="sources" className="kivo-fade-in mt-5 space-y-5">
               {sourceError ? (
                 <div className="rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">
                   {sourceError}
@@ -347,7 +284,7 @@ export function ProjectHubView(props: {
               ) : null}
 
               {sourcesLoading ? (
-                <p className="px-2 py-3 text-sm font-normal text-app-subtle">Loading sources...</p>
+                <HubRowsSkeleton rows={3} />
               ) : (
                 <ul className="space-y-0.5">
                   <li>
@@ -371,7 +308,7 @@ export function ProjectHubView(props: {
                       className="group flex items-center gap-2 rounded-xl px-3 py-3 transition-colors hover:bg-surface-hover"
                     >
                       <FileIcon className="shrink-0 text-app-muted" />
-                      <p className="min-w-0 flex-1 truncate text-sm text-app">{source.name}</p>
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium text-app">{source.name}</p>
                       <button
                         type="button"
                         onClick={() => void handleDeleteSource(source.id)}
@@ -389,7 +326,7 @@ export function ProjectHubView(props: {
               {sources.length > 0 ? (
                 <div className="rounded-2xl bg-surface/60 px-4 py-3.5">
                   <div className="flex items-center justify-between gap-3 text-xs">
-                    <span className="font-medium text-app-secondary">Context used</span>
+                    <span className="font-medium text-app-secondary">Sources</span>
                     <span className="text-app-subtle">
                       {usedSourceTokens.toLocaleString()} / {PROJECT_SOURCES_TOKEN_BUDGET.toLocaleString()} tokens
                     </span>

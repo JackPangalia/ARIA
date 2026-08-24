@@ -174,7 +174,7 @@ export function SettingsSidebar(props: {
 
         {SETTINGS_NAV_GROUPS.map((group) => (
           <div key={group.label} className="mb-5">
-            <p className="px-3 pb-2 pt-1 text-xs font-medium uppercase tracking-wider text-app-subtle">
+            <p className="kivo-kicker px-3 pb-2 pt-1">
               {group.label}
             </p>
             <div className="space-y-0.5">

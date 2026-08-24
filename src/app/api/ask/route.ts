@@ -177,6 +177,7 @@ export async function POST(req: NextRequest) {
       question: body.question,
       speaker: body.speaker ?? null,
       speakerName: body.speakerName ?? null,
+      providerSpeakerLabel: body.providerSpeakerLabel ?? null,
       sourceUtteranceIds: body.sourceUtteranceIds ?? [],
       env,
       signal: req.signal,

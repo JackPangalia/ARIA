@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import { KIVO_CARTESIA_GENERATION_CONFIG } from "@/lib/audio/cartesia-generation";
 import { stripMarkdownForSpeech } from "@/lib/aria/tts-phrase-buffer";
 
 // WS uses a newer API version than the HTTP bytes path: continuations are
@@ -116,6 +117,7 @@ export async function createCartesiaContextStream(
   const baseMessage = {
     model_id: config.modelId,
     voice: { mode: "id" as const, id: config.voiceId },
+    generation_config: KIVO_CARTESIA_GENERATION_CONFIG,
     output_format: {
       container: "raw" as const,
       encoding: CARTESIA_PCM_ENCODING,

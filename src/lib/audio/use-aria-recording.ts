@@ -8,6 +8,8 @@ import { CONNECTORS_ENABLED } from "@/lib/features";
 import { generateMeetingSummary } from "@/lib/sessions/client";
 import type { SessionDoc, TranscriptionMode } from "@/lib/sessions/types";
 import { useAriaStore } from "@/lib/store";
+import type { SessionSpeakerClusterSnapshot } from "@/lib/speakers/session-learning";
+import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 
 const CONSENT_ACK_KEY = "kivo_consent_ack";
 
@@ -41,10 +43,18 @@ export interface AriaRecording {
   busy: boolean;
   /** Milliseconds since the mic went live; the single clock voice + chat share. */
   elapsedMs: number;
+  /** Ephemeral stream-scoped voiceprints available for explicit transcript tags. */
+  speakerClusters: SessionSpeakerClusterSnapshot[];
   consentOpen: boolean;
   requestStart: () => Promise<void>;
   stop: () => Promise<void>;
   stopSpeaking: () => boolean;
+  /** Relabels the live stream and re-seeds diarization after a correction. */
+  correctSpeaker: (input: {
+    providerSpeakerLabel: string;
+    correctedName: string | null;
+    learnedProfile?: SpeakerProfileDoc | null;
+  }) => Promise<void>;
   confirmConsent: () => void;
   cancelConsent: () => void;
 }
@@ -65,6 +75,9 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
 
   const [busy, setBusy] = useState(false);
   const [consentOpen, setConsentOpen] = useState(false);
+  const [speakerClusters, setSpeakerClusters] = useState<
+    SessionSpeakerClusterSnapshot[]
+  >([]);
 
   const isRunning = status !== "idle" && status !== "error";
 
@@ -80,6 +93,7 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
     if (prev !== input.sessionId && prev !== null) {
       void engineRef.current?.stop();
       engineRef.current = null;
+      setSpeakerClusters([]);
     }
   }, [input.sessionId]);
 
@@ -127,6 +141,7 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
         },
       });
       engineRef.current = engine;
+      setSpeakerClusters([]);
       await engine.start();
       track("session_start");
       if (CONNECTORS_ENABLED) {
@@ -159,7 +174,8 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
     if (!isRunning && !engineRef.current) return;
     setBusy(true);
     try {
-      await engineRef.current?.stop();
+      const clusters = await engineRef.current?.stop();
+      setSpeakerClusters(clusters ?? []);
       engineRef.current = null;
       // Best-effort: generate the Overview tab's meeting summary before
       // refreshing detail, so it's ready the moment the stop button clears.
@@ -175,6 +191,17 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
 
   const stopSpeaking = useCallback(
     () => engineRef.current?.stopSpeaking() ?? false,
+    []
+  );
+
+  const correctSpeaker = useCallback(
+    async (input: {
+      providerSpeakerLabel: string;
+      correctedName: string | null;
+      learnedProfile?: SpeakerProfileDoc | null;
+    }) => {
+      await engineRef.current?.correctSpeakerAttribution(input);
+    },
     []
   );
 
@@ -194,10 +221,12 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
     isRunning,
     busy,
     elapsedMs,
+    speakerClusters,
     consentOpen,
     requestStart,
     stop,
     stopSpeaking,
+    correctSpeaker,
     confirmConsent,
     cancelConsent,
   };

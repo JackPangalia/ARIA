@@ -58,3 +58,18 @@ export class VisualMicLevelNormalizer {
     this.output = 0;
   }
 }
+
+/**
+ * Map Web Audio byte-time-domain samples (0–255, silence at 128) to a 0..1
+ * playback envelope. Snappy enough for syllable pulse on the word ring.
+ */
+export function playbackRmsToLevel(samples: ArrayLike<number>): number {
+  if (samples.length === 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const v = (samples[i]! - 128) / 128;
+    sum += v * v;
+  }
+  const rms = Math.sqrt(sum / samples.length);
+  return clamp01(Math.pow(rms * 3.4, 0.62));
+}

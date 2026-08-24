@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionDoc } from "@/lib/sessions/types";
+import "./kivo-palette.css";
 
 function SearchIcon({ className }: { className?: string }) {
   return (
@@ -273,26 +274,26 @@ function SessionSearchPanel(props: {
       role="dialog"
       aria-modal="true"
       aria-label="Search conversations"
-      className="grok-settings-modal grok-palette-modal relative z-10 flex min-h-0 flex-col overflow-hidden"
+      className="kivo-settings-modal-in kivo-palette-modal relative z-10 flex min-h-0 w-full max-w-[38rem] flex-col overflow-hidden rounded-t-[1.5rem] border border-app-subtle bg-menu shadow-menu ring-1 ring-menu sm:rounded-[1.75rem]"
     >
-      <div className="grok-palette-search">
+      <div className="kivo-palette-search">
+        <SearchIcon className="kivo-palette-search-icon" />
         <input
           ref={inputRef}
           value={props.query}
           onChange={(event) => props.onQueryChange(event.target.value)}
-          placeholder="Search"
-          className="grok-palette-search-input"
+          placeholder="Search conversations"
+          className="kivo-palette-search-input"
           aria-label="Search conversations"
         />
-        <SearchIcon className="grok-palette-search-icon" />
       </div>
 
-      <div className="grok-palette-body">
-        <div className="grok-palette-section">
-          <p className="grok-palette-section-label">Actions</p>
+      <div className="kivo-palette-body">
+        <div className="kivo-palette-section">
+          <p className="kivo-palette-section-label">Actions</p>
           <button
             type="button"
-            className="grok-palette-action"
+            className="kivo-palette-action"
             onClick={() => {
               props.onCreateNew();
               props.onClose();
@@ -304,16 +305,16 @@ function SessionSearchPanel(props: {
         </div>
 
         {flatSessions.length === 0 ? (
-          <p className="grok-palette-empty">
+          <p className="kivo-palette-empty">
             {props.query.trim()
               ? "No conversations match your search."
               : "No conversations yet."}
           </p>
         ) : (
           groups.map((group) => (
-            <div key={group.label} className="grok-palette-section">
-              <p className="grok-palette-section-label">{group.label}</p>
-              <ul className="grok-palette-list">
+            <div key={group.label} className="kivo-palette-section">
+              <p className="kivo-palette-section-label">{group.label}</p>
+              <ul className="kivo-palette-list">
                 {group.sessions.map((session) => {
                   rowIndex += 1;
                   const index = rowIndex;
@@ -325,7 +326,7 @@ function SessionSearchPanel(props: {
                   return (
                     <li key={session.id}>
                       <div
-                        className="grok-palette-row"
+                        className="kivo-palette-row"
                         data-focused={focused || undefined}
                         data-selected={selected || undefined}
                         onMouseEnter={() => setHoverId(session.id)}
@@ -349,18 +350,18 @@ function SessionSearchPanel(props: {
                                 setRenamingId(null);
                               }
                             }}
-                            className="grok-palette-rename-input"
+                            className="kivo-palette-rename-input"
                             onClick={(event) => event.stopPropagation()}
                           />
                         ) : (
                           <button
                             type="button"
-                            className="grok-palette-row-main"
+                            className="kivo-palette-row-main"
                             onClick={() => openSession(session.id)}
                             onMouseEnter={() => setFocusedIndex(index)}
                           >
                             <span className="truncate">{session.title}</span>
-                            <span className="grok-palette-row-date">
+                            <span className="kivo-palette-row-date">
                               {formatSessionDate(session.updatedAt)}
                             </span>
                           </button>
@@ -368,13 +369,13 @@ function SessionSearchPanel(props: {
 
                         {!renaming ? (
                           <div
-                            className="grok-palette-row-actions"
+                            className="kivo-palette-row-actions"
                             data-visible={hovered || undefined}
                           >
                             <button
                               type="button"
                               aria-label={`Rename ${session.title}`}
-                              className="grok-palette-icon-btn"
+                              className="kivo-palette-icon-btn"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 startRename(session);
@@ -386,7 +387,7 @@ function SessionSearchPanel(props: {
                               <button
                                 type="button"
                                 aria-label={`Archive ${session.title}`}
-                                className="grok-palette-icon-btn grok-palette-icon-btn-danger"
+                                className="kivo-palette-icon-btn kivo-palette-icon-btn-danger"
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   props.onArchive(session.id);
@@ -405,18 +406,6 @@ function SessionSearchPanel(props: {
             </div>
           ))
         )}
-      </div>
-
-      <div className="grok-palette-footer">
-        <span className="grok-palette-kbd-hint">
-          <kbd>↵</kbd> Go
-        </span>
-        <span className="grok-palette-kbd-hint">
-          <kbd>⌘E</kbd> Edit
-        </span>
-        <span className="grok-palette-kbd-hint">
-          <kbd>⌘D</kbd> Archive
-        </span>
       </div>
     </div>
   );
@@ -456,11 +445,11 @@ export function SessionSearchModal(props: {
   if (!props.open || !mounted) return null;
 
   return createPortal(
-    <div className="grok-settings-overlay fixed inset-0 z-[200] isolate flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[200] isolate flex items-end justify-center p-0 sm:items-center sm:p-6">
       <button
         type="button"
         aria-label="Close search"
-        className="absolute inset-0"
+        className="kivo-overlay-in absolute inset-0 bg-overlay backdrop-blur-sm"
         onClick={props.onClose}
       />
       <SessionSearchPanel

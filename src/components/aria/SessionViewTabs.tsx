@@ -1,47 +1,36 @@
 "use client";
 
-/**
- * Session header switch — Overview to review the session, Resume/Start to
- * begin listening. Replaces the old Voice tab (the orb is the voice surface;
- * Resume is the action).
- */
+/** Header action for continuing a completed session. */
 export function SessionViewTabs(props: {
-  overviewMode: boolean;
-  onChange: (overview: boolean) => void;
   resume: boolean;
   onResume: () => void;
   resumeDisabled?: boolean;
-  overviewDisabled?: boolean;
 }) {
-  const tabClass = (active: boolean, disabled?: boolean) =>
-    `rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors ${
-      disabled
-        ? "cursor-not-allowed opacity-40"
-        : active
-          ? "bg-surface text-app"
-          : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
-    }`;
-
   return (
-    <div className="inline-flex items-center gap-0.5">
+    <div className="kivo-session-actions">
       <button
         type="button"
-        onClick={() => props.onChange(true)}
-        disabled={props.overviewDisabled}
-        className={tabClass(props.overviewMode, props.overviewDisabled)}
+        onClick={props.onResume}
+        disabled={props.resumeDisabled}
+        className="kivo-session-resume-action"
       >
-        Overview
-      </button>
-      {props.overviewMode ? (
-        <button
-          type="button"
-          onClick={props.onResume}
-          disabled={props.resumeDisabled}
-          className={tabClass(false, props.resumeDisabled)}
+        <span>{props.resume ? "Resume" : "Start"}</span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden
         >
-          {props.resume ? "Resume" : "Start"}
-        </button>
-      ) : null}
+          <path
+            d="M3.5 8h9M9 4.5 12.5 8 9 11.5"
+            stroke="currentColor"
+            strokeWidth="1.35"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
     </div>
   );
 }

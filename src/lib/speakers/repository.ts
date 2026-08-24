@@ -4,6 +4,11 @@ import {
   type Firestore,
 } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase/admin";
+import {
+  capSpeakerIdentifiers,
+  mergeLearnedSpeakerIdentifiers,
+  resolveAnchorCount,
+} from "@/lib/speakers/identifier-cap";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 
 function profilesCol(db: Firestore, uid: string) {
@@ -41,6 +46,12 @@ function mapSpeakerProfile(id: string, data: DocumentData): SpeakerProfileDoc {
       ? data.speakerIdentifiers.map(String).filter(Boolean)
       : [],
     sampleCount: Number(data.sampleCount ?? 1),
+    anchorCount: resolveAnchorCount(
+      Array.isArray(data.speakerIdentifiers)
+        ? data.speakerIdentifiers.map(String).filter(Boolean)
+        : [],
+      typeof data.anchorCount === "number" ? data.anchorCount : null
+    ),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -71,9 +82,7 @@ export async function upsertSpeakerProfile(
   const existing = snap.exists ? mapSpeakerProfile(snap.id, snap.data() ?? {}) : null;
   const now = FieldValue.serverTimestamp();
   // Re-enrollment replaces the stored voice print with the latest sample.
-  const identifiers = Array.from(new Set(input.speakerIdentifiers.map(String))).filter(
-    Boolean
-  );
+  const identifiers = capSpeakerIdentifiers(input.speakerIdentifiers.map(String));
   if (identifiers.length === 0) {
     throw new Error("At least one speaker identifier is required.");
   }
@@ -82,12 +91,68 @@ export async function upsertSpeakerProfile(
     {
       name: input.name.trim(),
       speakerIdentifiers: identifiers,
-      sampleCount: 1,
+      // Enrollment audio is the speaker alone: every print from it is an anchor.
+      anchorCount: identifiers.length,
+      sampleCount: input.sampleCount ?? 1,
       createdAt: existing ? snap.data()?.createdAt ?? now : now,
       updatedAt: now,
     },
     { merge: true }
   );
+
+  const next = await ref.get();
+  return mapSpeakerProfile(ref.id, next.data() ?? {});
+}
+
+/**
+ * Learns from a user-confirmed real-session cluster. Unlike explicit
+ * re-enrollment, this preserves representative established identifiers and
+ * rotates one recent room sample into the capped profile.
+ */
+export async function learnSpeakerProfile(
+  uid: string,
+  input: { name: string; speakerIdentifiers: string[] }
+): Promise<SpeakerProfileDoc> {
+  const db = getAdminDb();
+  const id = slugifySpeakerProfileId(input.name);
+  if (!id) throw new Error("Speaker name produced an empty profile id.");
+
+  const ref = profilesCol(db, uid).doc(id);
+  await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+    const existing = snap.exists
+      ? mapSpeakerProfile(snap.id, snap.data() ?? {})
+      : null;
+    const merged = mergeLearnedSpeakerIdentifiers(
+      existing?.speakerIdentifiers ?? [],
+      input.speakerIdentifiers.map(String),
+      existing?.anchorCount
+    );
+    const identifiers = merged.identifiers;
+    if (identifiers.length === 0) {
+      throw new Error("At least one speaker identifier is required.");
+    }
+    const learnedNewIdentifier =
+      !existing ||
+      identifiers.some(
+        (identifier) => !existing.speakerIdentifiers.includes(identifier)
+      );
+
+    const now = FieldValue.serverTimestamp();
+    transaction.set(
+      ref,
+      {
+        name: input.name.trim(),
+        speakerIdentifiers: identifiers,
+        anchorCount: merged.anchorCount,
+        sampleCount:
+          (existing?.sampleCount ?? 0) + (learnedNewIdentifier ? 1 : 0),
+        createdAt: existing ? snap.data()?.createdAt ?? now : now,
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+  });
 
   const next = await ref.get();
   return mapSpeakerProfile(ref.id, next.data() ?? {});
@@ -112,9 +177,18 @@ export async function patchSpeakerProfile(
   const nextId = slugifySpeakerProfileId(nextName);
   if (!nextId) throw new Error("Speaker name produced an empty profile id.");
 
+  const nextIdentifiers =
+    patch.speakerIdentifiers == null
+      ? current.speakerIdentifiers
+      : capSpeakerIdentifiers(patch.speakerIdentifiers);
   const payload = {
     name: nextName,
-    speakerIdentifiers: patch.speakerIdentifiers ?? current.speakerIdentifiers,
+    speakerIdentifiers: nextIdentifiers,
+    // Replacing the prints outright is a re-enrollment: the new set is anchors.
+    anchorCount:
+      patch.speakerIdentifiers == null
+        ? Math.min(current.anchorCount, nextIdentifiers.length)
+        : nextIdentifiers.length,
     sampleCount: patch.sampleCount ?? current.sampleCount,
     createdAt: snap.data()?.createdAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),

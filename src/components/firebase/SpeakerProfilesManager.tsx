@@ -14,6 +14,8 @@ import {
   ENROLLMENT_PASSES,
   type EnrollmentPass,
 } from "@/lib/speakers/enrollment-script";
+import { EnrollmentQualityTracker } from "@/lib/speakers/enrollment-quality";
+import { MAX_STORED_SPEAKER_IDENTIFIERS } from "@/lib/speakers/identifier-cap";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { GrokSettingsButton } from "@/components/settings/SettingsRow";
 
@@ -26,13 +28,12 @@ const ENROLL_TOO_LOUD_RMS = 0.45;
 // Voiceprint size cap (established against match drift — see git history).
 // Both passes must survive the cap so the stored voiceprint covers read and
 // conversational speech, hence at most 2 identifiers per pass.
-const MAX_PROFILE_IDENTIFIERS = 3;
 const MAX_IDENTIFIERS_PER_PASS = 2;
 
 function combineIdentifierSets(sets: string[][]): string[] {
   return sets
     .flatMap((set) => set.slice(0, MAX_IDENTIFIERS_PER_PASS))
-    .slice(0, MAX_PROFILE_IDENTIFIERS);
+    .slice(0, MAX_STORED_SPEAKER_IDENTIFIERS);
 }
 
 type EnrollPhase =
@@ -143,23 +144,7 @@ function recordingQualityHint(
   return null;
 }
 
-function EnrollmentScriptCard(props: {
-  pass: EnrollmentPass;
-  onboarding?: boolean;
-}) {
-  if (props.onboarding) {
-    return (
-      <div className="w-full rounded-2xl border border-app bg-surface/80 px-4 py-3.5 text-left">
-        <p className="text-[11px] font-medium tracking-[0.06em] text-app-subtle uppercase">
-          {props.pass.label}
-        </p>
-        <p className="mt-2 text-[14px] leading-[1.55] tracking-[-0.011em] text-app-secondary">
-          {props.pass.script}
-        </p>
-      </div>
-    );
-  }
-
+function EnrollmentScriptCard(props: { pass: EnrollmentPass }) {
   return (
     <div className="grok-speaker-script-card w-full text-left">
       <p className="grok-speaker-script-label">{props.pass.label}</p>
@@ -171,8 +156,8 @@ function EnrollmentScriptCard(props: {
 // Flat circular-progress indicator — a single ring that fills as the
 // recording elapses, replacing what used to be a glowing multicolor orb.
 // Kept monochrome to match the rest of the settings surface; green/red are
-// reserved for the same success/error semantics used elsewhere (see
-// grok-connector-status-dot and --grok-danger-fg).
+// reserved for the same success/error semantics used elsewhere (the
+// connected-app dot in ConnectorsManager, and --grok-danger-fg).
 function EnrollmentOrb(props: {
   phase: EnrollPhase;
   level: number;
@@ -317,39 +302,17 @@ function Waveform(props: { levels: number[]; active: boolean; compact?: boolean 
   );
 }
 
-function OnboardingEnrollmentSuccess(props: {
-  name: string;
-  note?: string | null;
-}) {
-  return (
-    <div className="kivo-fade-in flex flex-col items-center gap-3 px-2 py-6 text-center">
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-app">
-        <CheckIcon className="h-4 w-4" />
-      </span>
-      <div>
-        <p className="text-sm font-medium tracking-[-0.01em] text-app">
-          {props.name} enrolled
-        </p>
-        <p className="mt-1.5 text-[13px] leading-[1.55] text-app-muted">
-          {props.note ?? "Kivo will label your lines in the transcript."}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function SpeakerProfilesManager(props: {
   embedded?: boolean;
   grok?: boolean;
-  variant?: "settings" | "onboarding";
-  defaultName?: string;
-  onEnrollmentSuccess?: () => void;
+  /** Settings keeps the saved-speaker list; transcript tagging is how new voices are added. */
+  allowEnrollment?: boolean;
 }) {
-  const isOnboarding = props.variant === "onboarding";
-  const embedded = Boolean(props.embedded || isOnboarding);
-  const grok = Boolean(props.grok && !isOnboarding);
+  const embedded = Boolean(props.embedded);
+  const grok = Boolean(props.grok);
+  const allowEnrollment = props.allowEnrollment ?? true;
   const [profiles, setProfiles] = useState<SpeakerProfileDoc[]>([]);
-  const [name, setName] = useState(() => props.defaultName?.trim() ?? "");
+  const [name, setName] = useState("");
   const [phase, setPhase] = useState<EnrollPhase>("idle");
   const [passIndex, setPassIndex] = useState(0);
   const [secondsLeft, setSecondsLeft] = useState(ENROLL_SECONDS);
@@ -377,6 +340,7 @@ export function SpeakerProfilesManager(props: {
   const rafRef = useRef<number | null>(null);
   const enrollmentAudioActiveRef = useRef(false);
   const enrollPeakRmsRef = useRef(0);
+  const enrollmentQualityRef = useRef<EnrollmentQualityTracker | null>(null);
   // Identifier sets from completed passes (read-aloud first, then
   // conversational), combined into one profile at the end.
   const passIdentifiersRef = useRef<string[][]>([]);
@@ -385,18 +349,6 @@ export function SpeakerProfilesManager(props: {
     const next = await listSpeakerProfiles();
     setProfiles(next);
   }, []);
-
-  useEffect(() => {
-    const fallback = props.defaultName?.trim();
-    if (!fallback) return;
-    setName((current) => (current.trim() ? current : fallback));
-  }, [props.defaultName]);
-
-  useEffect(() => {
-    if (isOnboarding && profiles.length > 0) {
-      props.onEnrollmentSuccess?.();
-    }
-  }, [isOnboarding, profiles.length, props.onEnrollmentSuccess]);
 
   const clearTimers = useCallback(() => {
     if (requestTimerRef.current) {
@@ -433,6 +385,7 @@ export function SpeakerProfilesManager(props: {
     clientRef.current = null;
     enrollmentAudioActiveRef.current = false;
     enrollPeakRmsRef.current = 0;
+    enrollmentQualityRef.current = null;
     levelRef.current = 0;
     waveformRef.current = Array(WAVEFORM_BARS).fill(0);
     setLevel(0);
@@ -508,44 +461,31 @@ export function SpeakerProfilesManager(props: {
     setPhase("success");
     await refresh();
     await teardown();
-    props.onEnrollmentSuccess?.();
-    if (!isOnboarding) {
-      window.setTimeout(() => {
-        setPhase("idle");
-        setPassIndex(0);
-        setSavedName(null);
-        setSuccessNote(null);
-        setSecondsLeft(ENROLL_SECONDS);
-      }, 2400);
-    }
+    window.setTimeout(() => {
+      setPhase("idle");
+      setPassIndex(0);
+      setSavedName(null);
+      setSuccessNote(null);
+      setSecondsLeft(ENROLL_SECONDS);
+    }, 2400);
   };
 
-  // A failed later pass must not discard an earlier good sample: save what we
-  // have (the read-aloud pass alone is still a working voiceprint) instead of
-  // dead-ending the whole enrollment.
-  const failPassOrFallback = async (trimmed: string, message: string) => {
-    if (passIdentifiersRef.current.length > 0) {
-      try {
-        await finishEnrollment(
-          trimmed,
-          "Only the read-aloud sample was captured — re-enroll anytime to improve matching."
-        );
-        return;
-      } catch {
-        // Saving the partial profile failed too — surface the original error.
-      }
-    }
+  // Keep any earlier clean pass in memory and retry only this pass. A
+  // read-aloud-only identifier is not representative enough of live sessions
+  // to save as a completed profile.
+  const failPass = async (message: string) => {
     setError(message);
     setPhase("error");
     setQualityHint(null);
     await teardown();
   };
 
-  const beginRecording = (pass: number, trimmed: string) => {
+  const beginRecording = () => {
     setPhase("recording");
     setSecondsLeft(ENROLL_SECONDS);
     enrollmentAudioActiveRef.current = true;
     enrollPeakRmsRef.current = 0;
+    enrollmentQualityRef.current = new EnrollmentQualityTracker();
     setQualityHint(null);
 
     recordTickRef.current = window.setInterval(() => {
@@ -571,10 +511,10 @@ export function SpeakerProfilesManager(props: {
         await micRef.current?.stop();
         micRef.current = null;
 
-        if (enrollPeakRmsRef.current < MIN_ENROLL_PEAK_RMS) {
-          await failPassOrFallback(
-            trimmed,
-            "We didn't hear enough. Try again in a quiet room, speaking clearly for the full recording."
+        const quality = enrollmentQualityRef.current?.result();
+        if (quality?.failure === "clipping") {
+          await failPass(
+            "That sample clipped. Move a little farther from the microphone and try this sample again."
           );
           return;
         }
@@ -584,16 +524,12 @@ export function SpeakerProfilesManager(props: {
 
         const client = clientRef.current;
         if (!client) {
-          await failPassOrFallback(
-            trimmed,
-            "Enrollment connection was lost. Try again."
-          );
+          await failPass("Enrollment connection was lost. Try again.");
           return;
         }
 
         processingTimeoutRef.current = window.setTimeout(() => {
-          void failPassOrFallback(
-            trimmed,
+          void failPass(
             "Creating your voice profile timed out. Try again in a quiet room."
           );
         }, ENROLL_PROCESSING_TIMEOUT_MS);
@@ -642,13 +578,13 @@ export function SpeakerProfilesManager(props: {
               speakers.length !== 1 ||
               speakers[0]!.speakerIdentifiers.length === 0
             ) {
-              await failPassOrFallback(
-                trimmed,
+              await failPass(
                 "We couldn't detect a single clear voice. Try again in a quiet room, speaking naturally."
               );
               return;
             }
-            passIdentifiersRef.current.push(speakers[0]!.speakerIdentifiers);
+            passIdentifiersRef.current[pass] =
+              speakers[0]!.speakerIdentifiers;
             // This pass's stream ended with EndOfStream; the next pass (or
             // nothing) gets a fresh connection.
             clientRef.current?.close();
@@ -674,11 +610,15 @@ export function SpeakerProfilesManager(props: {
     try {
       clientRef.current = client;
       await client.connect();
-      const mic = new MicPcmStreamer({ voiceIdentification: true });
+      const mic = new MicPcmStreamer({
+        voiceIdentification: true,
+        continuousEchoCancellation: true,
+      });
       micRef.current = mic;
       await mic.start((frame) => {
         if (enrollmentAudioActiveRef.current) {
           client.sendPcm(frame);
+          enrollmentQualityRef.current?.process(frame);
         }
         const rms = rmsFromInt16(frame);
         levelRef.current = rms;
@@ -698,7 +638,7 @@ export function SpeakerProfilesManager(props: {
               window.clearInterval(preTimerRef.current);
               preTimerRef.current = null;
             }
-            beginRecording(pass, trimmed);
+            beginRecording();
             return 0;
           }
           return c - 1;
@@ -721,8 +661,12 @@ export function SpeakerProfilesManager(props: {
     setError(null);
     setSavedName(null);
     setSuccessNote(null);
-    passIdentifiersRef.current = [];
-    await startPass(0, trimmed);
+    const retryPass = phase === "error" ? passIndex : 0;
+    passIdentifiersRef.current =
+      phase === "error"
+        ? passIdentifiersRef.current.slice(0, retryPass)
+        : [];
+    await startPass(retryPass, trimmed);
   };
 
   const onRename = async (profile: SpeakerProfileDoc) => {
@@ -786,24 +730,6 @@ export function SpeakerProfilesManager(props: {
         ? "text-app"
         : "text-app-secondary";
 
-  const onboardingEnrolledName =
-    phase === "success"
-      ? savedName
-      : profiles.length > 0
-        ? profiles[0]?.name ?? null
-        : null;
-
-  if (isOnboarding && onboardingEnrolledName && !enrolling) {
-    return (
-      <section>
-        <OnboardingEnrollmentSuccess
-          name={onboardingEnrolledName}
-          note={phase === "success" ? successNote : null}
-        />
-      </section>
-    );
-  }
-
   return (
     <section
       className={
@@ -814,7 +740,7 @@ export function SpeakerProfilesManager(props: {
           : "space-y-4 border-t border-app pt-8"
       }
     >
-      {isOnboarding ? null : !embedded ? (
+      {!embedded ? (
         <div>
           <p className="text-[9px] tracking-[0.22em] text-app-subtle">SPEAKER MEMORY</p>
           <p className="mt-2 text-[11px] leading-snug text-app-subtle">
@@ -825,12 +751,13 @@ export function SpeakerProfilesManager(props: {
         </div>
       ) : null}
 
+      {allowEnrollment ? (
       <div className={grok ? "grok-speaker-enroll" : compact ? "" : ""}>
         {enrolling ? (
           <div
             className={
-              isOnboarding || compact
-                ? "onboarding-enroll-active mx-auto flex w-full max-w-sm flex-col items-center gap-5 py-2"
+              compact
+                ? "mx-auto flex w-full max-w-sm flex-col items-center gap-5 py-2"
                 : "flex flex-col items-center gap-4"
             }
           >
@@ -850,7 +777,7 @@ export function SpeakerProfilesManager(props: {
 
             <p
               className={`text-center transition-colors ${
-                isOnboarding ? "text-[13px] leading-relaxed" : compact ? "text-xs" : "text-sm"
+                compact ? "text-xs" : "text-sm"
               } ${phase === "recording" && qualityHint ? "text-amber-600 dark:text-amber-400" : statusClass}`}
             >
               {statusLine}
@@ -858,10 +785,7 @@ export function SpeakerProfilesManager(props: {
 
             {phase === "countdown" || phase === "recording" ? (
               <div className="w-full max-w-sm">
-                <EnrollmentScriptCard
-                  pass={ENROLLMENT_PASSES[passIndex]!}
-                  onboarding={isOnboarding}
-                />
+                <EnrollmentScriptCard pass={ENROLLMENT_PASSES[passIndex]!} />
               </div>
             ) : null}
 
@@ -869,60 +793,13 @@ export function SpeakerProfilesManager(props: {
               type="button"
               onClick={() => void cancelEnrollment()}
               className={
-                isOnboarding
-                  ? "text-[13px] text-app-muted underline-offset-4 transition-colors hover:text-app hover:underline"
-                  : grok
-                    ? "grok-settings-btn-ghost mt-1 text-xs"
-                    : "text-xs font-normal text-app-muted underline-offset-4 transition-colors hover:text-app hover:underline"
+                grok
+                  ? "grok-settings-btn-ghost mt-1 text-xs"
+                  : "text-xs font-normal text-app-muted underline-offset-4 transition-colors hover:text-app hover:underline"
               }
             >
               Cancel
             </button>
-          </div>
-        ) : isOnboarding ? (
-          <div className="mx-auto w-full max-w-sm space-y-5 text-center">
-            <ol className="m-0 list-none space-y-2.5 p-0 text-left">
-              {[
-                "Enter your name",
-                "Read aloud for 15 seconds",
-                "Talk naturally for 15 seconds",
-              ].map((label, index) => (
-                <li
-                  key={label}
-                  className="flex gap-3 text-[13px] leading-[1.55] text-app-muted"
-                >
-                  <span className="w-4 shrink-0 text-center text-[11px] font-medium text-app-subtle">
-                    {index + 1}
-                  </span>
-                  <span>{label}</span>
-                </li>
-              ))}
-            </ol>
-
-            <input
-              id="speaker-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Your name"
-              className="w-full rounded-2xl border border-app bg-app px-4 py-3 text-center text-sm tracking-[-0.011em] text-app outline-none transition-colors placeholder:text-app-subtle focus:border-app-strong"
-            />
-
-            {phase === "error" && error ? (
-              <p className="text-[13px] text-danger">{error}</p>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => void startEnrollment()}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-[13px] font-medium tracking-[0.02em] text-accent-fg transition-[opacity,transform] duration-150 hover:opacity-90 active:translate-y-px disabled:opacity-40"
-            >
-              <MicIcon className="h-4 w-4" />
-              {phase === "error" ? "Try again" : "Start enrollment"}
-            </button>
-
-            <p className="text-[12px] leading-relaxed text-app-subtle">
-              Quiet room helps. We store voice identifiers, not audio.
-            </p>
           </div>
         ) : (
           <div
@@ -987,6 +864,7 @@ export function SpeakerProfilesManager(props: {
           </div>
         )}
       </div>
+      ) : null}
 
       {error && phase !== "error" ? (
         <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger">
@@ -994,30 +872,26 @@ export function SpeakerProfilesManager(props: {
         </p>
       ) : null}
 
-      {!enrolling && !isOnboarding && profiles.length > 0 ? (
-      <div className={`space-y-2 ${compact ? "mt-6" : "mt-4"}`}>
+      {!enrolling && (profiles.length > 0 || !allowEnrollment) ? (
+      <div className={`space-y-2 ${allowEnrollment ? (compact ? "mt-6" : "mt-4") : ""}`}>
         <div className="flex items-center justify-between px-0.5">
           <p
             className={
               grok
-                ? "grok-connector-group-label"
+                ? "kivo-settings-group-label mb-0"
                 : "text-xs text-app-muted"
             }
           >
-            Enrolled
+            Known speakers
           </p>
           <p className="text-xs text-app-subtle">
-            {profiles.length} {profiles.length === 1 ? "voice" : "voices"}
+            {profiles.length} {profiles.length === 1 ? "speaker" : "speakers"}
           </p>
         </div>
 
         {profiles.length > 0 ? (
           <ul
-            className={
-              grok
-                ? "grok-speaker-list"
-                : "divide-y divide-app rounded-xl border border-app"
-            }
+            className={grok ? "kivo-settings-card" : "divide-y divide-app rounded-xl border border-app"}
           >
             {profiles.map((profile, index) => {
               const editing = editingId === profile.id;
@@ -1028,9 +902,7 @@ export function SpeakerProfilesManager(props: {
                   key={profile.id}
                   className={
                     grok
-                      ? `group flex items-center gap-3 py-2.5${
-                          isLast ? "" : " grok-speaker-list-item--divided"
-                        }`
+                      ? `group kivo-settings-card-row${isLast ? " kivo-settings-card-row--last" : ""}`
                       : "group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-surface-hover/50"
                   }
                 >
@@ -1064,12 +936,12 @@ export function SpeakerProfilesManager(props: {
                         <p className="truncate text-sm font-normal text-app">
                           {profile.name}
                         </p>
-                        <p className="text-xs text-app-muted">Voice enrolled</p>
+                        <p className="text-xs text-app-muted">Known speaker</p>
                       </>
                     )}
                   </div>
 
-                  {!editing && !isOnboarding ? (
+                  {!editing ? (
                     <div className="flex items-center gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100">
                       <button
                         type="button"
@@ -1096,20 +968,22 @@ export function SpeakerProfilesManager(props: {
               );
             })}
           </ul>
+        ) : grok ? (
+          <div className="kivo-settings-empty">
+            <span className="kivo-settings-empty-icon">
+              <MicIcon />
+            </span>
+            <p className="kivo-settings-empty-title">No named speakers yet</p>
+            <p className="kivo-settings-empty-desc">
+              After a session, open Transcript and name an Other speaker.
+            </p>
+          </div>
         ) : (
-          <div
-            className={
-              grok
-                ? "py-3 text-center"
-                : "rounded-xl border border-dashed border-app bg-app/30 px-4 py-6 text-center"
-            }
-          >
-            <p className="text-sm text-app-muted">No voices enrolled yet.</p>
-            {!grok ? (
-              <p className="mt-1 text-xs text-app-subtle">
-                Add one above so Kivo can recognize who&apos;s speaking.
-              </p>
-            ) : null}
+          <div className="rounded-xl border border-dashed border-app bg-app/30 px-4 py-6 text-center">
+            <p className="text-sm text-app-muted">No named speakers yet.</p>
+            <p className="mt-1 text-xs text-app-subtle">
+              After a session, open Transcript and name an Other speaker.
+            </p>
           </div>
         )}
       </div>

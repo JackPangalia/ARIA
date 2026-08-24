@@ -51,7 +51,7 @@ export const SETTINGS_TAB_META: Record<
   speakers: {
     label: "Speakers",
     title: "Speakers",
-    description: "Speaker-aware transcription and enrolled voices.",
+    description: "Speaker-aware transcription and named voices.",
   },
   connectors: {
     label: "Connectors",

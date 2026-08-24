@@ -103,13 +103,44 @@ describe("voice agent configuration", () => {
     expect(parseAnswerModel("claude-sonnet-5")).toBe("claude-sonnet-5");
   });
 
-  it("keeps one brief clarification available when a material detail is missing", () => {
+  it("keeps voice responses plain and resolves imperfect transcripts from context", () => {
     const prompt = buildAriaSystemPrompt({ speakerAware: false });
-    expect(prompt).toContain("calm, incisive, low-ego, and intellectually rigorous");
-    expect(prompt).toContain("Match your response to what is actually being asked");
-    expect(prompt).toContain("Critically process pushback");
-    expect(prompt).toContain("Never say \"it depends\"");
+    expect(prompt).toContain("spoken aloud into a live conversation");
+    expect(prompt).toContain("Start with the answer");
+    expect(prompt).toContain("infer the most plausible reading");
+    expect(prompt).toContain("not a reason to ask for repetition");
+    expect(prompt).toContain("acknowledge uncertainties plainly");
+    expect(prompt).not.toMatch(/didn['’]t catch that/i);
+    expect(prompt).not.toMatch(/are you asking/i);
+    expect(prompt).not.toContain("incisive, low-ego");
+    expect(prompt).not.toContain('Never say "it depends"');
     expect(prompt.length).toBeLessThan(6_000);
+  });
+
+  /**
+   * Kivo's character is delivery-independent: speaking into a room and writing
+   * into a thread are the same participant. Only the delivery section differs.
+   */
+  it("carries an identical character block into voice and text", () => {
+    const voice = buildAriaSystemPrompt({ speakerAware: false });
+    const text = buildAriaSystemPrompt({ speakerAware: false, delivery: "text" });
+
+    for (const trait of [
+      "Speak naturally, like a capable colleague",
+      "skip filler, flattery, and conversational preambles",
+      "acknowledge uncertainties plainly without unnecessary hedging",
+      "infer the most plausible reading",
+      "Real conversations frequently contain profanity",
+    ]) {
+      expect(voice).toContain(trait);
+      expect(text).toContain(trait);
+    }
+
+    // No deference-shaped filler survives in either delivery.
+    for (const prompt of [voice, text]) {
+      expect(prompt).not.toMatch(/perform a strong persona/i);
+      expect(prompt).not.toMatch(/debate the user/i);
+    }
   });
 
   /**

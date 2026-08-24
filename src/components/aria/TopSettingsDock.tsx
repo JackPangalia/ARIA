@@ -35,7 +35,7 @@ export function TopSettingsDock() {
       <Link
         href="/settings"
         prefetch
-        className="group pointer-events-auto flex h-full w-full items-start justify-center pt-3 text-zinc-500 outline-none transition-colors hover:text-zinc-200 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-zinc-600"
+        className="group pointer-events-auto flex h-full w-full items-start justify-center pt-3 text-app-subtle outline-none transition-colors hover:text-app focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-app"
         aria-label="Settings"
       >
         <SettingsGlyph className="opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100 active:opacity-100" />

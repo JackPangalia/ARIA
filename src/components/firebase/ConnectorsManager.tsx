@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listConnections,
   removeConnection,
@@ -9,7 +9,11 @@ import {
   type ConnectionSummary,
 } from "@/lib/composio/client-api";
 import { ConnectorIcon } from "@/components/settings/ConnectorIcon";
-import { GrokSettingsButton } from "@/components/settings/SettingsRow";
+import {
+  GrokSettingsButton,
+  SettingsGroup,
+  SettingsRow,
+} from "@/components/settings/SettingsRow";
 
 const SUPPORTED_APPS: { slug: string; label: string; blurb: string }[] = [
   {
@@ -92,7 +96,7 @@ type ConnectorApp = (typeof SUPPORTED_APPS)[number];
 function ConnectedDot() {
   return (
     <span
-      className="grok-connector-status-dot"
+      className="h-2 w-2 shrink-0 rounded-full bg-emerald-400"
       aria-label="Connected"
       title="Connected"
     />
@@ -110,67 +114,53 @@ function connectorDescription(
   return app.blurb;
 }
 
-function GrokConnectorRow(props: {
+function ConnectorRow(props: {
   app: ConnectorApp;
   connection: ConnectionSummary | undefined;
   isActive: boolean;
   busy: boolean;
   loading: boolean;
+  last?: boolean;
   onConnect: (slug: string) => void;
   onDisconnect: (connection: ConnectionSummary) => void;
 }) {
   const { app, connection, isActive, busy, loading } = props;
 
   return (
-    <div className="grok-connector-row">
-      <span className="grok-connector-icon">
-        <ConnectorIcon slug={app.slug} size={24} />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="grok-connector-label">
+    <SettingsRow
+      last={props.last}
+      icon={<ConnectorIcon slug={app.slug} size={24} />}
+      title={
+        <span className="inline-flex items-center gap-2">
           {app.label}
           {isActive ? <ConnectedDot /> : null}
-        </div>
-        <div className="grok-connector-blurb">
-          {connectorDescription(app, connection, isActive)}
-        </div>
-      </div>
-      {isActive && connection ? (
-        <GrokSettingsButton
-          variant="ghost-danger"
-          disabled={busy}
-          onClick={() => props.onDisconnect(connection)}
-        >
-          {busy ? "…" : "Disconnect"}
-        </GrokSettingsButton>
-      ) : (
-        <GrokSettingsButton
-          variant="primary"
-          disabled={busy || loading}
-          onClick={() => props.onConnect(app.slug)}
-        >
-          {busy ? "Opening…" : "Connect"}
-        </GrokSettingsButton>
-      )}
-    </div>
+        </span>
+      }
+      description={connectorDescription(app, connection, isActive)}
+      action={
+        isActive && connection ? (
+          <GrokSettingsButton
+            variant="ghost-danger"
+            disabled={busy}
+            onClick={() => props.onDisconnect(connection)}
+          >
+            {busy ? "…" : "Disconnect"}
+          </GrokSettingsButton>
+        ) : (
+          <GrokSettingsButton
+            variant="primary"
+            disabled={busy || loading}
+            onClick={() => props.onConnect(app.slug)}
+          >
+            {busy ? "Opening…" : "Connect"}
+          </GrokSettingsButton>
+        )
+      }
+    />
   );
 }
 
-function GrokConnectorGroup(props: {
-  label?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="grok-connector-group">
-      {props.label ? (
-        <p className="grok-connector-group-label">{props.label}</p>
-      ) : null}
-      <div className="grok-connector-rows">{props.children}</div>
-    </div>
-  );
-}
-
-export function ConnectorsManager(props: { grok?: boolean }) {
+export function ConnectorsManager() {
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busySlug, setBusySlug] = useState<string | null>(null);
@@ -284,140 +274,50 @@ export function ConnectorsManager(props: { grok?: boolean }) {
     return { connectedApps: connected, disconnectedApps: disconnected };
   }, [byToolkit]);
 
-  const renderGrokGroups = () => {
-    const showConnectedLabel = connectedApps.length > 0;
-    const showAvailableLabel =
-      disconnectedApps.length > 0 && connectedApps.length > 0;
-
-    return (
-      <div className="grok-connector-panel">
-        {connectedApps.length > 0 ? (
-          <GrokConnectorGroup
-            label={showConnectedLabel ? "Connected" : undefined}
-          >
-            {connectedApps.map((app) => (
-              <GrokConnectorRow
-                key={app.slug}
-                app={app}
-                connection={byToolkit.get(app.slug)}
-                isActive
-                busy={busySlug === app.slug}
-                loading={loading}
-                onConnect={(slug) => void handleConnect(slug)}
-                onDisconnect={(c) => void handleDisconnect(c)}
-              />
-            ))}
-          </GrokConnectorGroup>
-        ) : null}
-        {disconnectedApps.length > 0 ? (
-          <GrokConnectorGroup
-            label={showAvailableLabel ? "Available" : undefined}
-          >
-            {disconnectedApps.map((app) => (
-              <GrokConnectorRow
-                key={app.slug}
-                app={app}
-                connection={byToolkit.get(app.slug)}
-                isActive={false}
-                busy={busySlug === app.slug}
-                loading={loading}
-                onConnect={(slug) => void handleConnect(slug)}
-                onDisconnect={(c) => void handleDisconnect(c)}
-              />
-            ))}
-          </GrokConnectorGroup>
-        ) : null}
-      </div>
-    );
-  };
-
-  if (props.grok) {
-    return (
-      <section>
-        {error ? (
-          <p className="mb-4 text-[13px] text-[#f87171]">{error}</p>
-        ) : null}
-
-        {renderGrokGroups()}
-      </section>
-    );
-  }
+  const showConnectedLabel = connectedApps.length > 0;
+  const showAvailableLabel = disconnectedApps.length > 0 && connectedApps.length > 0;
 
   return (
-    <section className="space-y-6">
-      <div>
-        <h3 className="mb-1 text-sm font-normal text-app">Connectors</h3>
-        <p className="text-sm font-normal leading-relaxed text-app-muted">
-          Connect apps so Kivo can read from and write to them when you ask.
-        </p>
-      </div>
-      {error ? (
-        <p className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {error}
-        </p>
-      ) : null}
-      <div className="space-y-4">
-        {[connectedApps, disconnectedApps]
-          .filter((group) => group.length > 0)
-          .map((group, groupIndex) => (
-            <div key={groupIndex} className="space-y-2">
-              {connectedApps.length > 0 && disconnectedApps.length > 0 ? (
-                <p className="px-0.5 text-xs text-app-muted">
-                  {groupIndex === 0 ? "Connected" : "Available"}
-                </p>
-              ) : null}
-              <ul className="space-y-1">
-                {group.map((app) => {
-                  const connection = byToolkit.get(app.slug);
-                  const active = isConnected(app.slug, byToolkit);
-                  const busy = busySlug === app.slug;
-                  return (
-                    <li
-                      key={app.slug}
-                      className="flex items-center gap-3 py-2.5"
-                    >
-                      <ConnectorIcon slug={app.slug} size={24} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-app">{app.label}</p>
-                          {active ? (
-                            <span
-                              className="h-2 w-2 shrink-0 rounded-full bg-emerald-400"
-                              aria-label="Connected"
-                              title="Connected"
-                            />
-                          ) : null}
-                        </div>
-                        <p className="mt-0.5 text-xs leading-relaxed text-app-muted">
-                          {connectorDescription(app, connection, active)}
-                        </p>
-                      </div>
-                      {active && connection ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void handleDisconnect(connection)}
-                          className="shrink-0 rounded-full px-4 py-1.5 text-xs font-medium text-app-muted transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-45"
-                        >
-                          {busy ? "…" : "Disconnect"}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={busy || loading}
-                          onClick={() => void handleConnect(app.slug)}
-                          className="shrink-0 rounded-full bg-accent px-4 py-1.5 text-xs font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-45"
-                        >
-                          {busy ? "Opening…" : "Connect"}
-                        </button>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
+    <section>
+      {error ? <p className="mb-4 text-[13px] text-danger">{error}</p> : null}
+
+      {connectedApps.length > 0 ? (
+        <SettingsGroup label={showConnectedLabel ? "Connected" : undefined}>
+          {connectedApps.map((app, index) => (
+            <ConnectorRow
+              key={app.slug}
+              app={app}
+              connection={byToolkit.get(app.slug)}
+              isActive
+              busy={busySlug === app.slug}
+              loading={loading}
+              last={index === connectedApps.length - 1}
+              onConnect={(slug) => void handleConnect(slug)}
+              onDisconnect={(c) => void handleDisconnect(c)}
+            />
           ))}
-      </div>
+        </SettingsGroup>
+      ) : null}
+      {disconnectedApps.length > 0 ? (
+        <SettingsGroup
+          label={showAvailableLabel ? "Available" : undefined}
+          className="mb-0"
+        >
+          {disconnectedApps.map((app, index) => (
+            <ConnectorRow
+              key={app.slug}
+              app={app}
+              connection={byToolkit.get(app.slug)}
+              isActive={false}
+              busy={busySlug === app.slug}
+              loading={loading}
+              last={index === disconnectedApps.length - 1}
+              onConnect={(slug) => void handleConnect(slug)}
+              onDisconnect={(c) => void handleDisconnect(c)}
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
     </section>
   );
 }

@@ -11,7 +11,11 @@ import {
   type LocalSpeechDetector,
 } from "./speech-activity-detector";
 import { SileroVadDetector } from "./silero-vad-detector";
-import { SpeechmaticsLiveClient } from "./speechmatics-client";
+import {
+  safeSpeakerLabel,
+  SpeechmaticsLiveClient,
+  type SpeechmaticsSpeakerResult,
+} from "./speechmatics-client";
 import {
   VOICE_ENGINE_V2_ENABLED,
   VOICE_ENGINE_V2_TIMING,
@@ -22,7 +26,10 @@ import {
   TranscriptTurnAssembler,
   type AssembledTranscriptTurn,
 } from "./turn-assembler";
-import { VisualMicLevelNormalizer } from "./visual-level";
+import {
+  VisualMicLevelNormalizer,
+  playbackRmsToLevel,
+} from "./visual-level";
 import { track } from "@/lib/analytics/client";
 import { devLog } from "@/lib/client/dev-log";
 import {
@@ -33,7 +40,13 @@ import {
   relabelSessionTurns,
   reportAnswerInterrupted,
 } from "@/lib/sessions/client";
-import { listSpeakerProfiles } from "@/lib/speakers/client";
+import { learnSpeakerProfile, listSpeakerProfiles } from "@/lib/speakers/client";
+import { selectReinforcementCandidates } from "@/lib/speakers/reinforcement";
+import {
+  mergeSessionSpeakerClusters,
+  speakerClusterKey,
+  type SessionSpeakerClusterSnapshot,
+} from "@/lib/speakers/session-learning";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { sendHeartbeat } from "@/lib/plan/client";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
@@ -63,7 +76,10 @@ import { useAriaStore } from "@/lib/store";
 import type { TranscriptionMode } from "@/lib/sessions/types";
 import type { AriaStatus, TranscriptUtterance } from "@/lib/types";
 
+/** Beat after playback before the follow-up window opens. No longer gates the
+ * mic — see `shouldSendMicToStt`. */
 const PLAYBACK_STT_COOLDOWN_MS = 300;
+const SPEAKER_SNAPSHOT_INTERVAL_MS = 30_000;
 // Once somebody accepts the wake-free follow-up window, transcript/provider
 // edge cases must not strand Kivo in capture forever. Refreshed whenever
 // meaningful transcript text arrives; normal semantic endpointing resolves
@@ -80,9 +96,27 @@ const DUCK_RAMP_S = 0.06;
 const BARGE_IN_ONSET_MARGIN_S = 0.3;
 const ASSISTANT_COMMAND_MAX_WORDS = 5;
 const TURN_IDLE_FLUSH_MS = 1800;
+/** Silence after which the local VAD *guesses* the turn ended and pre-warms an
+ * answer. Cheap and reversible — nothing is sent to the speakers. */
+const SPEECH_END_SPECULATE_MS = 200;
+/** Silence after which the local VAD *commits* to the turn having ended (force
+ * endpoint + re-arm dispatch). Must be long enough to clear a mid-sentence
+ * breath; the speculation above keeps the wait off the critical path. */
+const SPEECH_END_COMMIT_MS = 550;
+/** After dispatch, how long the asker's continued speech still counts as "I
+ * wasn't finished" rather than a new turn. */
+const CONTINUATION_WINDOW_MS = 2_500;
 const CONTEXT_PREFETCH_DEBOUNCE_MS = 400;
 // Server-side AskBodySchema limits. A marathon monologue capture must degrade
 // (keep the tail, where the actual ask lives) rather than 400 the whole turn.
+/** Loose comparison form for "have we already heard these exact words?". */
+function normalizeForContinuation(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 const ASK_QUESTION_MAX_CHARS = 12000;
 const ASK_SOURCE_IDS_MAX = 400;
 
@@ -190,9 +224,26 @@ export class AriaEngine {
   /** Dedicated gain node for raw-PCM answer playback, so barge-in ducking can
    * drop the answer volume without touching the shared cue/master gain. */
   private answerGain: GainNode | null = null;
+  private playbackAnalyser: AnalyserNode | null = null;
+  private playbackTimeDomain: Uint8Array | null = null;
+  private playbackMeterRaf = 0;
+  private htmlAudioSource: MediaElementAudioSourceNode | null = null;
   private ducked = false;
   private isAssistantSpeaking = false;
-  private suppressSttUntilMs = 0;
+  /** Words from a dispatch that was taken back mid-thought; they lead the next
+   * capture so the reopened turn carries the whole question. */
+  private capturePrefix = "";
+  private capturePrefixSourceIds: string[] = [];
+  /** One speculation probe per silent gap (reset on the next speech onset). */
+  private speculationProbed = false;
+  /** The last question sent for an answer, for the continuation path below. */
+  private lastDispatch: {
+    question: string;
+    sourceUtteranceIds: string[];
+    speaker: number | null;
+    providerSpeakerLabel: string | null;
+    atMs: number;
+  } | null = null;
   private turnAssembler = new TranscriptTurnAssembler();
   private turnFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -216,6 +267,15 @@ export class AriaEngine {
   // streams' turns under the same label were attributed by different clusters
   // and are deliberately left alone.
   private streamTurnIdsByLabel = new Map<string, string[]>();
+  private speakerClusters: SessionSpeakerClusterSnapshot[] = [];
+  // Positive reinforcement bookkeeping. Speech is counted per provider label
+  // within a stream (labels are only meaningful inside one); the corrected and
+  // reinforced sets are session-scoped, because a label the user rejected once
+  // should stay untrusted even after a restart re-seeds the clusters.
+  private attributedSpeechMsByLabel = new Map<string, number>();
+  private correctedSpeakerLabels = new Set<string>();
+  private reinforcedProfileIds = new Set<string>();
+  private lastSpeakerSnapshotRequestAt = new Map<number, number>();
   private currentTurnTelemetry: VoiceTurnTelemetry | null = null;
   /** Cached at session start so speculative asks don't await AudioContext. */
   private playbackSampleRate: number | null = null;
@@ -256,6 +316,8 @@ export class AriaEngine {
     activeAriaEngine = this;
     const store = useAriaStore.getState();
     store.clearTranscript();
+    this.speakerClusters = [];
+    this.lastSpeakerSnapshotRequestAt.clear();
     this.visualMicLevel.reset();
     store.setError(null);
     store.setStatus("listening");
@@ -284,9 +346,16 @@ export class AriaEngine {
         // Watch for the user talking over Kivo. The detector only reacts while
         // it's been started (during playback); it's a no-op otherwise.
         this.bargeIn.process(frame);
-        if (this.shouldSendMicToStt()) {
-          this.stt?.sendPcm(frame);
-        }
+        // The mic is never gated off. It used to go deaf for 300ms after
+        // playback ended, which deleted the first word of an immediate
+        // follow-up outright — the audio was dropped, not delayed, so nothing
+        // downstream could recover it. (The same window also discarded whole
+        // transcripts that merely *arrived* during it, even though STT finals
+        // lag the audio they describe by up to `max_delay`.) Self-hearing is
+        // handled where it belongs: results are split by audio-timeline
+        // overlap with assistant speech, and overlapping text is dropped only
+        // when it actually matches what Kivo said.
+        this.stt?.sendPcm(frame);
       });
       this.startHeartbeat();
       // A backgrounded tab can lose the STT socket without a reconnectable
@@ -294,7 +363,6 @@ export class AriaEngine {
       document.addEventListener("visibilitychange", this.onVisibilityChange);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "unknown error";
-      this.cues.playError();
       useAriaStore.getState().setError(msg);
       await this.stop();
     }
@@ -322,6 +390,13 @@ export class AriaEngine {
         // A fresh stream means fresh diarization clusters — turns persisted
         // under the previous stream's labels are no longer correction targets.
         this.streamTurnIdsByLabel.clear();
+        this.attributedSpeechMsByLabel.clear();
+        if (this.stt) {
+          this.lastSpeakerSnapshotRequestAt.set(
+            this.stt.currentStreamEpoch,
+            Date.now()
+          );
+        }
         useAriaStore.getState().setNotice(null);
       },
       onClose: () => {
@@ -338,6 +413,7 @@ export class AriaEngine {
       },
       onUtterance: (u) => this.handleUtterance(u),
       onUtteranceEnd: () => this.handleUtteranceEnd(),
+      onSpeakersResult: (speakers) => this.captureSpeakerResults(speakers),
     }, profiles, {
       transcriptionMode: this.transcriptionMode,
       voiceEngineV2: this.voiceEngineV2,
@@ -347,7 +423,7 @@ export class AriaEngine {
     return profiles.length;
   }
 
-  async stop() {
+  async stop(): Promise<SessionSpeakerClusterSnapshot[]> {
     this.currentTurnTelemetry?.finish("aborted", { reason: "session_stop" });
     this.currentTurnTelemetry = null;
     this.localSpeechDetector.reset();
@@ -361,7 +437,12 @@ export class AriaEngine {
     await this.mic?.stop();
     this.mic = null;
     if (this.stt) {
-      this.stt.close();
+      if (this.transcriptionMode === "speaker") {
+        const finalSpeakers = await this.stt.finishAndGetSpeakers();
+        this.captureSpeakerResults(finalSpeakers);
+      } else {
+        this.stt.close();
+      }
       this.stt = null;
     }
     useAriaStore.getState().setNotice(null);
@@ -369,14 +450,17 @@ export class AriaEngine {
     this.stopFollowUpWindow();
     this.clearFollowUpStartTimer();
     this.clearTurnFlushTimer();
-    void this.flushPersistedSpeakerTurn().then(() => this.finalizeTitle());
+    await this.flushPersistedSpeakerTurn();
+    this.finalizeTitle();
     this.abortActiveFetch();
     this.stopPlayback();
     this.cues.stopWorkCue();
     void this.cues.dispose();
     this.visualMicLevel.reset();
     useAriaStore.getState().setMicLevel(0);
+    useAriaStore.getState().setPlaybackLevel(0);
     useAriaStore.getState().setStatus("idle");
+    return [...this.speakerClusters];
   }
 
   private onVisibilityChange = () => {
@@ -423,18 +507,12 @@ export class AriaEngine {
     }
   }
 
-  private shouldSendMicToStt(): boolean {
-    // Keep STT live during playback so short spoken commands can interrupt Kivo.
-    // Echo/self-hearing is filtered in handleAssistantCommandUtterance before
-    // it can hit the transcript or question-capture paths.
-    return Date.now() >= this.suppressSttUntilMs;
-  }
-
   private observeLocalSpeech(frame: Int16Array): void {
     const activity = this.localSpeechDetector.process(frame);
     const now = performance.now();
     if (activity.probability >= 0.42) {
       this.localSpeechLastPositiveMs = now;
+      this.speculationProbed = false;
       if (!this.localSpeechActive) {
         this.localSpeechActive = true;
         if (this.capturingQuestion) {
@@ -460,10 +538,33 @@ export class AriaEngine {
       return;
     }
 
+    if (!this.localSpeechActive) return;
+
+    const silentMs = now - this.localSpeechLastPositiveMs;
+
+    // Stage one: a short gap is enough to *guess* the turn is over, so start
+    // generating an answer for the draft as it stands. Nothing is committed —
+    // if the speaker keeps going, the speculation is torn down on the next
+    // speech onset and re-issued. This is what pays for the patience below.
     if (
-      this.localSpeechActive &&
-      now - this.localSpeechLastPositiveMs >= 160
+      !this.speculationProbed &&
+      silentMs >= SPEECH_END_SPECULATE_MS &&
+      this.capturingQuestion
     ) {
+      this.speculationProbed = true;
+      const draft = joinText(
+        this.getCapturedQuestion().question,
+        this.capturePartial
+      );
+      if (draft.trim()) this.maybeRefreshSpeculativeAsk(draft);
+    }
+
+    // Stage two: only a real pause — long enough that a person listening would
+    // also think you were done — ends the turn. A 160ms gap used to, and it
+    // fired inside normal speech (stop consonants, a breath, "um..."), which is
+    // what cut the speaker off and what truncated trailing words when
+    // ForceEndOfUtterance landed mid-word.
+    if (silentMs >= SPEECH_END_COMMIT_MS) {
       this.localSpeechActive = false;
       if (this.capturingQuestion) {
         this.currentTurnTelemetry?.mark("speech_end", {
@@ -484,10 +585,6 @@ export class AriaEngine {
         }
       }
     }
-  }
-
-  private shouldIgnoreIncomingUtterance(): boolean {
-    return !this.shouldSendMicToStt();
   }
 
   /**
@@ -578,6 +675,7 @@ export class AriaEngine {
           pcmSampleRate: this.playbackSampleRate ?? undefined,
           turnId: telemetry?.turnId,
           speculative: true,
+          providerSpeakerLabel: captured.providerSpeakerLabel,
         }
       )
     );
@@ -631,9 +729,6 @@ export class AriaEngine {
   }
 
   private handleUtterance(u: TranscriptUtterance) {
-    if (this.shouldIgnoreIncomingUtterance()) {
-      return;
-    }
 
     const wake = extractQuestionAfterWakeInPerson(u.text);
     const utteranceStable = u.speechFinal || u.isFinal;
@@ -703,6 +798,12 @@ export class AriaEngine {
 
     if (u.isFinal && u.speechFinal && !isQuestionCaptureUtterance) {
       void this.bufferSpeakerTurn(u);
+    } else if (u.isFinal && u.speechFinal) {
+      // Question audio is real speech from a real speaker; it just isn't
+      // persisted here. Credit it anyway, or the person who asks the most —
+      // usually the enrolled owner — never reaches the reinforcement
+      // threshold and their profile stops improving.
+      this.creditAttributedSpeech(u);
     }
 
     if (!this.capturingQuestion) {
@@ -814,7 +915,11 @@ export class AriaEngine {
    * short real interruption like "stop" as echo. */
   private recentlySpokenAnswerText(): string {
     const played = this.pcmStreamPlayer?.playbackSeconds;
-    if (played == null || played <= 0) return this.liveAnswerText;
+    // Playback already finished (the player is torn down on end) — only its
+    // tail can still be echoing in the room. Matching against the *whole*
+    // answer here made short openers ("how are", "so the") look like echo and
+    // deleted the first words of a follow-up.
+    if (played == null || played <= 0) return this.liveAnswerText.slice(-160);
     const spokenChars = Math.round((played + 2) * 15);
     const spoken = this.liveAnswerText.slice(0, spokenChars);
     // Keep roughly the last ten seconds of speech as the match window.
@@ -848,10 +953,16 @@ export class AriaEngine {
     }
 
     // Claude-style barge-in: sustained real speech while Kivo is audibly
-    // speaking stops the answer and becomes the next question. Deliberately
-    // NOT applied while thinking — the room keeps talking after asking, and
-    // ambient conversation must not cancel an answer nothing is playing over.
-    if (useAriaStore.getState().status !== "speaking") return;
+    // speaking stops the answer and becomes the next question. While *thinking*
+    // the bar is different: ambient room conversation must not cancel an answer
+    // nothing is playing over, but the person who just asked carrying on with
+    // their own sentence means we endpointed too early — take it back.
+    if (useAriaStore.getState().status !== "speaking") {
+      if (this.looksLikeContinuation(u, utteranceStable, wakeDetected)) {
+        this.handleThinkingContinuation(u, utteranceStable);
+      }
+      return;
+    }
     // Listener acknowledgments ("yeah exactly", "makes sense") ride under the
     // answer without meaning "stop talking".
     if (isBackchannelOnly(u.text)) return;
@@ -864,6 +975,82 @@ export class AriaEngine {
     const partialThreshold = this.ducked ? 1 : 3;
     if (utteranceStable ? words >= 2 : words >= partialThreshold) {
       this.handleTranscriptBargeIn(u, wakeDetected, utteranceStable);
+    }
+  }
+
+  /**
+   * True when this utterance reads like the asker still finishing the thought
+   * we just dispatched — the "it cut me off" case. Deliberately narrow: the
+   * same speaker, within a couple of seconds of dispatch, saying something
+   * substantive. Anyone else in the room is ordinary conversation and must not
+   * cancel the answer.
+   */
+  private looksLikeContinuation(
+    u: TranscriptUtterance,
+    utteranceStable: boolean,
+    wakeDetected: boolean
+  ): boolean {
+    const dispatch = this.lastDispatch;
+    if (!dispatch) return false;
+    // A fresh wake word is a new turn, not the tail of the last one.
+    if (wakeDetected) return false;
+    if (Date.now() - dispatch.atMs > CONTINUATION_WINDOW_MS) return false;
+    if (isBackchannelOnly(u.text)) return false;
+    if (wordCount(u.text) < (utteranceStable ? 2 : 3)) return false;
+    // Words already sent as part of the question don't come back as new speech.
+    if (dispatch.sourceUtteranceIds.includes(u.id)) return false;
+    // The question was captured from partials, so its final re-arrives under a
+    // new id moments after dispatch. Same words, not new speech — cancelling on
+    // it would loop the turn forever.
+    const incoming = normalizeForContinuation(u.text);
+    if (!incoming || normalizeForContinuation(dispatch.question).includes(incoming)) {
+      return false;
+    }
+    if (dispatch.providerSpeakerLabel && u.providerSpeakerLabel) {
+      return dispatch.providerSpeakerLabel === u.providerSpeakerLabel;
+    }
+    return dispatch.speaker == null || dispatch.speaker === u.speaker;
+  }
+
+  /**
+   * Take back a dispatch the speaker wasn't done with. The in-flight answer is
+   * aborted before anything reaches the speakers, and capture reopens seeded
+   * with the question we already sent — so the finished thought is answered
+   * once, whole, instead of its tail being answered as a second question on top
+   * of an answer to the first half.
+   */
+  private handleThinkingContinuation(
+    u: TranscriptUtterance,
+    utteranceStable: boolean
+  ) {
+    const dispatch = this.lastDispatch;
+    if (!dispatch) return;
+    this.lastDispatch = null;
+    devLog("wake", "Speaker kept going after dispatch — reopening capture.");
+    this.currentTurnTelemetry?.mark("continuation_reopen", {
+      sinceDispatchMs: Math.round(Date.now() - dispatch.atMs),
+    });
+    this.turnController.interrupt();
+    this.abortActiveFetch();
+    this.abortSpeculativeAsk("continuation");
+    this.cues.stopWorkCue();
+    this.currentTurnTelemetry?.finish("aborted", { reason: "continuation" });
+    this.currentTurnTelemetry = null;
+    this.handleFollowUp(
+      u.id,
+      u.speaker,
+      u.speakerName ?? null,
+      u.providerSpeakerLabel ?? null
+    );
+    // Set after handleFollowUp — it resets capture state.
+    this.capturePrefix = dispatch.question;
+    this.capturePrefixSourceIds = dispatch.sourceUtteranceIds;
+    // This utterance was consumed here, so it never reaches the capture path.
+    // Seed it like the barge-in path does; a partial's words re-deliver as a
+    // clean final and would duplicate, so only stable text is seeded.
+    if (utteranceStable) {
+      this.inlineQuestion = u.text.trim();
+      this.scheduleQuestionResolution(this.settleDelayForDraft(u.speechFinal));
     }
   }
 
@@ -900,9 +1087,6 @@ export class AriaEngine {
     this.currentTurnTelemetry?.finish("aborted", { reason: "barge_in" });
     this.currentTurnTelemetry = null;
     this.cues.stopWorkCue();
-    // Keep the mic live (skip the post-playback cooldown) so the rest of the
-    // interruption reaches STT immediately.
-    this.suppressSttUntilMs = 0;
 
     const wake = wakeDetected ? extractQuestionAfterWakeInPerson(u.text) : null;
     if (wakeDetected) {
@@ -999,9 +1183,6 @@ export class AriaEngine {
       this.stopPlayback();
       this.abortActiveFetch();
       this.cues.stopWorkCue();
-      // Keep the mic live so the question following the wake word isn't clipped
-      // by the post-playback cooldown.
-      this.suppressSttUntilMs = 0;
     }
     // A fresh wake supersedes any half-finished capture — clear its live
     // fragments so they don't strand in the transcript.
@@ -1010,6 +1191,8 @@ export class AriaEngine {
     this.clearQuestionSettleTimer();
     this.questionUtterances = [];
     this.inlineQuestion = "";
+    this.capturePrefix = "";
+    this.capturePrefixSourceIds = [];
     this.capturePartial = "";
     this.endpointForced = false;
     this.wakeUtteranceId = utteranceId;
@@ -1041,7 +1224,6 @@ export class AriaEngine {
       return;
     }
     store.setStatus("thinking");
-    this.cues.startThinkingLoop();
   }
 
   private async playPcmWorkletResponse(
@@ -1061,8 +1243,7 @@ export class AriaEngine {
     const answerGain = ctx.createGain();
     answerGain.gain.value = 1;
     answerGain.connect(master);
-    this.answerGain = answerGain;
-    this.ducked = false;
+    this.armAnswerPlayback(ctx, answerGain);
 
     const state = {
       ctx,
@@ -1082,7 +1263,6 @@ export class AriaEngine {
       this.pcmPlayback = null;
       this.isAssistantSpeaking = false;
       this.stt?.markAssistantSpeechEnd();
-      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       useAriaStore.getState().setStatus("listening");
       this.turnController.transition("listening");
       this.currentTurnTelemetry?.finish("completed");
@@ -1319,9 +1499,6 @@ export class AriaEngine {
     this.currentTurnTelemetry?.finish("aborted", { reason: "barge_in" });
     this.currentTurnTelemetry = null;
     this.cues.stopWorkCue();
-    // Keep the mic live (skip the post-playback cooldown) so the continuing
-    // interruption reaches STT, then capture it without needing a wake word.
-    this.suppressSttUntilMs = 0;
     this.startFollowUpWindow();
   }
 
@@ -1335,6 +1512,15 @@ export class AriaEngine {
   private teardownBargeIn() {
     this.bargeIn.stop();
     this.ducked = false;
+    this.stopPlaybackTap();
+    if (this.htmlAudioSource) {
+      try {
+        this.htmlAudioSource.disconnect();
+      } catch {
+        // ignore
+      }
+      this.htmlAudioSource = null;
+    }
     if (this.answerGain) {
       try {
         this.answerGain.disconnect();
@@ -1345,9 +1531,77 @@ export class AriaEngine {
     }
   }
 
-  /** Return the mic to its raw base (echo cancellation off in speaker mode) at
-   * a moment when the user isn't mid-sentence, so recognition/diarization runs
-   * on untouched audio again. Safe to call redundantly. */
+  /** Route answer audio through a tap so the word ring can pulse off Kivo's
+   * actual voice, not the AEC-ducked room mic. */
+  private armAnswerPlayback(ctx: AudioContext, answerGain: GainNode) {
+    this.answerGain = answerGain;
+    this.ducked = false;
+    this.armPlaybackTap(ctx, answerGain);
+  }
+
+  private armPlaybackTap(ctx: AudioContext, answerGain: GainNode) {
+    this.stopPlaybackTap();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.28;
+    answerGain.connect(analyser);
+    this.playbackAnalyser = analyser;
+    this.playbackTimeDomain = new Uint8Array(analyser.fftSize);
+    const tick = () => {
+      const node = this.playbackAnalyser;
+      const samples = this.playbackTimeDomain;
+      if (!node || !samples) {
+        this.playbackMeterRaf = 0;
+        return;
+      }
+      node.getByteTimeDomainData(
+        samples as Parameters<AnalyserNode["getByteTimeDomainData"]>[0],
+      );
+      const level = this.isAssistantSpeaking
+        ? playbackRmsToLevel(samples)
+        : 0;
+      useAriaStore.getState().setPlaybackLevel(level);
+      this.playbackMeterRaf = requestAnimationFrame(tick);
+    };
+    this.playbackMeterRaf = requestAnimationFrame(tick);
+  }
+
+  private stopPlaybackTap() {
+    if (this.playbackMeterRaf) {
+      cancelAnimationFrame(this.playbackMeterRaf);
+      this.playbackMeterRaf = 0;
+    }
+    if (this.playbackAnalyser) {
+      try {
+        this.playbackAnalyser.disconnect();
+      } catch {
+        // ignore
+      }
+      this.playbackAnalyser = null;
+    }
+    this.playbackTimeDomain = null;
+    useAriaStore.getState().setPlaybackLevel(0);
+  }
+
+  private async routeHtmlAudioThroughTap(audio: HTMLAudioElement) {
+    try {
+      const playback = await this.cues.getPlaybackContext();
+      if (!playback || this.currentAudio !== audio) return;
+      const answerGain = playback.ctx.createGain();
+      answerGain.gain.value = 1;
+      answerGain.connect(playback.master);
+      const source = playback.ctx.createMediaElementSource(audio);
+      source.connect(answerGain);
+      this.htmlAudioSource = source;
+      this.armAnswerPlayback(playback.ctx, answerGain);
+    } catch {
+      // Keep the element's default output; the ring just won't hear this path.
+    }
+  }
+
+  /** Return the mic to its configured base after playback. V2 keeps AEC on so
+   * live speaker matching stays in the same acoustic domain as enrollment;
+   * this call is still safe and useful for non-V2/base configurations. */
   private releaseEchoCancellation() {
     void this.mic?.setPlaybackEchoCancellation(false).then((state) => {
       this.currentTurnTelemetry?.mark("aec_state", {
@@ -1422,6 +1676,8 @@ export class AriaEngine {
     this.clearQuestionSettleTimer();
     this.questionUtterances = [];
     this.inlineQuestion = "";
+    this.capturePrefix = "";
+    this.capturePrefixSourceIds = [];
     this.capturePartial = "";
     this.endpointForced = false;
     this.wakeUtteranceId = utteranceId;
@@ -1433,7 +1689,6 @@ export class AriaEngine {
     this.capturingFollowUp = true;
     this.scheduleFollowUpCaptureTimeout();
     this.turnController.transition("capturing");
-    this.cues.playWake();
     store.setStatus("capturing-question");
     devLog("wake", "Follow-up captured without wake word.");
   }
@@ -1460,6 +1715,7 @@ export class AriaEngine {
     sourceUtteranceIds: string[];
   } {
     const parts = [
+      this.capturePrefix.trim(),
       this.inlineQuestion.trim(),
       ...this.questionUtterances.map((u) => u.text.trim()),
     ].filter(Boolean);
@@ -1475,7 +1731,11 @@ export class AriaEngine {
     // buildLiveTranscriptLines dedup the raw copies out of the live tail.
     const sourceUtteranceIds = [
       ...new Set(
-        [this.wakeUtteranceId, ...this.questionUtterances.map((u) => u.id)].filter(
+        [
+          ...this.capturePrefixSourceIds,
+          this.wakeUtteranceId,
+          ...this.questionUtterances.map((u) => u.id),
+        ].filter(
           (id): id is string => id != null
         )
       ),
@@ -1602,11 +1862,21 @@ export class AriaEngine {
       return;
     }
     const captured = this.getCapturedQuestion();
+    // Remember what went out: if this speaker keeps talking over the next
+    // couple of seconds, they weren't finished and the dispatch is taken back.
+    this.lastDispatch = {
+      question: captured.question,
+      sourceUtteranceIds: captured.sourceUtteranceIds,
+      speaker: captured.speaker,
+      providerSpeakerLabel: captured.providerSpeakerLabel,
+      atMs: Date.now(),
+    };
     await this.askAndReset(
       captured.question,
       captured.speaker,
       captured.speakerName,
-      captured.sourceUtteranceIds
+      captured.sourceUtteranceIds,
+      captured.providerSpeakerLabel
     );
   }
 
@@ -1614,7 +1884,8 @@ export class AriaEngine {
     question: string,
     speaker: number | null,
     speakerName: string | null,
-    sourceUtteranceIds: string[]
+    sourceUtteranceIds: string[],
+    providerSpeakerLabel: string | null = null
   ) {
     const cleanQuestion = sanitizeQuestionText(question);
     // Claim any in-flight speculation for this question *before* the capture
@@ -1633,7 +1904,8 @@ export class AriaEngine {
       speaker,
       speakerName,
       sourceUtteranceIds,
-      adopted
+      adopted,
+      providerSpeakerLabel
     );
   }
 
@@ -1675,6 +1947,8 @@ export class AriaEngine {
     this.wakeSpeakerName = null;
     this.wakeProviderSpeakerLabel = null;
     this.inlineQuestion = "";
+    this.capturePrefix = "";
+    this.capturePrefixSourceIds = [];
     this.captureWholeAnchorUtterance = false;
   }
 
@@ -1687,7 +1961,8 @@ export class AriaEngine {
       controller: AbortController;
       responsePromise: Promise<Response>;
       clientT0: number;
-    } | null = null
+    } | null = null,
+    providerSpeakerLabel: string | null = null
   ) {
     if (question.length > ASK_QUESTION_MAX_CHARS) {
       devLog("ask", `Question over ${ASK_QUESTION_MAX_CHARS} chars — keeping the tail.`);
@@ -1702,7 +1977,6 @@ export class AriaEngine {
     if (this.voiceEngineV2) {
       this.bargeIn.start();
     }
-    this.cues.startThinkingLoop();
 
     // `adopted` (from askAndReset) is a speculation whose request has been
     // running through the endpoint grace — its first audio is already inbound,
@@ -1745,6 +2019,7 @@ export class AriaEngine {
             acceptMuxText: this.supportsPcmPlayback(),
             pcmSampleRate: this.playbackSampleRate ?? undefined,
             turnId: telemetry.turnId,
+            providerSpeakerLabel,
           }
         );
       }
@@ -1806,7 +2081,6 @@ export class AriaEngine {
       }
       const msg = err instanceof Error ? err.message : "unknown";
       devLog("error", msg);
-      this.cues.playError();
       // Raw transport failures read like stack noise to users; keep server-
       // provided messages (already user-appropriate) and translate the rest.
       const friendly = /fetch|network|load failed|unknown/i.test(msg)
@@ -2020,8 +2294,7 @@ export class AriaEngine {
     const answerGain = ctx.createGain();
     answerGain.gain.value = 1;
     answerGain.connect(master);
-    this.answerGain = answerGain;
-    this.ducked = false;
+    this.armAnswerPlayback(ctx, answerGain);
 
     const state = {
       ctx,
@@ -2070,7 +2343,6 @@ export class AriaEngine {
       this.pcmPlayback = null;
       this.isAssistantSpeaking = false;
       this.stt?.markAssistantSpeechEnd();
-      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       useAriaStore.getState().setStatus("listening");
       this.turnController.transition("listening");
       this.currentTurnTelemetry?.finish("completed");
@@ -2194,7 +2466,18 @@ export class AriaEngine {
     this.stopPlayback();
     const generation = this.playbackGeneration;
 
+    let destination: AudioNode | undefined;
+    const playback = await this.cues.getPlaybackContext();
+    if (playback && generation === this.playbackGeneration) {
+      const answerGain = playback.ctx.createGain();
+      answerGain.gain.value = 1;
+      answerGain.connect(playback.master);
+      this.armAnswerPlayback(playback.ctx, answerGain);
+      destination = answerGain;
+    }
+
     const handle = await this.cues.playClip(buf, {
+      destination,
       onPlay: () => {
         if (generation !== this.playbackGeneration) return;
         this.clearFollowUpStartTimer();
@@ -2214,8 +2497,8 @@ export class AriaEngine {
         if (generation !== this.playbackGeneration) return;
         this.currentClipStop = null;
         this.isAssistantSpeaking = false;
+        this.teardownBargeIn();
         this.stt?.markAssistantSpeechEnd();
-        this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
         useAriaStore.getState().setStatus("listening");
         this.turnController.transition("listening");
         this.currentTurnTelemetry?.finish("completed");
@@ -2231,10 +2514,9 @@ export class AriaEngine {
         if (generation !== this.playbackGeneration) return;
         this.currentClipStop = null;
         this.isAssistantSpeaking = false;
+        this.teardownBargeIn();
         this.stt?.markAssistantSpeechEnd();
-        this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
         this.cues.stopWorkCue();
-        this.cues.playError();
         const msg = err instanceof Error ? err.message : "Audio playback error";
         useAriaStore.getState().setError(msg);
         this.currentTurnTelemetry?.finish("failed", { message: msg });
@@ -2242,7 +2524,10 @@ export class AriaEngine {
       },
     });
 
-    if (!handle) return;
+    if (!handle) {
+      if (generation === this.playbackGeneration) this.teardownBargeIn();
+      return;
+    }
     if (generation !== this.playbackGeneration) {
       // A newer turn started while we were decoding — discard this one.
       handle.stop();
@@ -2295,7 +2580,6 @@ export class AriaEngine {
       this.currentAudioUrl = null;
       this.isAssistantSpeaking = false;
       this.stt?.markAssistantSpeechEnd();
-      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       useAriaStore.getState().setStatus("listening");
       this.turnController.transition("listening");
       this.currentTurnTelemetry?.finish("completed");
@@ -2316,19 +2600,20 @@ export class AriaEngine {
       this.currentAudioUrl = null;
       this.isAssistantSpeaking = false;
       this.stt?.markAssistantSpeechEnd();
-      this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
       this.cues.stopWorkCue();
-      this.cues.playError();
       useAriaStore.getState().setError("Audio playback error");
       this.currentTurnTelemetry?.finish("failed", {
         message: "Audio playback error",
       });
       this.currentTurnTelemetry = null;
     };
-    void audio.play().catch((err) => {
+    void this.routeHtmlAudioThroughTap(audio).then(() => {
       if (this.currentAudio !== audio) return;
-      const msg = err instanceof Error ? err.message : "play failed";
-      useAriaStore.getState().setError(msg);
+      void audio.play().catch((err) => {
+        if (this.currentAudio !== audio) return;
+        const msg = err instanceof Error ? err.message : "play failed";
+        useAriaStore.getState().setError(msg);
+      });
     });
     devLog("tts", logMessage);
   }
@@ -2351,7 +2636,6 @@ export class AriaEngine {
       }
       devLog("wake", "Conversation window closed.");
     }, CONVERSATION_WINDOW_MS);
-    this.cues.playFollowUp();
     devLog("wake", "Conversation window open.");
   }
 
@@ -2409,7 +2693,6 @@ export class AriaEngine {
     // Close any dangling open assistant-speech interval (barge-in / stop
     // command cutting playback short) so the echo tail is still bounded.
     this.stt?.markAssistantSpeechEnd();
-    this.suppressSttUntilMs = Date.now() + PLAYBACK_STT_COOLDOWN_MS;
     this.clearFollowUpStartTimer();
     // Invalidate any in-flight clip callbacks and stop the active buffer source.
     this.playbackGeneration++;
@@ -2502,7 +2785,9 @@ export class AriaEngine {
         const ids = this.streamTurnIdsByLabel.get(u.providerSpeakerLabel) ?? [];
         ids.push(persisted.id);
         this.streamTurnIdsByLabel.set(u.providerSpeakerLabel, ids);
+        this.creditAttributedSpeech(u);
       }
+      this.maybeRequestSpeakerSnapshot();
       this.onSessionActivity?.();
     } catch (err) {
       for (const id of turn.sourceUtteranceIds) {
@@ -2511,6 +2796,111 @@ export class AriaEngine {
       const msg = err instanceof Error ? err.message : "unknown error";
       devLog("session", `Failed to persist speaker turn: ${msg}`);
     }
+  }
+
+  /**
+   * Counts how much real speech a provider label has carried in this stream.
+   * Echo is excluded — Kivo's own voice coming back through the mic would
+   * otherwise inflate whichever cluster absorbed it toward the learn
+   * threshold, and that cluster is precisely the one we must never learn from.
+   */
+  private creditAttributedSpeech(u: TranscriptUtterance): void {
+    const label = u.providerSpeakerLabel;
+    if (!label || u.overlapsAssistantSpeech) return;
+    if (!u.speakerName) return;
+    const durationMs = Math.max(0, (u.end - u.start) * 1000);
+    if (durationMs === 0) return;
+    this.attributedSpeechMsByLabel.set(
+      label,
+      (this.attributedSpeechMsByLabel.get(label) ?? 0) + durationMs
+    );
+  }
+
+  /**
+   * Folds this stream's voiceprint back into any profile that has been getting
+   * attributed correctly for a sustained stretch, so a profile keeps improving
+   * from sessions that went *right* rather than only from corrections.
+   */
+  private async reinforceEnrolledProfiles(): Promise<void> {
+    if (this.transcriptionMode !== "speaker") return;
+    if (this.enrolledProfiles.length === 0) return;
+
+    // Key by the label we actually sent Speechmatics — it normalises whitespace
+    // and rewrites S-prefixed names, so a display name is not always its label.
+    const profilesByLabel = new Map(
+      this.enrolledProfiles.map(
+        (profile) =>
+          [
+            safeSpeakerLabel(profile.name),
+            { id: profile.id, name: profile.name },
+          ] as const
+      )
+    );
+    // Clusters from earlier streams share labels with the current one but were
+    // built from different audio; the speech tally is per stream, so pairing it
+    // with a stale cluster's print would learn the wrong sample.
+    const epoch = this.stt?.currentStreamEpoch ?? 1;
+    const candidates = selectReinforcementCandidates({
+      clusters: this.speakerClusters.filter(
+        (cluster) => cluster.streamEpoch === epoch
+      ),
+      attributedMsByLabel: this.attributedSpeechMsByLabel,
+      profilesByLabel,
+      correctedLabels: this.correctedSpeakerLabels,
+      alreadyReinforced: this.reinforcedProfileIds,
+    });
+
+    for (const candidate of candidates) {
+      // Claim the slot before awaiting: snapshots overlap, and learning the
+      // same print twice would spend two rotation slots on one sample.
+      this.reinforcedProfileIds.add(candidate.profileId);
+      try {
+        const updated = await learnSpeakerProfile({
+          name: candidate.profileName,
+          speakerIdentifiers: [candidate.identifier],
+        });
+        this.enrolledProfiles = this.enrolledProfiles.map((profile) =>
+          profile.id === updated.id ? updated : profile
+        );
+        devLog(
+          "speaker",
+          `Reinforced voiceprint for ${candidate.profileName} (${updated.speakerIdentifiers.length} prints stored).`
+        );
+      } catch (err) {
+        this.reinforcedProfileIds.delete(candidate.profileId);
+        const msg = err instanceof Error ? err.message : "unknown error";
+        devLog("speaker", `Voiceprint reinforcement failed: ${msg}`);
+      }
+    }
+  }
+
+  private captureSpeakerResults(
+    speakers: SpeechmaticsSpeakerResult[]
+  ): void {
+    if (speakers.length === 0) return;
+    this.speakerClusters = mergeSessionSpeakerClusters(
+      this.speakerClusters,
+      speakers.map((speaker) => ({
+        clusterKey: speakerClusterKey(
+          speaker.streamEpoch,
+          speaker.label
+        ),
+        streamEpoch: speaker.streamEpoch,
+        providerSpeakerLabel: speaker.label,
+        speakerIdentifiers: speaker.speakerIdentifiers,
+      }))
+    );
+    void this.reinforceEnrolledProfiles();
+  }
+
+  private maybeRequestSpeakerSnapshot(): void {
+    if (this.transcriptionMode !== "speaker" || !this.stt?.isConnected) return;
+    const epoch = this.stt.currentStreamEpoch;
+    const now = Date.now();
+    const last = this.lastSpeakerSnapshotRequestAt.get(epoch) ?? 0;
+    if (now - last < SPEAKER_SNAPSHOT_INTERVAL_MS) return;
+    this.lastSpeakerSnapshotRequestAt.set(epoch, now);
+    this.stt.requestSpeakers();
   }
 
   /** Names available as correction targets in the transcript UI. */
@@ -2530,8 +2920,17 @@ export class AriaEngine {
     providerSpeakerLabel: string;
     /** Corrected display name; null means "not an enrolled voice". */
     correctedName: string | null;
+    /**
+     * The profile just written by the learn endpoint, if any. Seeding it into
+     * the restarted stream is what makes a correction stick for the rest of
+     * the session instead of only fixing the transcript after the fact.
+     */
+    learnedProfile?: SpeakerProfileDoc | null;
   }): Promise<void> {
-    const { providerSpeakerLabel, correctedName } = input;
+    const { providerSpeakerLabel, correctedName, learnedProfile } = input;
+    // This cluster produced a label the user rejected, so it must never feed
+    // automatic reinforcement — not even after a restart reshuffles clusters.
+    this.correctedSpeakerLabels.add(providerSpeakerLabel);
     devLog("speaker", "Speaker correction requested.", {
       providerSpeakerLabel,
       correctedName,
@@ -2548,6 +2947,16 @@ export class AriaEngine {
     useAriaStore
       .getState()
       .relabelUtterances(providerSpeakerLabel, correctedName);
+
+    if (learnedProfile) {
+      this.enrolledProfiles = [
+        learnedProfile,
+        ...this.enrolledProfiles.filter(
+          (profile) => profile.id !== learnedProfile.id
+        ),
+      ];
+      this.stt?.setSpeakerProfiles(this.enrolledProfiles);
+    }
 
     useAriaStore.getState().setNotice("Re-reading voices…");
     await this.stt?.restartRecognition();

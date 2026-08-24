@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VisualMicLevelNormalizer } from "@/lib/audio/visual-level";
+import { VisualMicLevelNormalizer, playbackRmsToLevel } from "@/lib/audio/visual-level";
 
 function settle(
   normalizer: VisualMicLevelNormalizer,
@@ -42,5 +42,19 @@ describe("VisualMicLevelNormalizer", () => {
     normalizer.reset();
 
     expect(normalizer.update(0)).toBe(0);
+  });
+});
+
+describe("playbackRmsToLevel", () => {
+  it("reads silence as empty", () => {
+    const silence = new Array(32).fill(128);
+    expect(playbackRmsToLevel(silence)).toBeLessThan(0.02);
+  });
+
+  it("reads a loud sine-like swing as energy", () => {
+    const loud = Array.from({ length: 32 }, (_, i) =>
+      i % 2 === 0 ? 210 : 46,
+    );
+    expect(playbackRmsToLevel(loud)).toBeGreaterThan(0.4);
   });
 });

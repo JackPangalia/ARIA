@@ -10,6 +10,8 @@ interface AriaState {
   /** Transient status note (e.g. "Reconnecting…") shown without entering error state. */
   notice: string | null;
   micLevel: number;
+  /** 0..1 envelope of Kivo's TTS output — independent of the room mic / AEC. */
+  playbackLevel: number;
   effectiveModel: string | null;
   modelFallback: string | null;
 
@@ -17,6 +19,7 @@ interface AriaState {
   setError: (msg: string | null) => void;
   setNotice: (msg: string | null) => void;
   setMicLevel: (n: number) => void;
+  setPlaybackLevel: (n: number) => void;
   setEffectiveModel: (model: string | null, fallback: string | null) => void;
   upsertUtterance: (u: TranscriptUtterance) => void;
   patchUtterance: (id: string, patch: Partial<TranscriptUtterance>) => void;
@@ -37,6 +40,7 @@ export const useAriaStore = create<AriaState>((set) => ({
   errorMessage: null,
   notice: null,
   micLevel: 0,
+  playbackLevel: 0,
   effectiveModel: null,
   modelFallback: null,
 
@@ -46,6 +50,7 @@ export const useAriaStore = create<AriaState>((set) => ({
   setNotice: (msg) => set({ notice: msg }),
 
   setMicLevel: (n) => set({ micLevel: n }),
+  setPlaybackLevel: (n) => set({ playbackLevel: n }),
   setEffectiveModel: (effectiveModel, modelFallback) =>
     set({ effectiveModel, modelFallback }),
 

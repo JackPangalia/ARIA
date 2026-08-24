@@ -1,0 +1,226 @@
+/* Command palette — conversation search. Quiet paper card; internals stay
+   airy so this matches Settings and the hubs instead of the old dense shell. */
+
+.kivo-palette-modal {
+  max-height: min(78vh, 34rem);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+.kivo-palette-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 1.15rem 1.35rem 0.95rem;
+}
+
+.kivo-palette-search-icon {
+  flex-shrink: 0;
+  color: var(--app-fg-subtle);
+}
+
+.kivo-palette-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 1.0625rem;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  color: var(--app-fg);
+  outline: none;
+}
+
+.kivo-palette-search-input::placeholder {
+  color: var(--app-fg-muted);
+}
+
+.kivo-palette-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.15rem 0.65rem 1.1rem;
+}
+
+.kivo-palette-section {
+  padding: 0.65rem 0.35rem 0.35rem;
+}
+
+.kivo-palette-section + .kivo-palette-section {
+  padding-top: 0.85rem;
+}
+
+.kivo-palette-section-label {
+  margin: 0;
+  padding: 0 0.65rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--app-fg-muted);
+}
+
+.kivo-palette-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: var(--app-fg);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.kivo-palette-action:hover {
+  background: var(--app-surface-hover);
+}
+
+.kivo-palette-action:focus-visible {
+  background: var(--app-surface-hover);
+  outline: 2px solid color-mix(in srgb, var(--app-indigo) 72%, var(--app-fg));
+  outline-offset: 2px;
+}
+
+.kivo-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.kivo-palette-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 2.65rem;
+  border-radius: 12px;
+  transition: background-color 160ms ease;
+}
+
+.kivo-palette-row[data-focused="true"],
+.kivo-palette-row:hover {
+  background: var(--app-surface-hover);
+}
+
+.kivo-palette-row[data-selected="true"] .kivo-palette-row-main {
+  font-weight: 500;
+}
+
+.kivo-palette-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: var(--app-fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.kivo-palette-row-date {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-fg-muted);
+}
+
+.kivo-palette-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 0.45rem;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.kivo-palette-row:hover .kivo-palette-row-actions,
+.kivo-palette-row[data-focused="true"] .kivo-palette-row-actions,
+.kivo-palette-row-actions:focus-within,
+.kivo-palette-row-actions[data-visible="true"] {
+  opacity: 1;
+}
+
+.kivo-palette-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0.35rem;
+  color: var(--app-fg-muted);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.kivo-palette-icon-btn:hover {
+  background: var(--app-surface-selected);
+  color: var(--app-fg);
+}
+
+.kivo-palette-icon-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--app-indigo) 72%, var(--app-fg));
+  outline-offset: 2px;
+}
+
+.kivo-palette-icon-btn-danger:hover {
+  color: var(--app-danger-fg);
+}
+
+.kivo-palette-rename-input {
+  flex: 1;
+  margin: 0.35rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-input-bg);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9375rem;
+  color: var(--app-fg);
+  outline: none;
+}
+
+.kivo-palette-rename-input:focus {
+  border-color: var(--app-border-strong);
+}
+
+.kivo-palette-empty {
+  padding: 2.25rem 1rem 1.75rem;
+  text-align: center;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--app-fg-muted);
+}
+
+@media (hover: none) {
+  .kivo-palette-row-actions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .kivo-palette-modal {
+    max-height: min(86vh, 36rem);
+  }
+
+  .kivo-palette-search {
+    padding: 1.05rem 1.15rem 0.85rem;
+  }
+
+  .kivo-palette-row-main,
+  .kivo-palette-action {
+    padding: 0.75rem;
+  }
+
+  .kivo-palette-icon-btn {
+    padding: 0.5rem;
+  }
+}

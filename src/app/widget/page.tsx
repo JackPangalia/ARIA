@@ -72,9 +72,9 @@ function MiniWidget(props: {
               : `0 0 ${5 + props.energy * 9}px ${props.accent}`,
           }}
         />
-        {/* Same wide-tracked mark as the landing / app wordmark. */}
+        {/* Same Newsreader mark as the landing / app wordmark. */}
         <span
-          className="kivo-wordmark select-none text-[10px] leading-none"
+          className="kivo-wordmark select-none text-[1.05rem] leading-none"
           style={{
             color: props.isLight
               ? "rgba(24,24,27,0.72)"
@@ -105,6 +105,7 @@ export default function WidgetPage() {
   const [style] = useWidgetStyle();
   const [status, setStatus] = useState<AriaStatus>("idle");
   const [micLevel, setMicLevel] = useState(0);
+  const [playbackLevel, setPlaybackLevel] = useState(0);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{
     pointerId: number;
@@ -119,6 +120,7 @@ export default function WidgetPage() {
     return desktop.onOrbState((state) => {
       setStatus(state.status);
       setMicLevel(state.micLevel);
+      setPlaybackLevel(state.playbackLevel ?? 0);
     });
   }, []);
 
@@ -126,7 +128,7 @@ export default function WidgetPage() {
   const isLight = resolvedTheme === "light";
   // Orb accents stay on the dark palette — same reason as the particle blend.
   const accent = accentFor(mode, false);
-  const energy = energyFor(mode, micLevel);
+  const energy = energyFor(mode, micLevel, playbackLevel);
 
   const openDashboard = () => getKivoDesktop()?.openDashboard();
 

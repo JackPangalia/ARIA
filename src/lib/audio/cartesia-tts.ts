@@ -1,4 +1,5 @@
 import { stripMarkdownForSpeech } from "@/lib/aria/tts-phrase-buffer";
+import { KIVO_CARTESIA_GENERATION_CONFIG } from "@/lib/audio/cartesia-generation";
 
 // Bumped from 2025-04-16 alongside the WS path; current documented version.
 const CARTESIA_API_VERSION = "2026-03-01";
@@ -29,6 +30,7 @@ export async function createCartesiaSpeechStream(
     model_id: config.modelId,
     transcript: cleanTranscript || transcript,
     voice: { mode: "id", id: config.voiceId },
+    generation_config: KIVO_CARTESIA_GENERATION_CONFIG,
     output_format: {
       container: "mp3",
       sample_rate: 44100,

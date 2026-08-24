@@ -1,65 +1,18 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 import type { ProjectDoc } from "@/lib/projects/types";
 import type { SessionDoc } from "@/lib/sessions/types";
-
-function SearchIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.5" />
-      <path d="m20 20-3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PlusIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FolderIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SessionIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M5 10v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M9 7v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M13 9v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M17 5v14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M21 11v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ChevronRightIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="m9 18 6-6-6-6"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+import { homeGreeting, homeHeroMode } from "@/lib/home";
+import {
+  ChevronRightIcon,
+  FolderIcon,
+  HubEmptyState,
+  PlusIcon,
+  SearchIcon,
+  SessionIcon,
+} from "./icons";
 
 function formatDate(value: string | number) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -68,330 +21,172 @@ function formatDate(value: string | number) {
   });
 }
 
-type HubTab = "all" | "sessions" | "projects";
-
-const PAGE_SIZE = 15;
+function ArrowIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 12h14M14 7l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function SessionHub(props: {
+  displayName?: string | null;
   projects: ProjectDoc[];
   sessions: SessionDoc[];
+  activeSession: SessionDoc | null;
+  onPrimaryAction: () => void;
   onOpenSearch: () => void;
   onSelectProject: (projectId: string) => void;
   onCreateProject: () => void;
   onSelectSession: (sessionId: string) => void;
 }) {
-  const [tab, setTab] = useState<HubTab>("all");
-  const [visibleSessionsCount, setVisibleSessionsCount] = useState(PAGE_SIZE);
-  const [visibleProjectsCount, setVisibleProjectsCount] = useState(PAGE_SIZE);
-
-  const projectSessionCount = (projectId: string) =>
-    props.sessions.filter((session) => session.projectId === projectId).length;
+  const [hour] = useState(() => new Date().getHours());
 
   const sortedSessions = useMemo(
     () =>
       [...props.sessions].sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       ),
-    [props.sessions]
+    [props.sessions],
   );
+  const recentSessions = sortedSessions.slice(0, 9);
+  const heroMode = homeHeroMode(props.sessions);
 
-  const paginatedSessions = useMemo(
-    () => sortedSessions.slice(0, visibleSessionsCount),
-    [sortedSessions, visibleSessionsCount]
-  );
-
-  const paginatedProjects = useMemo(
-    () => props.projects.slice(0, visibleProjectsCount),
-    [props.projects, visibleProjectsCount]
-  );
-
-  const recentSessions = useMemo(() => sortedSessions.slice(0, 8), [sortedSessions]);
-
-  const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-      active
-        ? "bg-surface text-app"
-        : "text-app-muted hover:bg-surface-hover hover:text-app-secondary"
-    }`;
+  const projectSessionCount = (projectId: string) =>
+    props.sessions.filter((session) => session.projectId === projectId).length;
 
   return (
-    <div className="pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-24 pt-6 sm:px-10 sm:pb-28 sm:pt-8">
-        <div>
-          <div>
+    <main className="pointer-events-auto h-full min-h-0 overflow-y-auto overscroll-contain" id="main-content">
+      <div className="kivo-home-canvas mx-auto w-full max-w-[70rem] px-5 pb-24 pt-4 sm:px-8 sm:pb-28 sm:pt-7 xl:px-10">
+        <section
+          className="kivo-home-hero group relative isolate overflow-hidden rounded-[1.75rem]"
+          data-mode={heroMode}
+          aria-labelledby="home-hero-title"
+        >
+          <Image
+            src="/landing/kivo-session-afterglow-motion-v1.png"
+            alt="A warmly lit meeting room after a conversation"
+            fill
+            priority
+            sizes="(max-width: 1024px) 100vw, 1120px"
+            className="kivo-home-hero-image object-cover"
+          />
+          <div className="kivo-home-hero-scrim absolute inset-0" />
+          <div className="relative z-10 flex h-full max-w-[38rem] flex-col items-start justify-end px-6 py-7 text-[#fbf8f0] sm:px-9 sm:py-9 lg:px-11 lg:py-10">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/62">
+              {homeGreeting(hour, props.displayName)}
+            </p>
+            <h1 id="home-hero-title" className="mt-3 max-w-[11em] font-serif text-[1.85rem] font-normal leading-[0.98] tracking-[-0.045em] text-balance sm:text-[3.15rem]">
+              {heroMode === "first_use"
+                ? "Bring Kivo into the next conversation."
+                : "The room is ready when you are."}
+            </h1>
+            <p className="mt-4 max-w-[34rem] text-sm leading-relaxed text-white/72 sm:text-[15px]">
+              {props.activeSession
+                ? `Pick up “${props.activeSession.title}” with the context still intact.`
+                : "Start listening, ask out loud, and leave with the conversation intact."}
+            </p>
             <button
               type="button"
-              onClick={props.onOpenSearch}
-              className="group flex w-full items-center gap-2.5 rounded-2xl bg-surface/60 px-3.5 py-2.5 text-left text-sm text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+              onClick={props.onPrimaryAction}
+              className="kivo-home-hero-action mt-7 inline-flex items-center gap-2 rounded-xl bg-[#f8f4ea] px-4 py-2.5 text-sm font-semibold text-[#171713] shadow-[0_12px_30px_rgba(0,0,0,0.18)] transition-[transform,background-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] active:translate-y-px active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
             >
-              <SearchIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app-secondary" />
-              <span className="flex-1 text-sm font-normal">Search conversations & projects...</span>
-              <kbd className="hidden rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-app-subtle sm:inline">
-                ⌘K
-              </kbd>
+              {props.activeSession ? "Resume conversation" : "Start conversation"}
+              <ArrowIcon />
             </button>
           </div>
+        </section>
 
-          <div className="mt-6 flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setTab("all")}
-              className={tabClass(tab === "all")}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("sessions")}
-              className={tabClass(tab === "sessions")}
-            >
-              Conversations ({sortedSessions.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("projects")}
-              className={tabClass(tab === "projects")}
-            >
-              Projects ({props.projects.length})
-            </button>
-          </div>
+        <button
+          type="button"
+          onClick={props.onOpenSearch}
+          className="kivo-home-search group mt-5 flex w-full items-center gap-3 rounded-2xl border border-app-subtle bg-[color-mix(in_srgb,var(--app-surface)_55%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] duration-200 hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+        >
+          <SearchIcon className="shrink-0 transition-colors group-hover:text-app" />
+          <span className="flex-1">Search conversations and projects</span>
+          <kbd className="hidden rounded-md border border-app-subtle bg-[color-mix(in_srgb,var(--app-bg)_60%,transparent)] px-2 py-0.5 font-mono text-[10px] text-app-subtle sm:inline">⌘K</kbd>
+        </button>
 
-          {tab === "all" ? (
-            <div className="mt-5 space-y-7">
-              {/* Projects Section */}
-              <section aria-labelledby="home-projects-heading">
-                <div className="flex items-center justify-between px-1">
-                  <h2 id="home-projects-heading" className="text-xs font-medium uppercase tracking-wider text-app-subtle">
-                    Projects ({props.projects.length})
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={props.onCreateProject}
-                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-app-muted transition-colors hover:bg-surface-hover hover:text-app"
-                  >
-                    <PlusIcon className="shrink-0" />
-                    <span>New project</span>
-                  </button>
-                </div>
+        <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.8fr)] lg:gap-10">
+          <section aria-labelledby="home-recent-heading" className="kivo-home-section order-2 lg:order-1">
+            <div className="flex items-end justify-between gap-4 border-b border-app-subtle pb-3">
+              <div>
+                <p className="kivo-kicker">Your history</p>
+                <h2 id="home-recent-heading" className="mt-1 font-serif text-[1.75rem] leading-tight tracking-[-0.035em] text-app">Recent conversations</h2>
+              </div>
+              {sortedSessions.length > recentSessions.length ? (
+                <button type="button" onClick={props.onOpenSearch} className="rounded-lg px-2 py-1 text-xs font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app">View all</button>
+              ) : null}
+            </div>
 
-                {props.projects.length ? (
-                  <ul className="mt-2 space-y-0.5">
-                    {props.projects.slice(0, 6).map((project) => {
-                      const count = projectSessionCount(project.id);
-                      return (
-                        <li key={project.id}>
-                          <button
-                            type="button"
-                            onClick={() => props.onSelectProject(project.id)}
-                            className="group flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
-                          >
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <FolderIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                              <span className="truncate text-sm text-app">{project.name}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-xs text-app-subtle">
-                              <span>{count} {count === 1 ? "conversation" : "conversations"}</span>
-                              <ChevronRightIcon className="shrink-0 text-app-subtle transition-colors group-hover:text-app-muted" />
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="mt-2 px-3 py-3 text-sm font-normal text-app-subtle">
-                    Projects keep your conversations and source material organized.
-                  </p>
-                )}
-
-                {props.projects.length > 6 ? (
-                  <button
-                    type="button"
-                    onClick={() => setTab("projects")}
-                    className="mt-2 text-xs font-medium text-app-muted transition-colors hover:text-app px-3 py-1"
-                  >
-                    View all {props.projects.length} projects →
-                  </button>
-                ) : null}
-              </section>
-
-              {/* Recent Conversations Section */}
-              <section aria-labelledby="home-recent-conversations-heading">
-                <div className="flex items-center justify-between px-1">
-                  <h2 id="home-recent-conversations-heading" className="text-xs font-medium uppercase tracking-wider text-app-subtle">
-                    Recent conversations ({sortedSessions.length})
-                  </h2>
-                  {sortedSessions.length > recentSessions.length ? (
+            {recentSessions.length ? (
+              <ul className="kivo-stagger mt-2 divide-y divide-[var(--app-border-subtle)]">
+                {recentSessions.map((session) => (
+                  <li key={session.id}>
                     <button
                       type="button"
-                      onClick={() => setTab("sessions")}
-                      className="rounded-lg px-2 py-1 text-xs text-app-muted transition-colors hover:bg-surface-hover hover:text-app"
+                      onClick={() => props.onSelectSession(session.id)}
+                      className="group flex w-full items-center gap-3 rounded-xl px-2 py-3.5 text-left transition-[background-color,transform] duration-200 hover:translate-x-1 hover:bg-[color-mix(in_srgb,var(--app-surface-hover)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
                     >
-                      View all
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface text-app-muted transition-colors group-hover:bg-surface-strong group-hover:text-app"><SessionIcon size={17} /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-app">{session.title}</span>
+                        <span className="mt-0.5 block text-xs text-app-subtle">
+                          {session.status === "active" && session.turnCount > 0
+                            ? "In progress"
+                            : props.projects.find((project) => project.id === session.projectId)?.name ?? "Conversation"}
+                        </span>
+                      </span>
+                      <time className="shrink-0 text-xs tabular-nums text-app-subtle" dateTime={new Date(session.updatedAt).toISOString()}>{formatDate(session.updatedAt)}</time>
+                      <ChevronRightIcon className="-ml-1 shrink-0 text-app-subtle opacity-0 transition-[opacity,transform] group-hover:translate-x-0.5 group-hover:opacity-100" />
                     </button>
-                  ) : null}
-                </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <HubEmptyState
+                icon={<SessionIcon size={20} />}
+                title="Your first conversation starts here"
+                description="Kivo will keep the summary and transcript ready for when the room clears."
+                action={<button type="button" onClick={props.onPrimaryAction} className="text-sm font-medium text-app underline decoration-[var(--app-border-strong)] underline-offset-4 hover:decoration-[var(--app-fg)]">Start listening</button>}
+              />
+            )}
+          </section>
 
-                {recentSessions.length ? (
-                  <ul className="mt-2 space-y-0.5">
-                    {recentSessions.map((session) => (
-                      <li key={session.id}>
-                        <button
-                          type="button"
-                          onClick={() => props.onSelectSession(session.id)}
-                          className="group flex w-full items-center justify-between gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
-                        >
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                            <span className="truncate text-sm text-app">{session.title}</span>
-                          </div>
-                          <time className="shrink-0 text-xs text-app-subtle" dateTime={new Date(session.updatedAt).toISOString()}>
-                            {formatDate(session.updatedAt)}
-                          </time>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 px-3 py-3 text-sm font-normal text-app-subtle">
-                    Your completed conversations will appear here.
-                  </p>
-                )}
-
-                {sortedSessions.length > recentSessions.length ? (
-                  <button
-                    type="button"
-                    onClick={() => setTab("sessions")}
-                    className="mt-2 text-xs font-medium text-app-muted transition-colors hover:text-app px-3 py-1"
-                  >
-                    View all {sortedSessions.length} conversations →
-                  </button>
-                ) : null}
-              </section>
+          <section aria-labelledby="home-projects-heading" className="kivo-home-projects order-1 rounded-[1.5rem] bg-[color-mix(in_srgb,var(--app-surface)_65%,transparent)] p-5 sm:p-6 lg:order-2">
+            <div className="flex items-start justify-between gap-3">
+              <h2 id="home-projects-heading" className="font-serif text-[1.65rem] leading-tight tracking-[-0.035em] text-app">
+                Projects
+              </h2>
+              <button type="button" onClick={props.onCreateProject} className="flex h-9 w-9 items-center justify-center rounded-xl bg-app text-app-muted transition-[background-color,transform,color] hover:-translate-y-0.5 hover:bg-surface-strong hover:text-app active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app" aria-label="New project"><PlusIcon size={17} /></button>
             </div>
-          ) : null}
 
-          {tab === "sessions" ? (
-            <div className="mt-5">
-              {sortedSessions.length === 0 ? (
-                <p className="px-3 py-3 text-sm font-normal text-app-subtle">
-                  No conversations yet.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  <ul className="space-y-0.5">
-                    {paginatedSessions.map((session) => (
-                      <li key={session.id}>
-                        <button
-                          type="button"
-                          onClick={() => props.onSelectSession(session.id)}
-                          className="group flex w-full items-center justify-between gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
-                        >
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                            <span className="truncate text-sm text-app">{session.title}</span>
-                          </div>
-                          <time className="shrink-0 text-xs text-app-subtle" dateTime={new Date(session.updatedAt).toISOString()}>
-                            {formatDate(session.updatedAt)}
-                          </time>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-
-                  {sortedSessions.length > paginatedSessions.length ? (
-                    <div className="flex items-center justify-between px-1 pb-2 pt-3">
-                      <span className="text-xs text-app-subtle">
-                        Showing {paginatedSessions.length} of {sortedSessions.length} conversations
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setVisibleSessionsCount((prev) => prev + PAGE_SIZE)}
-                        className="rounded-lg bg-surface px-3 py-1.5 text-xs font-medium text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
-                      >
-                        Load more
+            {props.projects.length ? (
+              <ul className="mt-5 space-y-1">
+                {props.projects.slice(0, 7).map((project) => {
+                  const count = projectSessionCount(project.id);
+                  return (
+                    <li key={project.id}>
+                      <button type="button" onClick={() => props.onSelectProject(project.id)} className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-3 text-left transition-[background-color,transform] hover:translate-x-0.5 hover:bg-[color-mix(in_srgb,var(--app-bg)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app">
+                        <FolderIcon size={17} className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-app">{project.name}</span>
+                        <span className="text-xs tabular-nums text-app-subtle">{count}</span>
                       </button>
-                    </div>
-                  ) : sortedSessions.length > PAGE_SIZE ? (
-                    <p className="pt-2 text-center text-xs text-app-subtle">
-                      Showing all {sortedSessions.length} conversations
-                    </p>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {tab === "projects" ? (
-            <div className="mt-5 space-y-3">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-medium uppercase tracking-wider text-app-subtle">
-                  All Projects ({props.projects.length})
-                </span>
-                <button
-                  type="button"
-                  onClick={props.onCreateProject}
-                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-app-muted transition-colors hover:bg-surface-hover hover:text-app"
-                >
-                  <PlusIcon className="shrink-0" />
-                  <span>New project</span>
-                </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <div className="mt-8 pb-2">
+                <p className="font-serif text-xl tracking-[-0.025em] text-app">Give recurring conversations a home.</p>
+                <p className="mt-2 text-sm leading-relaxed text-app-muted">Projects add instructions and source material whenever Kivo answers.</p>
+                <button type="button" onClick={props.onCreateProject} className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-app transition-opacity hover:opacity-55"><PlusIcon size={16} />Create a project</button>
               </div>
-
-              {props.projects.length === 0 ? (
-                <p className="px-3 py-3 text-sm font-normal text-app-subtle">
-                  No projects created yet.
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  <ul className="space-y-0.5">
-                    {paginatedProjects.map((project) => {
-                      const count = projectSessionCount(project.id);
-                      return (
-                        <li key={project.id}>
-                          <button
-                            type="button"
-                            onClick={() => props.onSelectProject(project.id)}
-                            className="group flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
-                          >
-                            <div className="flex min-w-0 items-center gap-2.5">
-                              <FolderIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                              <span className="truncate text-sm text-app">{project.name}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-xs text-app-subtle">
-                              <span>{count} {count === 1 ? "conversation" : "conversations"}</span>
-                              <ChevronRightIcon className="shrink-0 text-app-subtle transition-colors group-hover:text-app-muted" />
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-
-                  {props.projects.length > paginatedProjects.length ? (
-                    <div className="flex items-center justify-between px-1 pb-2 pt-3">
-                      <span className="text-xs text-app-subtle">
-                        Showing {paginatedProjects.length} of {props.projects.length} projects
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setVisibleProjectsCount((prev) => prev + PAGE_SIZE)}
-                        className="rounded-lg bg-surface px-3 py-1.5 text-xs font-medium text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
-                      >
-                        Load more
-                      </button>
-                    </div>
-                  ) : props.projects.length > PAGE_SIZE ? (
-                    <p className="pt-2 text-center text-xs text-app-subtle">
-                      Showing all {props.projects.length} projects
-                    </p>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          ) : null}
+            )}
+          </section>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

@@ -18,17 +18,10 @@ type Note = {
   type?: OscillatorType;
 };
 
-// Thinking pulse is a slow, faint breath rather than an insistent beep.
-const PULSE_INTERVAL_MS = 2600;
-// Answers that arrive quickly should play no thinking cue at all — silence
-// reads as responsiveness. The pulse only starts once a think has gone on
-// long enough that the user might wonder whether Kivo heard them.
-const PULSE_START_DELAY_MS = 1500;
-
-// The search cue sits high and moves faster than the low thinking breath, so a
-// live lookup never sounds like a long think. It also waits longer before
-// starting: Kivo speaks a short hand-off line as the search begins, and a chime
-// layered under that line is just clutter.
+// The search cue sits high and airy so it reads as "out looking something up"
+// rather than as an alert. It waits before starting: Kivo speaks a short
+// hand-off line as the search begins, and a chime layered under that line is
+// just clutter — most searches finish before it is ever heard.
 const SEARCH_PULSE_INTERVAL_MS = 1500;
 const SEARCH_PULSE_START_DELAY_MS = 2200;
 
@@ -99,6 +92,8 @@ export class CueEngine {
       onPlay?: () => void;
       onEnded?: () => void;
       onError?: (err: unknown) => void;
+      /** If set, the clip is routed here instead of straight into master. */
+      destination?: AudioNode;
     } = {}
   ): Promise<{ stop: () => void } | null> {
     try {
@@ -116,7 +111,7 @@ export class CueEngine {
       const audioBuffer = await ctx.decodeAudioData(data);
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(this.master);
+      source.connect(handlers.destination ?? this.master);
       let ended = false;
       const finish = () => {
         if (ended) return;
@@ -160,24 +155,20 @@ export class CueEngine {
     }
   }
 
-  // The cue set is deliberately minimal and understated — one short, quiet
-  // acknowledgment where state genuinely needs confirming, silence everywhere
-  // the conversation itself already carries the signal. Multi-note chimes read
-  // as gimmicky next to a natural back-and-forth.
+  // Kivo makes a sound at exactly three moments: it is called in, it leaves,
+  // and it is off looking something up. Everything in between — thinking,
+  // answering, staying open for a follow-up — is carried by the conversation
+  // itself and by the UI. Chimes inside a natural back-and-forth read as
+  // talking to a gadget; chimes at the edges read as it arriving and leaving.
 
   playWake() {
     // A single soft tick — "I'm listening" — quiet and over in under 200ms so
     // it never competes with the speaker, who is usually still mid-sentence.
+    // Explicit wake only: a wake-free follow-up is the same conversation
+    // continuing, not Kivo being called in again.
     this.playSequence([
       { freq: 830.61, durationMs: 170, gain: 0.06, attackMs: 12, releaseMs: 140 },
     ]);
-  }
-
-  playFollowUp() {
-    // Intentionally silent. This fires after every single answer, and a chime
-    // here is the biggest source of "talking to a gadget" feel. The answer
-    // ending is itself the signal that Kivo is still listening; the UI shows
-    // the follow-up state for anyone looking.
   }
 
   playClose() {
@@ -195,27 +186,7 @@ export class CueEngine {
     ]);
   }
 
-  playError() {
-    // Short low descending pair — clearly "that didn't work", kept brief.
-    this.playSequence([
-      { freq: 440.0, durationMs: 220, gain: 0.08, attackMs: 20, releaseMs: 180, type: "triangle" },
-      { freq: 349.23, durationMs: 260, gain: 0.08, startOffsetMs: 120, attackMs: 24, releaseMs: 220, type: "triangle" },
-    ]);
-  }
-
-  startThinkingLoop() {
-    this.startWorkCue(
-      () => this.playPulse(),
-      PULSE_START_DELAY_MS,
-      PULSE_INTERVAL_MS
-    );
-  }
-
-  /**
-   * Ambient cue while a web search runs. Kept audibly distinct from the
-   * thinking breath: the room should be able to hear that Kivo is looking
-   * something up rather than mulling it over.
-   */
+  /** Ambient cue while a web search runs. */
   startSearchingLoop() {
     this.startWorkCue(
       () => this.playSearchPulse(),
@@ -224,11 +195,7 @@ export class CueEngine {
     );
   }
 
-  /**
-   * Stops whichever ambient work cue is running. Thinking and searching share
-   * one slot — they never overlap — so every teardown path can call this
-   * without knowing which one started.
-   */
+  /** Stops the ambient search cue. Safe to call from any teardown path. */
   stopWorkCue() {
     if (this.workStartTimer) {
       clearTimeout(this.workStartTimer);
@@ -253,19 +220,10 @@ export class CueEngine {
 
   private playSearchPulse() {
     // A faint high shimmer (A5 + E6) with a long, airy attack — reads as
-    // "out looking for something", and can't be mistaken for the low breath.
+    // "out looking for something" without cutting through the room.
     this.playSequence([
       { freq: 880.0, durationMs: 300, gain: 0.026, attackMs: 60, releaseMs: 230 },
       { freq: 1318.51, durationMs: 240, gain: 0.016, startOffsetMs: 110, attackMs: 60, releaseMs: 180 },
-    ]);
-  }
-
-  private playPulse() {
-    // A faint, slow low-fifth breath (A2 + E3) — present enough to confirm
-    // "still working" but easy to talk over.
-    this.playSequence([
-      { freq: 110.0, durationMs: 900, gain: 0.05, attackMs: 180, releaseMs: 600 },
-      { freq: 164.81, durationMs: 820, gain: 0.03, attackMs: 200, releaseMs: 560 },
     ]);
   }
 

@@ -1,5 +1,50 @@
 import type { ReactNode } from "react";
 
+/** One card-backed group of rows — the shared "stack" pattern used across
+ * every Settings tab (Account, Billing, Model & voice, Trash, Connectors). */
+export function SettingsGroup(props: {
+  label?: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={props.className ?? "mb-8"}>
+      {props.label ? (
+        <p className="kivo-settings-group-label">{props.label}</p>
+      ) : null}
+      <div className="kivo-settings-card">{props.children}</div>
+    </section>
+  );
+}
+
+/** One row inside a `SettingsGroup` card. */
+export function SettingsRow(props: {
+  icon?: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div className={`kivo-settings-card-row${props.last ? " kivo-settings-card-row--last" : ""}`}>
+      {props.icon ? (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center">
+          {props.icon}
+        </span>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <div className="kivo-settings-row-title">{props.title}</div>
+        {props.description ? (
+          <div className="kivo-settings-row-desc">{props.description}</div>
+        ) : null}
+      </div>
+      {props.action ? (
+        <div className="kivo-settings-row-action shrink-0">{props.action}</div>
+      ) : null}
+    </div>
+  );
+}
+
 export function GrokSettingsRow(props: {
   icon?: ReactNode;
   title: ReactNode;

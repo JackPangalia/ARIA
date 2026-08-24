@@ -36,9 +36,14 @@ let tray: Tray | null = null;
 // looking at (`!dashboardHasFocus`, from the dashboard's own window events).
 let dashboardHasFocus = false;
 let micLive = false;
-let latestOrbState: { status: string; micLevel: number } = {
+let latestOrbState: {
+  status: string;
+  micLevel: number;
+  playbackLevel: number;
+} = {
   status: "idle",
   micLevel: 0,
+  playbackLevel: 0,
 };
 // Cursor-to-window offset while the widget is being dragged (see the
 // kivo:widget-drag-* IPC handlers).
@@ -214,13 +219,18 @@ function setupIpc(): void {
   ipcMain.on("kivo:orb-state", (event, rawState) => {
     if (!isTrustedIpcSender(event)) return;
     if (!rawState || typeof rawState !== "object") return;
-    const { status, micLevel } = rawState as {
+    const { status, micLevel, playbackLevel } = rawState as {
       status?: unknown;
       micLevel?: unknown;
+      playbackLevel?: unknown;
     };
     if (typeof status !== "string" || typeof micLevel !== "number") return;
 
-    latestOrbState = { status, micLevel };
+    latestOrbState = {
+      status,
+      micLevel,
+      playbackLevel: typeof playbackLevel === "number" ? playbackLevel : 0,
+    };
     micLive = status !== "idle" && status !== "error";
     updateWidgetVisibility();
     widgetWindow?.webContents.send("kivo:orb-state", latestOrbState);

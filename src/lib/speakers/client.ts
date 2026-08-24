@@ -66,6 +66,17 @@ export async function saveSpeakerProfile(input: {
   });
 }
 
+/** Learns from a speaker cluster the user explicitly named in a transcript. */
+export async function learnSpeakerProfile(input: {
+  name: string;
+  speakerIdentifiers: string[];
+}): Promise<SpeakerProfileDoc> {
+  return apiFetch<SpeakerProfileDoc>("/api/speaker-profiles/learn", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function patchSpeakerProfile(
   profileId: string,
   input: {

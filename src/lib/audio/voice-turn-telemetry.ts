@@ -11,6 +11,7 @@ export type VoiceTurnEvent =
   | "endpoint_forced"
   | "endpoint_grace"
   | "settle_hold"
+  | "continuation_reopen"
   | "speculation_start"
   | "speculation_adopted"
   | "speculation_discarded"
