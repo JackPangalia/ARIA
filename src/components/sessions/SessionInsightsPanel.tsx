@@ -2,17 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
+import {
+  SpeakerLabelMenu,
+  type SpeakerCorrectionProps,
+} from "./SpeakerLabelMenu";
 
-/** Wiring for "that wasn't Jack" — offered on speaker lines while listening. */
-export interface SpeakerCorrectionProps {
-  enrolledNames: string[];
-  /** Allow a transcript tag to create a new learned speaker profile. */
-  allowCreate?: boolean;
-  onCorrect: (
-    line: TranscriptLine,
-    correctedName: string | null
-  ) => void | Promise<void>;
-}
+export type { SpeakerCorrectionProps };
 
 const LABEL_GUTTER = "5.25rem";
 const LABEL_GAP = "0.75rem";
@@ -24,7 +19,14 @@ export const TRANSCRIPT_RESERVE_WIDTH = `calc(${PANEL_WIDTH} + ${TEXT_OFFSET})`;
 
 function ChevronLeftDouble({ className }: { className?: string }) {
   return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
       <path
         d="M11 17l-5-5 5-5M18 17l-5-5 5-5"
         stroke="currentColor"
@@ -38,9 +40,29 @@ function ChevronLeftDouble({ className }: { className?: string }) {
 
 function TranscriptExpandIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M3 8h5M3 12h5M3 16h5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-      <rect x="13" y="4" width="8" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.75" />
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M3 8h5M3 12h5M3 16h5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+      <rect
+        x="13"
+        y="4"
+        width="8"
+        height="16"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
     </svg>
   );
 }
@@ -66,7 +88,7 @@ function turnLabel(line: TranscriptLine): string {
   );
 }
 
-// Deterministic hue per speaker name so each person keeps a consistent dot
+// Deterministic hue per speaker name so each person keeps a consistent avatar
 // color across renders (mirrors SpeakerProfilesManager's avatarHue).
 function speakerHue(name: string): number {
   let h = 0;
@@ -74,26 +96,39 @@ function speakerHue(name: string): number {
   return Math.abs(h) % 360;
 }
 
-function SpeakerDot({ line }: { line: TranscriptLine }) {
+function SpeakerAvatar({ line }: { line: TranscriptLine }) {
   const isKivo = line.role === "assistant";
+  const label = turnLabel(line);
   return (
     <span
       aria-hidden
-      className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-        isKivo ? "bg-accent" : line.isPartial ? "animate-pulse" : ""
+      className={`kivo-speaker-avatar ${
+        line.isPartial ? "animate-pulse" : ""
       }`}
       style={
         isKivo
-          ? undefined
-          : { background: `hsl(${speakerHue(turnLabel(line))} 60% 55%)` }
+          ? { background: "var(--app-fg)", color: "var(--app-bg)" }
+          : {
+              background: `hsl(${speakerHue(label)} 34% 52%)`,
+              color: "white",
+            }
       }
-    />
+    >
+      {label.slice(0, 1).toUpperCase()}
+    </span>
   );
 }
 
 function CloseIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg
+      className={className}
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
       <path
         d="M6 6l12 12M18 6L6 18"
         stroke="currentColor"
@@ -121,9 +156,7 @@ export function SessionInsightsPanel(props: {
       {/* Mobile: a real header bar with a tappable close control. */}
       {props.onCollapse ? (
         <div className="flex shrink-0 items-center justify-between px-1 pb-2 lg:hidden">
-          <span className="text-xs font-medium text-app-muted">
-            Transcript
-          </span>
+          <span className="text-xs font-medium text-app-muted">Transcript</span>
           <button
             type="button"
             onClick={props.onCollapse}
@@ -159,149 +192,6 @@ export function SessionInsightsPanel(props: {
   );
 }
 
-function correctionChoices(
-  line: TranscriptLine,
-  enrolledNames: string[]
-): Array<{ key: string; label: string; correctedName: string | null }> {
-  const choices: Array<{
-    key: string;
-    label: string;
-    correctedName: string | null;
-  }> = enrolledNames
-    .filter((name) => name !== line.speakerName)
-    .map((name) => ({
-      key: `name:${name}`,
-      label: `This is ${name}`,
-      correctedName: name,
-    }));
-  if (line.speakerName != null) {
-    choices.push({
-      key: "someone-else",
-      label: "Someone else",
-      correctedName: null,
-    });
-  }
-  return choices;
-}
-
-function SpeakerLabelMenu(props: {
-  line: TranscriptLine;
-  correction: SpeakerCorrectionProps;
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const [creating, setCreating] = useState(false);
-  const [newSpeakerName, setNewSpeakerName] = useState("");
-  const choices = correctionChoices(props.line, props.correction.enrolledNames);
-  const currentLabel = props.line.speakerName ?? "Other speaker";
-
-  useEffect(() => {
-    if (props.open) return;
-    setCreating(false);
-    setNewSpeakerName("");
-  }, [props.open]);
-
-  if (choices.length === 0 && !props.correction.allowCreate) {
-    return <>{props.children}</>;
-  }
-
-  return (
-    <span className="relative inline-flex max-w-full">
-      <button
-        type="button"
-        onClick={props.onToggle}
-        aria-haspopup="menu"
-        aria-expanded={props.open}
-        aria-label={`Identify speaker (currently ${currentLabel})`}
-        className="inline-flex max-w-full items-center rounded-sm text-left font-medium transition-colors hover:text-app focus:outline-none focus-visible:text-app"
-      >
-        {props.children}
-      </button>
-      {props.open ? (
-        <>
-          <button
-            type="button"
-            aria-hidden
-            tabIndex={-1}
-            onClick={props.onClose}
-            className="fixed inset-0 z-20 cursor-default"
-          />
-          <div
-            role="menu"
-            className="absolute left-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-app bg-app py-1 shadow-menu"
-          >
-            <p className="px-3 pb-1 pt-2 text-[11px] font-medium text-app-subtle">
-              Currently {currentLabel}
-            </p>
-            {choices.map((choice) => (
-              <button
-                key={choice.key}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  props.onClose();
-                  void props.correction.onCorrect(
-                    props.line,
-                    choice.correctedName
-                  );
-                }}
-                className="block w-full px-3 py-2 text-left text-sm text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
-              >
-                {choice.label}
-              </button>
-            ))}
-            {props.correction.allowCreate ? (
-              <>
-                <div className="my-1 border-t border-app" />
-                {creating ? (
-                  <form
-                    className="flex items-center gap-1.5 px-2 py-1.5"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const name = newSpeakerName.trim();
-                      if (!name) return;
-                      props.onClose();
-                      void props.correction.onCorrect(props.line, name);
-                    }}
-                  >
-                    <input
-                      autoFocus
-                      value={newSpeakerName}
-                      onChange={(event) => setNewSpeakerName(event.target.value)}
-                      maxLength={100}
-                      placeholder="Name"
-                      aria-label="New speaker name"
-                      className="min-w-0 flex-1 rounded-lg border border-app bg-surface px-2.5 py-1.5 text-sm text-app outline-none placeholder:text-app-subtle focus:border-app-strong"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!newSpeakerName.trim()}
-                      className="shrink-0 rounded-lg px-2.5 py-1.5 text-sm font-medium text-app disabled:opacity-40"
-                    >
-                      Save
-                    </button>
-                  </form>
-                ) : (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => setCreating(true)}
-                    className="block w-full px-3 py-2 text-left text-sm text-app-secondary transition-colors hover:bg-surface-hover hover:text-app"
-                  >
-                    New speaker
-                  </button>
-                )}
-              </>
-            ) : null}
-          </div>
-        </>
-      ) : null}
-    </span>
-  );
-}
-
 export function TranscriptLines(props: {
   lines: TranscriptLine[];
   gutter?: boolean;
@@ -312,13 +202,17 @@ export function TranscriptLines(props: {
   const bodyTextClass = props.large
     ? "text-[15px] leading-relaxed"
     : "text-sm leading-[1.65]";
-  const labelTextClass = props.large ? "text-[13px] font-medium" : "text-xs font-medium";
+  const labelTextClass = props.large
+    ? "text-[13px] font-medium"
+    : "text-xs font-medium";
 
   if (props.lines.length === 0) {
     return (
       <p
         className={`py-6 font-normal leading-relaxed text-app-muted ${bodyTextClass} ${
-          props.gutter ? "px-1 lg:ml-[calc(5.25rem+0.75rem)] lg:w-[17rem] lg:px-0" : "px-1"
+          props.gutter
+            ? "px-1 lg:ml-[calc(5.25rem+0.75rem)] lg:w-[17rem] lg:px-0"
+            : "px-1"
         }`}
       >
         No transcript yet. Start listening and lines will appear here.
@@ -327,70 +221,81 @@ export function TranscriptLines(props: {
   }
 
   return (
-    <ul className="w-full space-y-4 px-1 pb-2 lg:space-y-3.5 lg:px-0">
+    <ul
+      className={`w-full ${props.large ? "kivo-transcript-list" : "space-y-4 px-1 pb-2 lg:space-y-3.5 lg:px-0"}`}
+    >
       {props.lines.map((line) => {
+        // Questions asked aloud are correctable too: they are the same person
+        // in the same room, just persisted by the ask pipeline rather than the
+        // transcript path.
+        //
+        // A cluster key means the correction can retrain the voiceprint and
+        // sweep every line from that cluster. Without one we can still fix the
+        // name on this single line — which is the only option for question
+        // turns persisted before they carried a diarization label, and they
+        // are otherwise stranded wrong forever. A typed chat question has
+        // neither a label nor a speaker name, so it stays uncorrectable.
         const correctable =
           props.speakerCorrection != null &&
-          line.role === "speaker" &&
-          line.speakerClusterKey != null;
+          (line.role === "speaker" || line.role === "user_question") &&
+          (line.speakerClusterKey != null || line.speakerName != null);
         const labelContent = (
-          <>
-            <SpeakerDot line={line} />
-            <span className="truncate">{turnLabel(line)}</span>
-          </>
+          <span className="truncate">{turnLabel(line)}</span>
         );
         return (
-        <li
-          key={line.id}
-          className={
-            props.gutter
-              ? "flex w-full flex-col items-start gap-1 lg:flex-row lg:items-baseline lg:gap-3"
-              : "flex items-baseline gap-2 px-0.5"
-          }
-        >
-          <span
-            className={`flex max-w-full items-center gap-1.5 leading-[1.5] ${labelTextClass} ${
-              line.role === "assistant" ? "text-app-secondary" : "text-app-muted"
-            } ${
+          <li
+            key={line.id}
+            className={`${props.large ? "kivo-transcript-line" : ""} ${
               props.gutter
-                ? "justify-start lg:w-[5.25rem] lg:shrink-0 lg:justify-end"
-                : "w-[4rem] shrink-0 justify-end"
+                ? "flex w-full flex-col items-start gap-1 lg:flex-row lg:items-baseline lg:gap-3"
+                : "flex items-baseline gap-2 px-0.5"
             }`}
-            title={turnLabel(line)}
           >
-            {correctable ? (
-              <SpeakerLabelMenu
-                line={line}
-                correction={props.speakerCorrection!}
-                open={openMenuLineId === line.id}
-                onToggle={() =>
-                  setOpenMenuLineId((current) =>
-                    current === line.id ? null : line.id
-                  )
-                }
-                onClose={() => setOpenMenuLineId(null)}
-              >
-                {labelContent}
-              </SpeakerLabelMenu>
-            ) : (
-              labelContent
-            )}
-          </span>
-          <p
-            className={`w-full min-w-0 font-normal break-words ${bodyTextClass} ${
-              line.role === "assistant"
-                ? "text-app"
-                : line.isPartial
-                  ? "text-app-muted"
-                  : "text-app-secondary"
-            } ${props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"}`}
-          >
-            {line.text}
-            {line.isPartial ? (
-              <span className="ml-1 inline-block h-3 w-px translate-y-0.5 animate-pulse bg-app-muted" />
-            ) : null}
-          </p>
-        </li>
+            <span
+              className={`flex max-w-full items-center gap-1.5 leading-[1.5] ${labelTextClass} ${props.large ? "kivo-transcript-speaker" : ""} ${
+                line.role === "assistant"
+                  ? "text-app-secondary"
+                  : "text-app-muted"
+              } ${
+                props.gutter
+                  ? "justify-start lg:w-[5.25rem] lg:shrink-0 lg:justify-end"
+                  : "w-[4rem] shrink-0 justify-end"
+              }`}
+              title={turnLabel(line)}
+            >
+              {correctable ? (
+                <SpeakerLabelMenu
+                  line={line}
+                  correction={props.speakerCorrection!}
+                  open={openMenuLineId === line.id}
+                  onToggle={() =>
+                    setOpenMenuLineId((current) =>
+                      current === line.id ? null : line.id,
+                    )
+                  }
+                  onClose={() => setOpenMenuLineId(null)}
+                >
+                  {labelContent}
+                </SpeakerLabelMenu>
+              ) : (
+                labelContent
+              )}
+            </span>
+            <p
+              className={`w-full min-w-0 font-normal break-words ${bodyTextClass} ${props.large ? "kivo-transcript-copy" : ""} ${
+                line.role === "assistant"
+                  ? "text-app"
+                  : line.isPartial
+                    ? "text-app-muted"
+                    : "text-app-secondary"
+              } ${props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"}`}
+            >
+              {line.text}
+              {line.isPartial ? (
+                <span className="ml-1 inline-block h-3 w-px translate-y-0.5 animate-pulse bg-app-muted" />
+              ) : null}
+            </p>
+          </li>
         );
       })}
     </ul>

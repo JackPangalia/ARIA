@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/firebase/AuthProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -34,32 +35,6 @@ function SignOutIcon({ className }: { className?: string }) {
   );
 }
 
-function ThemeModeIcon({ dark }: { dark: boolean }) {
-  if (dark) {
-    return (
-      <svg className="h-4 w-4 shrink-0 text-app-muted" viewBox="0 0 24 24" fill="none" aria-hidden>
-        <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.5" />
-        <path
-          d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-  return (
-    <svg className="h-4 w-4 shrink-0 text-app-muted" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M20 14.5A8.5 8.5 0 0 1 9.5 4 7 7 0 1 0 20 14.5Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function useIsDesktopSidebar() {
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -80,13 +55,21 @@ function useIsDesktopSidebar() {
   return isDesktop;
 }
 
-export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
+export function SidebarProfileFooter(props: {
+  onOpenSettings: () => void;
+  collapsed?: boolean;
+}) {
   const { user, signOutUser } = useAuth();
-  const { resolvedTheme, toggleTheme } = useTheme();
+  const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
   const isDesktop = useIsDesktopSidebar();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{
+    left: number;
+    bottom: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!isDesktop) setOpen(false);
@@ -95,18 +78,25 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
         setOpen(false);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
+    const onResize = () => setOpen(false);
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
 
@@ -118,7 +108,7 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
   const isDark = resolvedTheme === "dark";
 
   const itemClass =
-    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-normal text-app-secondary transition-colors hover:bg-surface-hover hover:text-app";
+    "kivo-popover-row";
 
   const onSignOut = async () => {
     setOpen(false);
@@ -126,49 +116,123 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
     router.replace("/sign-in");
   };
 
+  const accountMenu =
+    open && isDesktop && menuPosition
+      ? createPortal(
+          <div
+            ref={menuRef}
+            style={{
+              left: menuPosition.left,
+              bottom: menuPosition.bottom,
+              transformOrigin: "12px calc(100% - 8px)",
+            }}
+            className="kivo-popover kivo-popover-in kivo-account-menu fixed z-[100] w-[16.75rem]"
+          >
+            <div className="kivo-account-identity">
+              <p className="truncate text-sm font-medium tracking-[-0.02em] text-app">
+                {displayName}
+              </p>
+              {email ? (
+                <p className="mt-1 truncate text-xs text-app-muted">{email}</p>
+              ) : null}
+            </div>
+            <div className="px-2 pb-2">
+              <p className="px-1.5 pb-1.5 text-[0.64rem] font-semibold uppercase tracking-[0.12em] text-app-subtle">
+                Appearance
+              </p>
+              <div
+                className="kivo-theme-segment"
+                role="group"
+                aria-label="Appearance"
+              >
+                <span
+                  className="kivo-theme-segment-thumb"
+                  data-theme={isDark ? "dark" : "light"}
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  aria-pressed={!isDark}
+                  onClick={() => setTheme("light")}
+                >
+                  Light
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={isDark}
+                  onClick={() => setTheme("dark")}
+                >
+                  Dark
+                </button>
+              </div>
+            </div>
+            <div className="px-1 pb-1">
+              <button
+                type="button"
+                className={itemClass}
+                onClick={() => {
+                  setOpen(false);
+                  props.onOpenSettings();
+                }}
+              >
+                <SettingsIcon className="shrink-0 text-app-muted" />
+                Settings
+              </button>
+              <div className="mx-2 my-1 border-t border-app-subtle" />
+              <button
+                type="button"
+                className={`${itemClass} is-quiet`}
+                onClick={() => void onSignOut()}
+              >
+                <SignOutIcon className="shrink-0 text-app-muted" />
+                Sign out
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div
       ref={rootRef}
       className="relative shrink-0 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
-      {open && isDesktop ? (
-        <div className="absolute bottom-full inset-x-2 z-50 mb-2 overflow-hidden rounded-xl bg-menu py-1.5 shadow-menu ring-1 ring-menu">
-          <button
-            type="button"
-            className={itemClass}
-            onClick={() => {
-              setOpen(false);
-              props.onOpenSettings();
-            }}
-          >
-            <SettingsIcon className="shrink-0 text-app-muted" />
-            Settings
-          </button>
-          <button type="button" className={itemClass} onClick={toggleTheme}>
-            <ThemeModeIcon dark={isDark} />
-            {isDark ? "Light mode" : "Dark mode"}
-          </button>
-          <div className="my-1 border-t border-app" />
-          <button type="button" className={itemClass} onClick={() => void onSignOut()}>
-            <SignOutIcon className="shrink-0 text-app-muted" />
-            Sign out
-          </button>
-        </div>
-      ) : null}
+      {accountMenu}
 
       <button
         type="button"
         onClick={() => {
           if (isDesktop) {
-            setOpen((v) => !v);
+            if (open) {
+              setOpen(false);
+            } else {
+              const rect = rootRef.current?.getBoundingClientRect();
+              if (rect) {
+                setMenuPosition(
+                  props.collapsed
+                    ? {
+                        left: rect.right + 10,
+                        bottom: Math.max(8, window.innerHeight - rect.bottom),
+                      }
+                    : {
+                        left: rect.left + 8,
+                        bottom: window.innerHeight - rect.top + 8,
+                      },
+                );
+              }
+              setOpen(true);
+            }
             return;
           }
           props.onOpenSettings();
         }}
         aria-expanded={isDesktop ? open : undefined}
-        className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-surface-hover"
+        className={`flex w-full items-center rounded-xl py-2 text-left transition-colors hover:bg-surface-hover active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
+          props.collapsed ? "justify-center px-0" : "gap-3 px-2"
+        }`}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500/80 to-violet-600/80 text-sm font-medium text-white">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--app-indigo)_74%,var(--app-surface))] text-sm font-medium text-white">
           {user.photoURL ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -180,7 +244,7 @@ export function SidebarProfileFooter(props: { onOpenSettings: () => void }) {
             initial
           )}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className={`min-w-0 flex-1 ${props.collapsed ? "hidden" : "block"}`}>
           <span className="block truncate text-sm font-normal text-app">{displayName}</span>
           {email ? (
             <span className="block truncate text-xs font-normal text-app-muted">

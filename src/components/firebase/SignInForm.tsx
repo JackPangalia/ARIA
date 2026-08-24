@@ -31,13 +31,14 @@ export function SignInForm() {
   };
 
   return (
-    <div className="w-full max-w-[19rem]">
-      <div className="mb-10 text-center">
-        <h1 className="kivo-display text-[2rem] text-app">
+    <div className="w-full">
+      <div className="mb-8 text-left">
+        <p className="kivo-kicker">Welcome back</p>
+        <h1 className="mt-2 font-serif text-[2.25rem] font-normal leading-tight tracking-[-0.04em] text-app">
           {mode === "sign-in" ? "Sign in" : "Create an account"}
         </h1>
-        <p className="mt-3 text-sm leading-relaxed text-app-muted">
-          Sign in to open the conversation.
+        <p className="mt-2 text-sm leading-relaxed text-app-muted">
+          {mode === "sign-in" ? "Open your conversations and pick up where you left off." : "Set up Kivo for your next in-person conversation."}
         </p>
       </div>
 
@@ -45,7 +46,7 @@ export function SignInForm() {
         type="button"
         onClick={signInWithGoogle}
         disabled={submitting}
-        className="mb-8 inline-flex w-full items-center justify-center rounded-full bg-accent px-6 py-3 text-sm font-semibold tracking-[-0.018em] text-accent-fg transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+        className="mb-7 inline-flex w-full items-center justify-center rounded-xl bg-accent px-6 py-3 text-sm font-semibold tracking-[-0.018em] text-accent-fg transition-[opacity,transform] hover:-translate-y-0.5 hover:opacity-90 active:translate-y-px active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
       >
         Continue with Google
       </button>
@@ -68,7 +69,7 @@ export function SignInForm() {
             }}
             required
             autoComplete="email"
-            className="mt-1.5 w-full border-0 border-b border-app bg-transparent py-2 text-sm text-app outline-none transition-colors focus:border-app-strong"
+            className="mt-2 w-full rounded-xl border border-app bg-input px-3.5 py-2.5 text-sm text-app outline-none transition-[border-color,box-shadow] focus:border-[color-mix(in_srgb,var(--app-indigo)_65%,var(--app-border-strong))] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--app-indigo)_12%,transparent)]"
           />
         </label>
 
@@ -86,7 +87,7 @@ export function SignInForm() {
             autoComplete={
               mode === "sign-in" ? "current-password" : "new-password"
             }
-            className="mt-1.5 w-full border-0 border-b border-app bg-transparent py-2 text-sm text-app outline-none transition-colors focus:border-app-strong"
+            className="mt-2 w-full rounded-xl border border-app bg-input px-3.5 py-2.5 text-sm text-app outline-none transition-[border-color,box-shadow] focus:border-[color-mix(in_srgb,var(--app-indigo)_65%,var(--app-border-strong))] focus:shadow-[0_0_0_3px_color-mix(in_srgb,var(--app-indigo)_12%,transparent)]"
           />
         </label>
 
@@ -99,7 +100,7 @@ export function SignInForm() {
         <button
           type="submit"
           disabled={submitting}
-          className="mt-2 inline-flex w-full items-center justify-center rounded-full border border-app-strong bg-surface px-6 py-3 text-sm font-semibold tracking-[-0.018em] text-app transition-opacity hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-1 inline-flex w-full items-center justify-center rounded-xl border border-app-strong bg-surface px-6 py-3 text-sm font-semibold tracking-[-0.018em] text-app transition-[background-color,transform] hover:-translate-y-0.5 hover:bg-surface-hover active:translate-y-px active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting
             ? "…"

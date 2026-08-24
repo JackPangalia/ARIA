@@ -7,8 +7,6 @@ import { useAriaStore } from "@/lib/store";
 export function OrbVisualizer(props: {
   /** Tap the idle orb to begin recording; omitted when it can't be started. */
   onActivate?: () => void;
-  /** Smaller orb for the live listening dock at the bottom of the stage. */
-  compact?: boolean;
 }) {
   const status = useAriaStore((s) => s.status);
   const error = useAriaStore((s) => s.errorMessage);
@@ -23,11 +21,7 @@ export function OrbVisualizer(props: {
       className={`flex flex-col items-center ${hasMessage ? "gap-5 sm:gap-6" : ""}`}
     >
       <div
-        className={`group relative aspect-square origin-center select-none ${
-          props.compact
-            ? "w-[min(13rem,40vmin)]"
-            : "w-[min(16.5rem,50vmin)] max-sm:w-[min(14.5rem,70vw)]"
-        }`}
+        className="group relative aspect-square w-[min(16.5rem,50vmin)] origin-center select-none max-sm:w-[min(14.5rem,70vw)]"
       >
         {idle && props.onActivate ? (
           <button
@@ -45,7 +39,7 @@ export function OrbVisualizer(props: {
       {hasMessage ? (
         <div className="relative z-20 flex flex-col items-center gap-1">
           {error ? (
-            <p className="max-w-xs text-center text-xs text-red-600 dark:text-red-400">
+            <p className="max-w-xs text-center text-xs text-danger">
               {error}
             </p>
           ) : null}

@@ -5,6 +5,8 @@ import {
   upsertMeetingSummary,
 } from "@/lib/sessions/repository";
 import { llmGenerateMeetingSummary } from "@/lib/aria/llm/anthropic-client";
+import { cleanSessionTranscript } from "@/lib/aria/context/transcript-cleaner";
+import { applyCleanedTranscript } from "@/lib/sessions/cleaned-transcript";
 import { KIVO_MODEL_ID } from "@/lib/aria/models";
 import type { MeetingSummaryDoc } from "@/lib/sessions/types";
 
@@ -32,7 +34,21 @@ export async function generateMeetingSummary(
     return null;
   }
 
-  const transcript = turns.map((turn) => formatTurnForContext(turn)).join("\n");
+  // Clean first, summarize second: the summary reads much better off repaired
+  // text than off raw recognizer output. A failed clean is not fatal — the
+  // summary just falls back to the raw turns.
+  let readableTurns = turns;
+  try {
+    const cleaned = await cleanSessionTranscript(uid, sessionId);
+    readableTurns = applyCleanedTranscript(turns, cleaned);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "unknown error";
+    console.error(`[MeetingSummary] Transcript clean failed (${msg})`);
+  }
+
+  const transcript = readableTurns
+    .map((turn) => formatTurnForContext(turn))
+    .join("\n");
 
   const parsed = await llmGenerateMeetingSummary({
     model: KIVO_MODEL_ID,

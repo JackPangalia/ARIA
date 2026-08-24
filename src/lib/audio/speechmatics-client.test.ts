@@ -76,6 +76,47 @@ describe("groupSpeechmaticsResultsBySpeaker", () => {
   });
 });
 
+describe("groupSpeechmaticsResultsBySpeaker echo runs", () => {
+  const word = (content: string, start: number) => ({
+    type: "word" as const,
+    start_time: start,
+    end_time: start + 0.2,
+    alternatives: [{ content, confidence: 1, speaker: "S1" }],
+  });
+
+  it("keeps words in spoken order when an echo run splits a sentence", () => {
+    // "Yes," lands inside an assistant-speech window; the rest does not.
+    const groups = groupSpeechmaticsResultsBySpeaker(
+      [word("Yes", 0), word("I", 0.4), word("have", 0.6), word("been", 0.8)],
+      (item) => (item.start_time ?? 0) < 0.3
+    );
+
+    expect(groups.map((group) => group.text)).toEqual(["Yes", "I have been"]);
+    expect(groups.map((group) => group.overlapsAssistantSpeech)).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  it("keeps trailing punctuation attached to the run it terminates", () => {
+    const groups = groupSpeechmaticsResultsBySpeaker(
+      [
+        word("Israel", 0),
+        {
+          type: "punctuation" as const,
+          start_time: 0.2,
+          end_time: 0.2,
+          alternatives: [{ content: ".", confidence: 1, speaker: "S1" }],
+        },
+      ],
+      (item) => item.type === "punctuation"
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].text).toBe("Israel.");
+  });
+});
+
 describe("groupSpeechmaticsResultsAsConversation", () => {
   it("collapses all words into one generic conversation group", () => {
     const groups = groupSpeechmaticsResultsAsConversation([
@@ -106,6 +147,7 @@ describe("groupSpeechmaticsResultsAsConversation", () => {
         start: 0,
         end: 0.8,
         confidence: 1,
+        overlapsAssistantSpeech: false,
       },
     ]);
   });
@@ -136,6 +178,42 @@ describe("SpeechmaticsLiveClient start config", () => {
     expect(config.speaker_diarization_config).toMatchObject({
       get_speakers: true,
     });
+  });
+
+  it("keeps enrolled voiceprints under the provider's 50-identifier ceiling", () => {
+    // Speechmatics caps identifiers across *all* speakers and rejects the whole
+    // recognition when the total is exceeded — 25 profiles (every plan's limit)
+    // carrying 8 prints each is well past it.
+    const profiles = Array.from({ length: 25 }, (_, i) => ({
+      id: `p${i}`,
+      name: `Person ${i}`,
+      speakerIdentifiers: Array.from({ length: 8 }, (_, j) => `p${i}-print-${j}`),
+      anchorCount: 3,
+      sampleCount: 8,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      updatedAt: "2026-08-01T00:00:00.000Z",
+    }));
+    const client = new SpeechmaticsLiveClient(callbacks, profiles, {
+      transcriptionMode: "speaker",
+    });
+    const config = client.buildStartRecognitionMessage().transcription_config;
+    const speakers = (
+      config.speaker_diarization_config as {
+        speakers: Array<{ label: string; speaker_identifiers: string[] }>;
+      }
+    ).speakers;
+
+    const total = speakers.reduce(
+      (sum, speaker) => sum + speaker.speaker_identifiers.length,
+      0
+    );
+    expect(total).toBeLessThanOrEqual(50);
+    // Every enrolled speaker still gets a print — dropping people entirely
+    // would make them permanently unrecognisable.
+    expect(speakers).toHaveLength(25);
+    expect(
+      speakers.every((speaker) => speaker.speaker_identifiers.length > 0)
+    ).toBe(true);
   });
 
   it("biases recognition toward Kivo's core product vocabulary", () => {
@@ -221,7 +299,8 @@ describe("SpeechmaticsLiveClient start config", () => {
 
     expect(config).toMatchObject({
       enable_partials: true,
-      max_delay: 1,
+      transcript_filtering_config: { remove_disfluencies: true },
+      max_delay: 4,
       max_delay_mode: "flexible",
       conversation_config: {
         // Must stay LESS than max_delay per Speechmatics turn-detection docs.
@@ -240,7 +319,7 @@ describe("SpeechmaticsLiveClient start config", () => {
       end_of_utterance_silence_trigger: number;
     };
 
-    expect(conversation.end_of_utterance_silence_trigger).toBe(0.55);
+    expect(conversation.end_of_utterance_silence_trigger).toBe(0.8);
     expect(conversation.end_of_utterance_silence_trigger).toBeLessThan(
       config.max_delay as number
     );

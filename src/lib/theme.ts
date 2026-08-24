@@ -5,7 +5,7 @@ export type Theme = ThemePreference;
 
 export const THEME_STORAGE_KEY = "aria-theme";
 
-export const DEFAULT_THEME: ThemePreference = "dark";
+export const DEFAULT_THEME: ThemePreference = "light";
 
 export function isThemePreference(
   value: string | null | undefined
@@ -76,4 +76,4 @@ export function applyTheme(preference: ThemePreference) {
   root.style.colorScheme = resolved;
 }
 
-export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""){document.documentElement.classList.add("landing-active");document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="light"?false:t==="dark"?true:window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.add("dark");document.documentElement.style.colorScheme="dark";}})();`;
+export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""){document.documentElement.classList.add("landing-active");document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";}})();`;

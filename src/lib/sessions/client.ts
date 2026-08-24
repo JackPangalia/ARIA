@@ -337,6 +337,13 @@ export async function askSessionQuestion(
      * rate-limit budget, so a discarded speculation leaves no trace.
      */
     speculative?: boolean;
+    /**
+     * Diarization label of whoever asked. Carried onto the persisted
+     * user_question turn so a spoken question is correctable in the transcript
+     * like any other line — without it, questions are the one kind of speech
+     * with no handle back to the cluster that produced them.
+     */
+    providerSpeakerLabel?: string | null;
   }
 ): Promise<Response> {
   const headers: Record<string, string> = await getAuthHeader();
@@ -357,6 +364,7 @@ export async function askSessionQuestion(
       question,
       speaker,
       speakerName,
+      providerSpeakerLabel: options?.providerSpeakerLabel,
       sourceUtteranceIds,
     }),
     signal,

@@ -334,6 +334,8 @@ export function WordRing(props: {
   text: string;
   voice: RingVoice;
   mode: Mode;
+  /** Soft accent disc in the middle. Off when another orb sits there. */
+  showCore?: boolean;
 }) {
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === "light";
@@ -475,7 +477,7 @@ export function WordRing(props: {
     const breathe = breatheRef.current;
     const spin = spinRef.current;
     const arc = arcRef.current;
-    if (!core || !breathe || !spin || !arc) return;
+    if (!breathe || !spin || !arc) return;
 
     let frame = 0;
     let last = performance.now();
@@ -613,10 +615,12 @@ export function WordRing(props: {
       );
 
       // Light backgrounds need much less of the accent before it goes muddy.
-      const dim = isLightRef.current ? 0.45 : 1;
-      const glow = motion.halo * (0.09 + energy * 0.26 + flash * 0.5) * dim;
-      core.style.opacity = Math.min(1, glow).toFixed(3);
-      core.style.transform = `scale(${(0.62 + energy * 0.2 + flash * 0.18).toFixed(4)})`;
+      if (core) {
+        const dim = isLightRef.current ? 0.45 : 1;
+        const glow = motion.halo * (0.09 + energy * 0.26 + flash * 0.5) * dim;
+        core.style.opacity = Math.min(1, glow).toFixed(3);
+        core.style.transform = `scale(${(0.62 + energy * 0.2 + flash * 0.18).toFixed(4)})`;
+      }
 
       paint(track, now, energy, flash, motion, still);
     };
@@ -694,17 +698,19 @@ export function WordRing(props: {
 
   return (
     <div className="pointer-events-none absolute inset-0">
-      <div
-        ref={coreRef}
-        aria-hidden="true"
-        className="absolute inset-0 rounded-full will-change-[opacity,transform]"
-        style={{
-          color: accentFor(props.mode, isLight),
-          background: HALO_CORE,
-          opacity: 0,
-          transition: "color 520ms ease",
-        }}
-      />
+      {props.showCore === false ? null : (
+        <div
+          ref={coreRef}
+          aria-hidden="true"
+          className="absolute inset-0 rounded-full will-change-[opacity,transform]"
+          style={{
+            color: accentFor(props.mode, isLight),
+            background: HALO_CORE,
+            opacity: 0,
+            transition: "color 520ms ease",
+          }}
+        />
+      )}
       <svg
         className="absolute inset-0 h-full w-full overflow-visible"
         viewBox={`0 0 ${VIEW} ${VIEW}`}

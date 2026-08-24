@@ -100,6 +100,29 @@ export interface MeetingSummaryDoc {
   turnCountAtGeneration: number;
 }
 
+/**
+ * Cleaned-up transcript text, keyed by turn id. A light LLM pass repairs
+ * punctuation, sentence boundaries, and obvious recognition errors so the
+ * transcript reads naturally and the summary has clean input. Raw turns are
+ * never overwritten: this sits alongside them, so a bad clean is always
+ * reversible and the two can be diffed.
+ */
+export interface CleanedTranscriptTurn {
+  /** Raw turn ids this reads from — more than one when a thought that got
+   * split across several turns is stitched back together. */
+  sourceTurnIds: string[];
+  text: string;
+}
+
+export interface CleanedTranscriptDoc {
+  /** The readable transcript, in order. Raw turns not referenced by any entry
+   * were dropped as filler; the raw turns themselves still exist. */
+  turns: CleanedTranscriptTurn[];
+  generatedAt: string;
+  turnCountAtGeneration: number;
+  model: string;
+}
+
 export interface SessionFactDoc {
   id: string;
   text: string;
@@ -187,6 +210,10 @@ export const AskBodySchema = z.object({
   question: z.string().trim().min(1).max(12000),
   speaker: z.number().int().min(0).max(9).nullable().optional(),
   speakerName: z.string().trim().min(1).max(100).nullable().optional(),
+  // Diarization label of the asker. Without it the persisted user_question turn
+  // has no handle back to its speaker cluster, which made spoken questions the
+  // one kind of line in the transcript that could never be corrected.
+  providerSpeakerLabel: z.string().trim().min(1).max(100).nullable().optional(),
   // Raw live-transcript utterance ids that fed this question, so the persisted
   // user_question turn can dedup them out of the live tail in the UI. Long
   // captures produce one id per Speechmatics final — hundreds is legitimate.

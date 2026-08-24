@@ -26,6 +26,18 @@ const MeetingSummarySchema = z.object({
 
 export type ParsedMeetingSummary = z.infer<typeof MeetingSummarySchema>;
 
+const CleanedTranscriptSchema = z.object({
+  turns: z.array(
+    z.object({
+      /** Ids of the raw turns this entry covers — several when merging. */
+      sourceIds: z.array(z.string()),
+      text: z.string(),
+    })
+  ),
+});
+
+export type ParsedCleanedTranscript = z.infer<typeof CleanedTranscriptSchema>;
+
 /** Long enough for a full rolling summary with its facts array. */
 const MAX_SUMMARY_TOKENS = 4096;
 
@@ -87,6 +99,28 @@ export async function llmGenerateMeetingSummary(input: {
     prompt: input.user,
     schema: MeetingSummarySchema,
     maxOutputTokens: MAX_SUMMARY_TOKENS,
+  });
+  return object;
+}
+
+/**
+ * Rewrites transcript turns in place, keyed by turn id. Output tokens scale
+ * with the transcript itself, so the caller chunks and sets a budget rather
+ * than reusing the summary cap.
+ */
+export async function llmCleanTranscript(input: {
+  model: string;
+  system: string;
+  user: string;
+  maxOutputTokens: number;
+}): Promise<ParsedCleanedTranscript> {
+  const anthropic = getAnthropicProvider();
+  const { object } = await generateObject({
+    model: anthropic(input.model),
+    system: input.system,
+    prompt: input.user,
+    schema: CleanedTranscriptSchema,
+    maxOutputTokens: input.maxOutputTokens,
   });
   return object;
 }

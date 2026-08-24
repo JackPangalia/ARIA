@@ -25,7 +25,15 @@ export async function POST(req: NextRequest) {
 
       const parsed = LearnSpeakerProfileSchema.safeParse(body);
       if (!parsed.success) {
-        return jsonError("Invalid learned speaker payload.", 400);
+        // Say which field failed — a bare "invalid payload" hid a cap mismatch
+        // between this schema and the live cluster for an entire release.
+        const issue = parsed.error.issues[0];
+        return jsonError(
+          `Invalid learned speaker payload${
+            issue ? `: ${issue.path.join(".") || "body"} ${issue.message}` : "."
+          }`,
+          400
+        );
       }
 
       const existing = await listSpeakerProfiles(uid);

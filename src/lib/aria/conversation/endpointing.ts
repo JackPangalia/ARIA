@@ -26,24 +26,24 @@ export type QuestionCompleteness =
   | "unfinished";
 
 /**
- * Residual grace after Speechmatics already reported end-of-turn (the 0.55s
- * acoustic silence has elapsed). First-wake values; follow-ups use
+ * Residual grace after Speechmatics already reported end-of-turn (the
+ * acoustic silence trigger has elapsed). First-wake values; follow-ups use
  * {@link graceMsFor}.
  */
 export const END_OF_UTTERANCE_GRACE_MS: Record<QuestionCompleteness, number> = {
   "clear-ask": 80,
-  "likely-ask": 250,
-  "complete-turn": 400,
-  statement: 900,
-  unfinished: 2400,
+  "likely-ask": 150,
+  "complete-turn": 250,
+  statement: 650,
+  unfinished: 2000,
 };
 
 const FOLLOW_UP_EOU_GRACE_MS: Record<QuestionCompleteness, number> = {
   "clear-ask": 80,
-  "likely-ask": 250,
-  "complete-turn": 400,
-  statement: 550,
-  unfinished: 1800,
+  "likely-ask": 150,
+  "complete-turn": 250,
+  statement: 400,
+  unfinished: 1500,
 };
 
 /**
@@ -89,14 +89,24 @@ export function settleMsFor(
   return (followUp ? FOLLOW_UP_SETTLE_MS : SETTLE_MS)[completeness];
 }
 
-/** Force Speechmatics to finalize now. Only confident asks and yield closers
- * — a breath after a punctuated sentence is not a send. Never unfinished,
- * never a briefing statement; those wait for the 0.55s acoustic EOU. */
+/**
+ * Force Speechmatics to finalize now, skipping the acoustic silence trigger.
+ * This is the one path that can end a turn on ~half a second of silence, so it
+ * takes only the strongest evidence: an unambiguous ask (terminal "?" or a
+ * directive aimed at Kivo) or an explicit yield closer.
+ *
+ * `likely-ask` used to force too, and it was the main source of mid-thought
+ * cut-offs: "how are you doing today" reads question-shaped the moment those
+ * words land, even when the speaker is still going ("...with the pricing
+ * work"). Unpunctuated question shapes now wait for the acoustic end-of-turn —
+ * the answer is pre-warmed by speculation either way, so the wait is mostly
+ * free.
+ */
 export function shouldForceEndpoint(
   completeness: QuestionCompleteness,
   text: string
 ): boolean {
-  if (completeness === "clear-ask" || completeness === "likely-ask") return true;
+  if (completeness === "clear-ask") return true;
   if (completeness === "complete-turn" && draftEndsWithYield(text)) return true;
   return false;
 }

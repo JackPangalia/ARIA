@@ -101,6 +101,7 @@ export interface AnswerPipelineInput {
   speakerName?: string | null;
   /** Raw live-transcript utterance ids that fed this question; recorded on the
    * persisted user_question turn so the UI can dedup the raw live copies. */
+  providerSpeakerLabel?: string | null;
   sourceUtteranceIds?: string[];
   env: ServerEnv;
   signal: AbortSignal;
@@ -247,6 +248,8 @@ export async function runAnswerPipeline(
       text: question,
       speaker,
       speakerName,
+      // Keeps the question line correctable in the transcript like any other.
+      providerSpeakerLabel: input.providerSpeakerLabel ?? null,
       sourceUtteranceIds: input.sourceUtteranceIds ?? [],
     })
       .then(() => pipeline.stage("persist.question", { ok: true }))

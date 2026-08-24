@@ -63,8 +63,8 @@ export const viewport: Viewport = {
   // pad with safe-area insets ourselves (important for the eventual PWA).
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f4f1e9" },
-    { media: "(prefers-color-scheme: dark)", color: "#090b0a" },
+    { media: "(prefers-color-scheme: light)", color: "#f5f2ea" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d0e0c" },
   ],
 };
 
@@ -76,7 +76,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${geistMono.variable} ${newsreader.variable} dark h-full antialiased`}
+      className={`${inter.variable} ${geistMono.variable} ${newsreader.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="flex min-h-full flex-col">

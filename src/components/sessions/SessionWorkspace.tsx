@@ -2,12 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditableSessionTitle } from "@/components/aria/EditableSessionTitle";
+import { ListeningCaption } from "@/components/aria/ListeningCaption";
 import { OrbVisualizer } from "@/components/aria/OrbVisualizer";
-import { RecordingIsland } from "@/components/aria/RecordingIsland";
 import { SessionViewTabs } from "@/components/aria/SessionViewTabs";
 import { useAriaRecording } from "@/lib/audio/use-aria-recording";
 import { SessionSearchModal } from "@/components/sessions/SessionSearchModal";
 import { SessionHub } from "@/components/sessions/SessionHub";
+import {
+  WorkspaceNavSheet,
+  WorkspaceRail,
+} from "@/components/sessions/WorkspaceRail";
 import {
   BreadcrumbCrumb,
   BreadcrumbSeparator,
@@ -29,8 +33,7 @@ import {
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
 import { useOrbStatePublisher } from "@/lib/desktop/use-orb-state-publisher";
-import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
-import { SettingsView } from "@/components/settings/SettingsView";
+import { SettingsModal } from "@/components/settings/SettingsModal";
 import { SettingsMobile } from "@/components/settings/SettingsMobile";
 import {
   DEFAULT_SETTINGS_TAB,
@@ -41,13 +44,18 @@ import {
   getOnboardingStatus,
   isOnboardingPreview,
 } from "@/lib/onboarding/client";
-import { LiveListeningStream } from "@/components/sessions/LiveListeningStream";
-import { OverviewView } from "@/components/sessions/OverviewView";
+import { StopIcon } from "@/components/sessions/icons";
+import { OverviewTray } from "@/components/sessions/OverviewTray";
+import {
+  OverviewView,
+  type OverviewContentMode,
+} from "@/components/sessions/OverviewView";
 import type { SpeakerCorrectionProps } from "@/components/sessions/SessionInsightsPanel";
 import {
   buildLiveTranscriptLines,
   type TranscriptLine,
 } from "@/lib/sessions/live-transcript";
+import { recentClusterIdentifiers } from "@/lib/speakers/identifier-cap";
 import {
   learnSpeakerProfile,
   listSpeakerProfiles,
@@ -62,26 +70,33 @@ import {
   patchProject,
 } from "@/lib/projects/client";
 import type { ProjectDoc } from "@/lib/projects/types";
+import { useAuth } from "@/components/firebase/AuthProvider";
+import { mostRecentActiveSession } from "@/lib/home";
+
+const WORKSPACE_RAIL_STORAGE_KEY = "kivo-workspace-rail-expanded";
 
 function PlusIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
-function SettingsIcon() {
+function NavigationIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+        d="M4 7h16M4 12h16M4 17h16"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   );
 }
@@ -98,26 +113,38 @@ function ProjectEditorModal(props: {
   onClose: () => void;
 }) {
   const [name, setName] = useState(
-    props.state?.mode === "edit" ? props.state.project.name : ""
+    props.state?.mode === "edit" ? props.state.project.name : "",
   );
   const [instructions, setInstructions] = useState(
-    props.state?.mode === "edit" ? props.state.project.instructions : ""
+    props.state?.mode === "edit" ? props.state.project.instructions : "",
   );
 
   if (!props.state) return null;
 
   const title = props.state.mode === "edit" ? "Edit project" : "New project";
   const canSave = name.trim().length > 0 && !props.busy;
-  const editingProject = props.state.mode === "edit" ? props.state.project : null;
+  const editingProject =
+    props.state.mode === "edit" ? props.state.project : null;
 
   return (
     <div className="fixed inset-0 z-[280] flex items-center justify-center bg-overlay px-4">
-      <div className="w-full max-w-lg rounded-2xl border border-app bg-app p-5 shadow-menu">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-editor-title"
+        className="max-h-[min(88dvh,40rem)] w-full max-w-lg overflow-y-auto rounded-[1.5rem] border border-app-subtle bg-menu p-5 shadow-menu sm:p-6"
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-base font-medium text-app">{title}</h2>
+            <h2
+              id="project-editor-title"
+              className="font-serif text-[1.65rem] font-normal tracking-[-0.035em] text-app"
+            >
+              {title}
+            </h2>
             <p className="mt-1 text-sm text-app-muted">
-              Project instructions are included whenever Kivo answers inside this project.
+              Project instructions are included whenever Kivo answers inside
+              this project.
             </p>
           </div>
           <button
@@ -141,7 +168,7 @@ function ProjectEditorModal(props: {
         </label>
 
         <label className="mt-4 block text-sm text-app-secondary">
-          Instructions/context
+          Instructions
           <textarea
             value={instructions}
             onChange={(event) => setInstructions(event.target.value)}
@@ -190,6 +217,7 @@ function ProjectEditorModal(props: {
 }
 
 export function SessionWorkspace() {
+  const { user } = useAuth();
   const {
     projects,
     sessions,
@@ -212,22 +240,64 @@ export function SessionWorkspace() {
 
   const [actionBusy, setActionBusy] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [railExpanded, setRailExpanded] = useState(false);
+  const [railHoverExpanded, setRailHoverExpanded] = useState(false);
+  const [pendingAutoStartSessionId, setPendingAutoStartSessionId] = useState<
+    string | null
+  >(null);
   const [settingsOpen, setSettingsOpen] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("settings") === "1";
   });
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>(DEFAULT_SETTINGS_TAB);
+  const [settingsTab, setSettingsTab] =
+    useState<SettingsTab>(DEFAULT_SETTINGS_TAB);
   const [trashConfirmId, setTrashConfirmId] = useState<string | null>(null);
-  const [projectEditor, setProjectEditor] = useState<ProjectEditorState | null>(null);
+  const [projectEditor, setProjectEditor] = useState<ProjectEditorState | null>(
+    null,
+  );
   const [projectArchiveId, setProjectArchiveId] = useState<string | null>(null);
   // false = voice (orb) modality, true = overview (summary + transcript).
   // Opens in overview when a session is selected; Start switches to voice.
   const [overviewMode, setOverviewMode] = useState(true);
-  const [onboardingNeeded, setOnboardingNeeded] = useState<boolean | null>(null);
+  const [overviewContentMode, setOverviewContentMode] =
+    useState<OverviewContentMode>("summary");
+  const [onboardingNeeded, setOnboardingNeeded] = useState<boolean | null>(
+    null,
+  );
   const [speakerProfileState, setSpeakerProfileState] = useState<{
     sessionId: string;
     profiles: SpeakerProfileDoc[];
   } | null>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        setRailExpanded(
+          window.localStorage.getItem(WORKSPACE_RAIL_STORAGE_KEY) === "1",
+        );
+      } catch {
+        // Storage is optional; compact is the intentional default.
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const toggleRail = useCallback(() => {
+    setRailHoverExpanded(false);
+    setRailExpanded((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(
+          WORKSPACE_RAIL_STORAGE_KEY,
+          next ? "1" : "0",
+        );
+      } catch {
+        // Keep the in-memory preference when storage is unavailable.
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -271,7 +341,7 @@ export function SessionWorkspace() {
         "follow-up-listening",
         "wake-detected",
       ]),
-    []
+    [],
   );
 
   const refreshProjects = useCallback(async () => {
@@ -296,7 +366,7 @@ export function SessionWorkspace() {
       setSessions(next);
       return next;
     },
-    [setSessions]
+    [setSessions],
   );
 
   const refreshDetail = useCallback(
@@ -306,13 +376,17 @@ export function SessionWorkspace() {
       setSessions(
         useSessionStore.getState().sessions.map((session) =>
           session.id === sessionId
-            ? { ...session, title: next.session.title, autoTitled: next.session.autoTitled }
-            : session
-        )
+            ? {
+                ...session,
+                title: next.session.title,
+                autoTitled: next.session.autoTitled,
+              }
+            : session,
+        ),
       );
       return next;
     },
-    [setDetail, setSessions]
+    [setDetail, setSessions],
   );
 
   const handleSessionActivity = useCallback(() => {
@@ -333,7 +407,9 @@ export function SessionWorkspace() {
           await refreshDetail(existingId);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load conversations.");
+        setError(
+          err instanceof Error ? err.message : "Failed to load conversations.",
+        );
       } finally {
         setLoading(false);
       }
@@ -360,10 +436,7 @@ export function SessionWorkspace() {
   }, [loading]);
 
   useEffect(() => {
-    if (
-      !selectedSessionId ||
-      detail?.session.transcriptionMode !== "speaker"
-    ) {
+    if (!selectedSessionId || detail?.session.transcriptionMode !== "speaker") {
       return;
     }
     let cancelled = false;
@@ -395,7 +468,9 @@ export function SessionWorkspace() {
       const created = await createSession({
         speakerCount: 2,
         projectId:
-          state.projectFilter === "project" ? state.selectedProjectId : undefined,
+          state.projectFilter === "project"
+            ? state.selectedProjectId
+            : undefined,
       });
       await refreshSessions(searchQuery);
       setSelectedSessionId(created.id);
@@ -404,7 +479,9 @@ export function SessionWorkspace() {
       setOverviewMode(false);
       return created;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create conversation.");
+      setError(
+        err instanceof Error ? err.message : "Failed to create conversation.",
+      );
       throw err;
     }
   }, [
@@ -424,9 +501,33 @@ export function SessionWorkspace() {
     onActivity: handleSessionActivity,
   });
   const handleRecordingStart = useCallback(() => {
+    setMobileNavOpen(false);
+    setRailHoverExpanded(false);
     setOverviewMode(false);
     void recording.requestStart();
   }, [recording]);
+
+  const requestRecordingStart = recording.requestStart;
+
+  useEffect(() => {
+    if (!pendingAutoStartSessionId) return;
+    if (detail?.session.id !== pendingAutoStartSessionId) return;
+    if (recording.busy || recording.isRunning) return;
+    const frame = window.requestAnimationFrame(() => {
+      setPendingAutoStartSessionId(null);
+      setMobileNavOpen(false);
+      setRailHoverExpanded(false);
+      setOverviewMode(false);
+      void requestRecordingStart();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    detail?.session.id,
+    pendingAutoStartSessionId,
+    recording.busy,
+    recording.isRunning,
+    requestRecordingStart,
+  ]);
 
   const prevRecordingRef = useRef(false);
   useEffect(() => {
@@ -450,7 +551,7 @@ export function SessionWorkspace() {
         turns: detail?.turns ?? [],
         utterances: recording.isRunning || micLive ? liveUtterances : [],
       }),
-    [detail?.turns, liveUtterances, recording.isRunning, micLive]
+    [detail?.turns, liveUtterances, recording.isRunning, micLive],
   );
 
   const currentSpeakerProfiles = useMemo(
@@ -458,79 +559,113 @@ export function SessionWorkspace() {
       speakerProfileState?.sessionId === selectedSessionId
         ? speakerProfileState.profiles
         : [],
-    [selectedSessionId, speakerProfileState]
+    [selectedSessionId, speakerProfileState],
   );
 
   const handleSpeakerCorrection = useCallback(
     async (line: TranscriptLine, correctedName: string | null) => {
-      if (!selectedSessionId || !line.speakerClusterKey) return;
-      const turnIds = transcriptLines
-        .filter(
-          (candidate) =>
-            candidate.role === "speaker" &&
-            candidate.speakerClusterKey === line.speakerClusterKey &&
-            !candidate.id.startsWith("live:")
-        )
-        .map((candidate) => candidate.id);
+      if (!selectedSessionId) return;
+
+      // With a cluster key the correction is about a *voice*: it sweeps every
+      // line that cluster produced and retrains the profile. Without one — a
+      // question turn persisted before questions carried a diarization label —
+      // there is no voice to attach to, so the correction fixes the name on
+      // this line alone and teaches nothing.
+      const turnIds = line.speakerClusterKey
+        ? transcriptLines
+            .filter(
+              (candidate) =>
+                // Spoken questions belong to the same cluster as the rest of
+                // that person's speech, so one correction must reach them too.
+                (candidate.role === "speaker" ||
+                  candidate.role === "user_question") &&
+                candidate.speakerClusterKey === line.speakerClusterKey &&
+                !candidate.id.startsWith("live:"),
+            )
+            .map((candidate) => candidate.id)
+        : line.id.startsWith("live:")
+          ? []
+          : [line.id];
       if (turnIds.length === 0) return;
 
       setError(null);
       try {
-        await relabelSessionTurns(
-          selectedSessionId,
-          turnIds,
-          correctedName
-        );
+        await relabelSessionTurns(selectedSessionId, turnIds, correctedName);
         await refreshDetail(selectedSessionId);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to identify speaker."
+          err instanceof Error ? err.message : "Failed to identify speaker.",
         );
         return;
       }
 
-      const cluster = recording.speakerClusters.find(
-        (candidate) => candidate.clusterKey === line.speakerClusterKey
-      );
-      if (
-        correctedName == null ||
-        !cluster ||
-        cluster.speakerIdentifiers.length === 0
-      ) {
-        return;
+      const cluster = line.speakerClusterKey
+        ? recording.speakerClusters.find(
+            (candidate) => candidate.clusterKey === line.speakerClusterKey,
+          )
+        : undefined;
+      // No live cluster behind this line (an old session, or a label-less
+      // question turn): the name is fixed, but there is no voiceprint to learn
+      // from and no live stream to re-seed.
+      if (!cluster) return;
+
+      // A null name ("not an enrolled voice") and a cluster with no voiceprint
+      // yet still need the re-seed below — there's just nothing to learn from.
+      const canLearn =
+        correctedName != null && cluster.speakerIdentifiers.length > 0;
+      let learned: SpeakerProfileDoc | null = null;
+      if (canLearn) {
+        try {
+          learned = await learnSpeakerProfile({
+            name: correctedName,
+            speakerIdentifiers: recentClusterIdentifiers(
+              cluster.speakerIdentifiers,
+            ),
+          });
+          const profile = learned;
+          setSpeakerProfileState((current) => {
+            const profiles =
+              current?.sessionId === selectedSessionId ? current.profiles : [];
+            return {
+              sessionId: selectedSessionId,
+              profiles: [
+                profile,
+                ...profiles.filter((existing) => existing.id !== profile.id),
+              ],
+            };
+          });
+        } catch (err) {
+          setError(
+            `Speaker label saved, but Kivo could not learn this voice: ${
+              err instanceof Error ? err.message : "unknown error"
+            }`,
+          );
+        }
       }
 
-      try {
-        const learned = await learnSpeakerProfile({
-          name: correctedName,
-          speakerIdentifiers: cluster.speakerIdentifiers,
-        });
-        setSpeakerProfileState((current) => {
-          const profiles =
-            current?.sessionId === selectedSessionId ? current.profiles : [];
-          return {
-            sessionId: selectedSessionId,
-            profiles: [
-              learned,
-              ...profiles.filter((profile) => profile.id !== learned.id),
-            ],
-          };
-        });
-      } catch (err) {
-        setError(
-          `Speaker label saved, but Kivo could not learn this voice: ${
-            err instanceof Error ? err.message : "unknown error"
-          }`
-        );
+      // Without this the correction is cosmetic: the live stream keeps the old
+      // cluster (which self-reinforces) and the profile we just learned isn't
+      // seeded until the next session.
+      if (recording.isRunning) {
+        try {
+          await recording.correctSpeaker({
+            providerSpeakerLabel: cluster.providerSpeakerLabel,
+            correctedName,
+            learnedProfile: learned,
+          });
+        } catch {
+          // The transcript is already fixed; a failed re-seed is not worth a
+          // second error banner mid-session.
+        }
       }
     },
     [
-      recording.speakerClusters,
+      recording,
       refreshDetail,
       selectedSessionId,
       setError,
       transcriptLines,
-    ]
+    ],
   );
 
   const speakerCorrection = useMemo<SpeakerCorrectionProps | undefined>(() => {
@@ -564,11 +699,14 @@ export function SessionWorkspace() {
 
     // Stream committed turns; polling remains as a metadata/listener fallback,
     // while mic partials render from local state.
-    const unsubscribeTurns = subscribeSessionTurns(selectedSessionId, (turns) => {
-      const current = useSessionStore.getState().detail;
-      if (!current || current.session.id !== selectedSessionId) return;
-      setDetail({ ...current, turns });
-    });
+    const unsubscribeTurns = subscribeSessionTurns(
+      selectedSessionId,
+      (turns) => {
+        const current = useSessionStore.getState().detail;
+        if (!current || current.session.id !== selectedSessionId) return;
+        setDetail({ ...current, turns });
+      },
+    );
 
     const timer = window.setInterval(() => {
       void refreshDetail(selectedSessionId).catch(() => undefined);
@@ -626,10 +764,13 @@ export function SessionWorkspace() {
       setProjectSelection("project", projectId);
       goToStartScreen();
     },
-    [goToStartScreen, setProjectSelection]
+    [goToStartScreen, setProjectSelection],
   );
 
-  const handleSaveProject = async (input: { name: string; instructions: string }) => {
+  const handleSaveProject = async (input: {
+    name: string;
+    instructions: string;
+  }) => {
     setActionBusy(true);
     setError(null);
     try {
@@ -664,7 +805,9 @@ export function SessionWorkspace() {
       await refreshProjects();
       await refreshSessions(searchQuery);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to archive project.");
+      setError(
+        err instanceof Error ? err.message : "Failed to archive project.",
+      );
     } finally {
       setActionBusy(false);
     }
@@ -678,12 +821,35 @@ export function SessionWorkspace() {
       await refreshDetail(sessionId);
       const loaded = useSessionStore.getState().detail;
       const isEmpty =
-        loaded &&
-        !loaded.meetingSummary &&
-        loaded.turns.length === 0;
+        loaded && !loaded.meetingSummary && loaded.turns.length === 0;
       setOverviewMode(!isEmpty);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load conversation.");
+      setError(
+        err instanceof Error ? err.message : "Failed to load conversation.",
+      );
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const activeHomeSession = mostRecentActiveSession(sessions);
+
+  const handleHomePrimaryAction = async () => {
+    if (actionBusy || recording.busy || recording.isRunning) return;
+    setActionBusy(true);
+    setError(null);
+    try {
+      if (activeHomeSession) {
+        setSelectedSessionId(activeHomeSession.id);
+        await refreshDetail(activeHomeSession.id);
+        setOverviewMode(false);
+        setPendingAutoStartSessionId(activeHomeSession.id);
+      } else {
+        const created = await ensureSession();
+        setPendingAutoStartSessionId(created.id);
+      }
+    } catch {
+      // The underlying helpers already expose a user-facing error.
     } finally {
       setActionBusy(false);
     }
@@ -725,7 +891,10 @@ export function SessionWorkspace() {
 
   const handleSessionsChanged = useCallback(async () => {
     const nextSessions = await refreshSessions(searchQuery);
-    if (selectedSessionId && !nextSessions.some((s) => s.id === selectedSessionId)) {
+    if (
+      selectedSessionId &&
+      !nextSessions.some((s) => s.id === selectedSessionId)
+    ) {
       goToStartScreen();
     }
   }, [goToStartScreen, refreshSessions, searchQuery, selectedSessionId]);
@@ -762,7 +931,7 @@ export function SessionWorkspace() {
         });
       }, 250);
     },
-    [refreshSessions, setError, setSearchQuery]
+    [refreshSessions, setError, setSearchQuery],
   );
 
   const openSearch = useCallback(() => {
@@ -774,39 +943,43 @@ export function SessionWorkspace() {
   const hasSession = Boolean(selectedSessionId && detail);
   const activeProject =
     projectFilter === "project" && selectedProjectId
-      ? projects.find((project) => project.id === selectedProjectId) ?? null
+      ? (projects.find((project) => project.id === selectedProjectId) ?? null)
       : null;
   const showProjectHub = Boolean(activeProject && !hasSession);
-  const showHub = !hasSession && !activeProject && !settingsOpen;
+  const showHub = !hasSession && !activeProject;
   const showOverviewPanel =
-    hasSession &&
-    overviewMode &&
-    !conversationIsEmpty &&
-    !recording.isRunning &&
-    !settingsOpen;
+    hasSession && overviewMode && !conversationIsEmpty && !recording.isRunning;
   const showVoicePanel =
-    !settingsOpen &&
     !showHub &&
     !showProjectHub &&
     (!overviewMode ||
       conversationIsEmpty ||
       (hasSession && recording.isRunning));
+  const railSurface = showHub ? "home" : showProjectHub ? "project" : "session";
+  const effectiveRailExpanded =
+    railHoverExpanded || (railExpanded && !recording.isRunning);
+  const canSilence =
+    ariaStatus === "thinking" ||
+    ariaStatus === "searching" ||
+    ariaStatus === "speaking";
 
   const projectHubSessions = useMemo(
     () =>
       activeProject
         ? sessions.filter((session) => session.projectId === activeProject.id)
         : [],
-    [sessions, activeProject]
+    [sessions, activeProject],
   );
 
   // The header shows one crumb after the Kivo mark, naming the current surface.
-  // Recording collapses it so nothing competes with the live island.
+  // Recording collapses it so nothing competes with the orb.
   const crumb = recording.isRunning ? null : showHub ? (
     <BreadcrumbCrumb>Home</BreadcrumbCrumb>
   ) : showProjectHub && activeProject ? (
-    <BreadcrumbCrumb icon={<FolderIcon />}>{activeProject.name}</BreadcrumbCrumb>
-  ) : hasSession && detail && selectedSessionId ? (
+    <BreadcrumbCrumb icon={<FolderIcon />}>
+      {activeProject.name}
+    </BreadcrumbCrumb>
+  ) : hasSession && detail && selectedSessionId && !showOverviewPanel ? (
     <EditableSessionTitle
       title={detail.session.title}
       onRenameTitle={(title) => void handleRename(selectedSessionId, title)}
@@ -826,7 +999,7 @@ export function SessionWorkspace() {
   return (
     <div
       className="kivo-desktop-shell relative flex h-dvh w-full flex-col overflow-hidden bg-app text-app"
-      data-sidebar-collapsed="true"
+      data-sidebar-collapsed={effectiveRailExpanded ? "false" : "true"}
     >
       {onboardingNeeded ? (
         <OnboardingFlow
@@ -848,16 +1021,22 @@ export function SessionWorkspace() {
         onSessionsChanged={() => void handleSessionsChanged()}
       />
 
+      <SettingsModal
+        open={settingsOpen}
+        tab={settingsTab}
+        onSelectTab={setSettingsTab}
+        onClose={closeSettings}
+        onSessionsChanged={() => void handleSessionsChanged()}
+      />
+
       <ConfirmDialog
         open={trashConfirmId !== null}
         title="Move conversation to trash?"
-        description={
-          (() => {
-            const target = sessions.find((s) => s.id === trashConfirmId);
-            const name = target?.title ?? "this conversation";
-            return `“${name}” will be hidden from your conversation history. You can restore it or delete it forever from Settings → Trash.`;
-          })()
-        }
+        description={(() => {
+          const target = sessions.find((s) => s.id === trashConfirmId);
+          const name = target?.title ?? "this conversation";
+          return `“${name}” will be hidden from your conversation history. You can restore it or delete it forever from Settings → Trash.`;
+        })()}
         confirmLabel="Move to trash"
         danger
         busy={actionBusy}
@@ -873,13 +1052,13 @@ export function SessionWorkspace() {
       <ConfirmDialog
         open={projectArchiveId !== null}
         title="Archive project?"
-        description={
-          (() => {
-            const target = projects.find((project) => project.id === projectArchiveId);
-            const name = target?.name ?? "this project";
-            return `“${name}” will be hidden from Projects. Its conversations will stay available and become unassigned.`;
-          })()
-        }
+        description={(() => {
+          const target = projects.find(
+            (project) => project.id === projectArchiveId,
+          );
+          const name = target?.name ?? "this project";
+          return `“${name}” will be hidden from Projects. Its conversations will stay available and become unassigned.`;
+        })()}
         confirmLabel="Archive project"
         danger
         busy={actionBusy}
@@ -895,7 +1074,7 @@ export function SessionWorkspace() {
         key={
           projectEditor?.mode === "edit"
             ? `edit-${projectEditor.project.id}`
-            : projectEditor?.mode ?? "closed"
+            : (projectEditor?.mode ?? "closed")
         }
         state={projectEditor}
         busy={actionBusy}
@@ -920,222 +1099,258 @@ export function SessionWorkspace() {
         onClose={() => setSearchOpen(false)}
       />
 
-      <section className="kivo-desktop-main relative flex min-h-0 min-w-0 flex-1 flex-col bg-transparent">
-        {settingsOpen ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <WorkspaceHeader
-              breadcrumb={
-                <>
-                  <KivoMark onClick={closeSettings} />
-                  <BreadcrumbSeparator />
-                  <BreadcrumbCrumb>Settings</BreadcrumbCrumb>
-                </>
-              }
-            />
-            <div className="flex min-h-0 flex-1">
-              <div className="kivo-desktop-sidebar kivo-settings-sidebar-shell hidden h-full w-60 shrink-0 lg:flex">
-                <SettingsSidebar
-                  tab={settingsTab}
-                  onSelectTab={setSettingsTab}
-                />
-              </div>
-              <div className="kivo-desktop-settings-main hidden min-h-0 flex-1 flex-col lg:flex">
-                <SettingsView
-                  tab={settingsTab}
-                  onSessionsChanged={() => void handleSessionsChanged()}
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-        {/* One header for every surface. It carries the desktop titlebar inset,
+      <WorkspaceNavSheet
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        surface={railSurface}
+        projects={projects}
+        sessions={filteredSessions}
+        selectedProjectId={selectedProjectId}
+        selectedSessionId={selectedSessionId}
+        onHome={goToHub}
+        onNewConversation={() => void handleNewSessionFromHub()}
+        onSearch={openSearch}
+        onSelectProject={selectProject}
+        onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
+        onOpenSettings={openSettings}
+      />
+
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <WorkspaceRail
+          expanded={effectiveRailExpanded}
+          surface={railSurface}
+          projects={projects}
+          sessions={filteredSessions}
+          selectedProjectId={selectedProjectId}
+          selectedSessionId={selectedSessionId}
+          onToggle={toggleRail}
+          pinnedExpanded={railExpanded}
+          onHoverExpandedChange={setRailHoverExpanded}
+          expandOnHover
+          onHome={goToHub}
+          onNewConversation={() => void handleNewSessionFromHub()}
+          onSearch={openSearch}
+          onSelectProject={selectProject}
+          onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
+          onOpenSettings={openSettings}
+        />
+
+        <section className="kivo-desktop-main relative flex min-h-0 min-w-0 flex-1 flex-col bg-transparent">
+          {/* One header for every surface. It carries the desktop titlebar inset,
             the window drag region, and the offset the orb centres against, so
             no surface may opt out of it. */}
-        <WorkspaceHeader
-          breadcrumb={
-            <>
-              <KivoMark
-                onClick={showHub ? undefined : goToHub}
-                dimmed={recording.isRunning}
-              />
-              {crumb ? (
-                <>
-                  <BreadcrumbSeparator />
-                  {crumb}
-                </>
-              ) : null}
-            </>
-          }
-          actions={
-            <>
-              {showHub ? (
-                <>
-                  <HeaderPrimaryButton
-                    onClick={() => void handleNewSessionFromHub()}
-                    disabled={actionBusy}
-                  >
-                    <PlusIcon />
-                    <span>New conversation</span>
-                  </HeaderPrimaryButton>
-                  <HeaderIconButton onClick={openSettings} label="Open settings">
-                    <SettingsIcon />
-                  </HeaderIconButton>
-                </>
-              ) : null}
-
-              {showProjectHub && activeProject ? (
-                <>
-                  <HeaderPrimaryButton
-                    onClick={() => void handleNewSessionFromHub()}
-                    disabled={actionBusy}
-                  >
-                    <PlusIcon />
-                    <span>New conversation</span>
-                  </HeaderPrimaryButton>
-                  <ProjectActionsMenu
-                    onEditProject={() =>
-                      setProjectEditor({ mode: "edit", project: activeProject })
-                    }
-                    onArchiveProject={() => setProjectArchiveId(activeProject.id)}
-                  />
-                </>
-              ) : null}
-
-              {hasSession && detail && selectedSessionId ? (
-                <>
-                  {!recording.isRunning && !conversationIsEmpty ? (
-                    <SessionViewTabs
-                      overviewMode={overviewMode}
-                      onChange={setOverviewMode}
-                      overviewDisabled={recording.isRunning}
-                      resume={Boolean(detail.session.turnCount > 0)}
-                      onResume={handleRecordingStart}
-                      resumeDisabled={
-                        recording.busy || detail.session.status === "archived"
-                      }
-                    />
-                  ) : null}
-                  {/* Live Stop/timer while recording. Idle Resume sits under the
-                      orb (and as a header action on Overview). */}
-                  {recording.isRunning ? (
-                    <RecordingIsland
-                      isRunning={recording.isRunning}
-                      busy={recording.busy}
-                      elapsedMs={recording.elapsedMs}
-                      resume={Boolean(detail.session.turnCount > 0)}
-                      disabled={detail.session.status === "archived"}
-                      status={ariaStatus}
-                      onStart={handleRecordingStart}
-                      onStop={() => void recording.stop()}
-                      onStopSpeaking={() => {
-                        recording.stopSpeaking();
-                      }}
-                    />
-                  ) : null}
-                </>
-              ) : null}
-            </>
-          }
-        />
-
-        {error ? (
-          <div className="mx-3 mb-2 shrink-0 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger sm:mx-4">
-            {error}
-          </div>
-        ) : null}
-
-        {showHub ? (
-          <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
-            <SessionHub
-              projects={projects}
-              sessions={filteredSessions}
-              onOpenSearch={openSearch}
-              onSelectProject={selectProject}
-              onCreateProject={() => setProjectEditor({ mode: "create" })}
-              onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
-            />
-          </div>
-        ) : null}
-
-        {showProjectHub && activeProject ? (
-          <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
-            <ProjectHubView
-              project={activeProject}
-              sessions={projectHubSessions}
-              onOpenSearch={openSearch}
-              onSelectSession={(sessionId) => void handleSelectSession(sessionId)}
-            />
-          </div>
-        ) : null}
-
-        {showOverviewPanel && detail && selectedSessionId ? (
-          <div className="kivo-desktop-content-glass kivo-fade-in flex min-h-0 flex-1 flex-col">
-            <OverviewView
-              summary={detail.meetingSummary ?? null}
-              transcriptLines={transcriptLines}
-              isRunning={recording.isRunning}
-              generating={recording.busy && !recording.isRunning}
-              resume={Boolean(detail.session.turnCount > 0)}
-              archived={detail.session.status === "archived"}
-              busy={recording.busy}
-              speakerCorrection={speakerCorrection}
-              onStart={handleRecordingStart}
-            />
-          </div>
-        ) : null}
-
-        {showVoicePanel ? (
-          recording.isRunning ? (
-            <div className="relative min-h-0 flex-1">
-              <LiveListeningStream lines={transcriptLines} />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1] flex justify-center pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-                <OrbVisualizer compact />
-              </div>
-            </div>
-          ) : (
-            <div className="pointer-events-none flex min-h-0 flex-1 items-center justify-center">
-              <div className="kivo-voice-stage pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
-                <div className="flex flex-col items-center">
-                  <OrbVisualizer
-                    onActivate={
-                      detail?.session.status === "archived"
-                        ? undefined
-                        : handleRecordingStart
-                    }
-                  />
+          <WorkspaceHeader
+            breadcrumb={
+              showOverviewPanel && detail && selectedSessionId ? (
+                <OverviewTray
+                  title={detail.session.title}
+                  onRenameTitle={(title) =>
+                    void handleRename(selectedSessionId, title)
+                  }
+                  mode={overviewContentMode}
+                  onChangeMode={setOverviewContentMode}
+                  resume={Boolean(detail.session.turnCount > 0)}
+                  onResume={handleRecordingStart}
+                  resumeDisabled={
+                    recording.busy || detail.session.status === "archived"
+                  }
+                  leading={<KivoMark onClick={goToHub} />}
+                />
+              ) : recording.isRunning ? (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleRecordingStart}
-                    disabled={
-                      recording.busy || detail?.session.status === "archived"
-                    }
-                    className="pointer-events-auto relative z-20 mt-3 px-3 py-1.5 text-sm font-medium text-app-muted transition-colors hover:text-app disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => void recording.stop()}
+                    disabled={recording.busy}
+                    aria-label="Stop recording"
+                    className="kivo-session-stop"
                   >
-                    {detail?.session.status === "archived"
-                      ? "Archived"
-                      : detail && detail.session.turnCount > 0
-                        ? "Resume"
-                        : "Start"}
+                    <StopIcon size={16} />
+                    <span>Stop</span>
                   </button>
+                  {canSilence ? (
+                    <button
+                      type="button"
+                      onClick={() => recording.stopSpeaking()}
+                      aria-label="Stop Kivo speaking"
+                      className="kivo-session-silence"
+                    >
+                      Silence
+                    </button>
+                  ) : null}
                 </div>
-              </div>
-            </div>
-          )
-        ) : null}
+              ) : (
+                <>
+                  <KivoMark onClick={goToHub} />
+                  {crumb ? <BreadcrumbSeparator /> : null}
+                  {crumb}
+                </>
+              )
+            }
+            actions={
+              <>
+                {showOverviewPanel ? null : (
+                  <>
+                    {showProjectHub && activeProject ? (
+                      <>
+                        <HeaderPrimaryButton
+                          onClick={() => void handleNewSessionFromHub()}
+                          disabled={actionBusy}
+                        >
+                          <PlusIcon />
+                          <span className="max-[420px]:sr-only">New conversation</span>
+                        </HeaderPrimaryButton>
+                        <ProjectActionsMenu
+                          onEditProject={() =>
+                            setProjectEditor({
+                              mode: "edit",
+                              project: activeProject,
+                            })
+                          }
+                          onArchiveProject={() =>
+                            setProjectArchiveId(activeProject.id)
+                          }
+                        />
+                      </>
+                    ) : null}
 
-        <ConfirmDialog
-          open={recording.consentOpen}
-          title="Before Kivo starts listening"
-          description="Kivo transcribes everything your microphone hears, including other people. Make sure everyone present knows the conversation is being transcribed and consents — some places legally require it."
-          confirmLabel="Everyone knows — start"
-          cancelLabel="Not yet"
-          onConfirm={recording.confirmConsent}
-          onCancel={recording.cancelConsent}
-        />
-          </>
-        )}
-      </section>
+                    {hasSession &&
+                    detail &&
+                    selectedSessionId &&
+                    !recording.isRunning &&
+                    !conversationIsEmpty ? (
+                      <div className="kivo-session-control-cluster">
+                        <SessionViewTabs
+                          resume={Boolean(detail.session.turnCount > 0)}
+                          onResume={handleRecordingStart}
+                          resumeDisabled={
+                            recording.busy ||
+                            detail.session.status === "archived"
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </>
+                )}
+                <span className="kivo-mobile-nav-trigger lg:hidden">
+                  <HeaderIconButton
+                    onClick={() => setMobileNavOpen(true)}
+                    label="Open navigation"
+                    expanded={mobileNavOpen}
+                  >
+                    <NavigationIcon />
+                  </HeaderIconButton>
+                </span>
+              </>
+            }
+          />
+
+          {error ? (
+            <div className="mx-3 mb-2 shrink-0 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger sm:mx-4">
+              {error}
+            </div>
+          ) : null}
+
+          {showHub ? (
+            <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
+              <SessionHub
+                displayName={
+                  user?.displayName ?? user?.email?.split("@")[0] ?? null
+                }
+                projects={projects}
+                sessions={filteredSessions}
+                activeSession={activeHomeSession}
+                onPrimaryAction={() => void handleHomePrimaryAction()}
+                onOpenSearch={openSearch}
+                onSelectProject={selectProject}
+                onCreateProject={() => setProjectEditor({ mode: "create" })}
+                onSelectSession={(sessionId) =>
+                  void handleSelectSession(sessionId)
+                }
+              />
+            </div>
+          ) : null}
+
+          {showProjectHub && activeProject ? (
+            <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
+              <ProjectHubView
+                project={activeProject}
+                sessions={projectHubSessions}
+                onOpenSearch={openSearch}
+                onSelectSession={(sessionId) =>
+                  void handleSelectSession(sessionId)
+                }
+              />
+            </div>
+          ) : null}
+
+          {showOverviewPanel && detail && selectedSessionId ? (
+            <div className="kivo-desktop-content-glass kivo-fade-in flex min-h-0 flex-1 flex-col">
+              <OverviewView
+                summary={detail.meetingSummary ?? null}
+                transcriptLines={transcriptLines}
+                contentMode={overviewContentMode}
+                isRunning={recording.isRunning}
+                generating={recording.busy && !recording.isRunning}
+                resume={Boolean(detail.session.turnCount > 0)}
+                archived={detail.session.status === "archived"}
+                busy={recording.busy}
+                speakerCorrection={speakerCorrection}
+                onStart={handleRecordingStart}
+              />
+            </div>
+          ) : null}
+
+          <ConfirmDialog
+            open={recording.consentOpen}
+            title="Before Kivo starts listening"
+            description="Kivo transcribes everything your microphone hears, including other people. Make sure everyone present knows the conversation is being transcribed and consents — some places legally require it."
+            confirmLabel="Everyone knows — start"
+            cancelLabel="Not yet"
+            onConfirm={recording.confirmConsent}
+            onCancel={recording.cancelConsent}
+          />
+        </section>
+      </div>
+
+      {/* The voice layer is a direct child of the full workspace so neither the
+          compact nor expanded in-flow rail can influence its center point. */}
+      {showVoicePanel ? (
+        <div className="kivo-voice-viewport pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <div className="kivo-voice-stage pointer-events-auto w-max max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-3rem)]">
+            <div className="flex flex-col items-center">
+              <OrbVisualizer
+                onActivate={
+                  recording.isRunning || detail?.session.status === "archived"
+                    ? undefined
+                    : handleRecordingStart
+                }
+              />
+              {!recording.isRunning ? (
+                <button
+                  type="button"
+                  onClick={handleRecordingStart}
+                  disabled={
+                    recording.busy || detail?.session.status === "archived"
+                  }
+                  className="pointer-events-auto relative z-20 mt-3 rounded-lg px-3 py-1.5 text-sm font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {detail?.session.status === "archived"
+                    ? "Archived"
+                    : detail && detail.session.turnCount > 0
+                      ? "Resume"
+                      : "Start"}
+                </button>
+              ) : (
+                <ListeningCaption
+                  status={ariaStatus}
+                  elapsedMs={recording.elapsedMs}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

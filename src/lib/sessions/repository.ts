@@ -13,9 +13,11 @@ import {
   MAX_SEARCH_HITS,
   SEARCH_PREVIEW_LENGTH,
 } from "@/lib/sessions/constants";
+import { applyCleanedTranscript } from "@/lib/sessions/cleaned-transcript";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { assertActiveProjectOwner } from "@/lib/projects/repository";
 import type {
+  CleanedTranscriptDoc,
   MeetingSummaryDoc,
   SessionDetailResponse,
   SessionDoc,
@@ -50,6 +52,12 @@ function meetingSummaryRef(db: Firestore, uid: string, sessionId: string) {
   return sessionRef(db, uid, sessionId)
     .collection("context")
     .doc("meetingSummary");
+}
+
+function cleanedTranscriptRef(db: Firestore, uid: string, sessionId: string) {
+  return sessionRef(db, uid, sessionId)
+    .collection("context")
+    .doc("cleanedTranscript");
 }
 
 function factsCol(db: Firestore, uid: string, sessionId: string) {
@@ -156,6 +164,23 @@ function mapMeetingSummary(data: DocumentData): MeetingSummaryDoc {
       : [],
     generatedAt: toIso(data.generatedAt),
     turnCountAtGeneration: Number(data.turnCountAtGeneration ?? 0),
+  };
+}
+
+function mapCleanedTranscript(data: DocumentData): CleanedTranscriptDoc {
+  const turns = data.turns;
+  return {
+    turns: Array.isArray(turns)
+      ? turns.map((turn) => ({
+          sourceTurnIds: Array.isArray(turn?.sourceTurnIds)
+            ? turn.sourceTurnIds.map(String)
+            : [],
+          text: String(turn?.text ?? ""),
+        }))
+      : [],
+    generatedAt: toIso(data.generatedAt),
+    turnCountAtGeneration: Number(data.turnCountAtGeneration ?? 0),
+    model: String(data.model ?? ""),
   };
 }
 
@@ -444,6 +469,49 @@ export async function getNextSequence(
   return Number(snap.docs[0]!.data().sequence ?? 0) + 1;
 }
 
+/**
+ * Finds a `user_question` turn that the incoming question is still extending.
+ *
+ * A speaker who pauses mid-thought endpoints early, so one long question can
+ * dispatch several times: each attempt persists a question turn and gets its
+ * answer cut off by the speaker resuming. The transcript then shows the same
+ * sentence three or four times, each a little longer. Those are one question,
+ * so the earlier turn is rewritten rather than a new one appended.
+ *
+ * The signature is narrow on purpose: the previous question turn, separated
+ * from this one only by answers that were themselves interrupted, whose text
+ * the new question begins with.
+ */
+async function findSupersededQuestionTurn(
+  db: Firestore,
+  uid: string,
+  sessionId: string,
+  text: string
+): Promise<FirebaseFirestore.QueryDocumentSnapshot | null> {
+  const snap = await turnsCol(db, uid, sessionId)
+    .orderBy("sequence", "desc")
+    .limit(6)
+    .get();
+
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    if (data.role === "assistant") {
+      // Only a cut-off answer means the speaker talked over it and kept going.
+      if (!data.interrupted) return null;
+      continue;
+    }
+    if (data.role !== "user_question") return null;
+
+    const previous = String(data.text ?? "").trim();
+    if (!previous) return null;
+    const extended =
+      text.length > previous.length && text.startsWith(previous);
+    return extended ? doc : null;
+  }
+
+  return null;
+}
+
 export async function appendTurn(
   uid: string,
   sessionId: string,
@@ -459,8 +527,37 @@ export async function appendTurn(
 ): Promise<TurnDoc> {
   const db = getAdminDb();
   const session = await assertSessionOwner(uid, sessionId);
-  const sequence = await getNextSequence(uid, sessionId);
   const tokenEstimate = estimateTokens(input.text);
+
+  if (input.role === "user_question") {
+    const superseded = await findSupersededQuestionTurn(
+      db,
+      uid,
+      sessionId,
+      input.text
+    );
+    if (superseded) {
+      const previousTokens = Number(superseded.data().tokenEstimate ?? 0);
+      await superseded.ref.update({
+        text: input.text,
+        tokenEstimate,
+        sourceUtteranceIds: [
+          ...new Set([
+            ...(superseded.data().sourceUtteranceIds ?? []),
+            ...(input.sourceUtteranceIds ?? []),
+          ]),
+        ],
+      });
+      await sessionRef(db, uid, sessionId).update({
+        updatedAt: FieldValue.serverTimestamp(),
+        tokenEstimate: FieldValue.increment(tokenEstimate - previousTokens),
+      });
+      const updated = await superseded.ref.get();
+      return mapTurn(superseded.ref.id, updated.data() ?? {});
+    }
+  }
+
+  const sequence = await getNextSequence(uid, sessionId);
   const turnRef = turnsCol(db, uid, sessionId).doc();
 
   await turnRef.set({
@@ -506,15 +603,31 @@ export async function relabelTurnSpeaker(
   const db = getAdminDb();
   await assertSessionOwner(uid, sessionId);
 
+  // A cleaned transcript can show several raw turns merged into one line, and
+  // the UI only knows that line's id. Expand back to every raw turn behind it
+  // so a speaker correction reaches all of them, not just the first.
+  const cleaned = await getCleanedTranscript(uid, sessionId);
+  const expanded = new Set(turnIds);
+  for (const entry of cleaned?.turns ?? []) {
+    const [first] = entry.sourceTurnIds;
+    if (first && expanded.has(first)) {
+      for (const id of entry.sourceTurnIds) expanded.add(id);
+    }
+  }
+
   const col = turnsCol(db, uid, sessionId);
-  const refs = [...new Set(turnIds)].map((id) => col.doc(id));
+  const refs = [...expanded].map((id) => col.doc(id));
   const snaps = await db.getAll(...refs);
 
   const batch = db.batch();
   let updated = 0;
   for (const snap of snaps) {
     if (!snap.exists) continue;
-    if (snap.data()?.role !== "speaker") continue;
+    // Questions asked aloud are speech by a diarized speaker too — they are
+    // just persisted by the ask pipeline instead of the transcript path. Only
+    // assistant turns are off limits.
+    const role = snap.data()?.role;
+    if (role !== "speaker" && role !== "user_question") continue;
     batch.update(snap.ref, { speakerName: speakerName?.trim() || null });
     updated += 1;
   }
@@ -670,6 +783,33 @@ export async function upsertMeetingSummary(
   return mapMeetingSummary(snap.data() ?? {});
 }
 
+export async function getCleanedTranscript(
+  uid: string,
+  sessionId: string
+): Promise<CleanedTranscriptDoc | null> {
+  const db = getAdminDb();
+  const snap = await cleanedTranscriptRef(db, uid, sessionId).get();
+  if (!snap.exists) return null;
+  return mapCleanedTranscript(snap.data() ?? {});
+}
+
+export async function upsertCleanedTranscript(
+  uid: string,
+  sessionId: string,
+  cleaned: Omit<CleanedTranscriptDoc, "generatedAt">
+): Promise<CleanedTranscriptDoc> {
+  const db = getAdminDb();
+  const ref = cleanedTranscriptRef(db, uid, sessionId);
+
+  await ref.set({
+    ...cleaned,
+    generatedAt: FieldValue.serverTimestamp(),
+  });
+
+  const snap = await ref.get();
+  return mapCleanedTranscript(snap.data() ?? {});
+}
+
 export async function listFacts(
   uid: string,
   sessionId: string
@@ -765,13 +905,20 @@ export async function getSessionDetail(
   const session = await getSession(uid, sessionId);
   if (!session) return null;
 
-  const [turns, summary, meetingSummary, facts, pins] = await Promise.all([
-    listTurns(uid, sessionId, turnLimit),
-    getSummary(uid, sessionId),
-    getMeetingSummary(uid, sessionId),
-    listFacts(uid, sessionId),
-    listPins(uid, sessionId),
-  ]);
+  const [rawTurns, summary, meetingSummary, facts, pins, cleaned] =
+    await Promise.all([
+      listTurns(uid, sessionId, turnLimit),
+      getSummary(uid, sessionId),
+      getMeetingSummary(uid, sessionId),
+      listFacts(uid, sessionId),
+      listPins(uid, sessionId),
+      getCleanedTranscript(uid, sessionId),
+    ]);
+
+  // Once a session has been cleaned, that is what the transcript shows. The
+  // raw turns are still the stored record — this is an overlay, and any turn
+  // the cleaner never covered passes through untouched.
+  const turns = applyCleanedTranscript(rawTurns, cleaned);
 
   return { session, turns, summary, meetingSummary, facts, pins };
 }

@@ -7,6 +7,7 @@ import { getAdminDb } from "@/lib/firebase/admin";
 import {
   capSpeakerIdentifiers,
   mergeLearnedSpeakerIdentifiers,
+  resolveAnchorCount,
 } from "@/lib/speakers/identifier-cap";
 import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 
@@ -45,6 +46,12 @@ function mapSpeakerProfile(id: string, data: DocumentData): SpeakerProfileDoc {
       ? data.speakerIdentifiers.map(String).filter(Boolean)
       : [],
     sampleCount: Number(data.sampleCount ?? 1),
+    anchorCount: resolveAnchorCount(
+      Array.isArray(data.speakerIdentifiers)
+        ? data.speakerIdentifiers.map(String).filter(Boolean)
+        : [],
+      typeof data.anchorCount === "number" ? data.anchorCount : null
+    ),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -84,6 +91,8 @@ export async function upsertSpeakerProfile(
     {
       name: input.name.trim(),
       speakerIdentifiers: identifiers,
+      // Enrollment audio is the speaker alone: every print from it is an anchor.
+      anchorCount: identifiers.length,
       sampleCount: input.sampleCount ?? 1,
       createdAt: existing ? snap.data()?.createdAt ?? now : now,
       updatedAt: now,
@@ -114,10 +123,12 @@ export async function learnSpeakerProfile(
     const existing = snap.exists
       ? mapSpeakerProfile(snap.id, snap.data() ?? {})
       : null;
-    const identifiers = mergeLearnedSpeakerIdentifiers(
+    const merged = mergeLearnedSpeakerIdentifiers(
       existing?.speakerIdentifiers ?? [],
-      input.speakerIdentifiers.map(String)
+      input.speakerIdentifiers.map(String),
+      existing?.anchorCount
     );
+    const identifiers = merged.identifiers;
     if (identifiers.length === 0) {
       throw new Error("At least one speaker identifier is required.");
     }
@@ -133,6 +144,7 @@ export async function learnSpeakerProfile(
       {
         name: input.name.trim(),
         speakerIdentifiers: identifiers,
+        anchorCount: merged.anchorCount,
         sampleCount:
           (existing?.sampleCount ?? 0) + (learnedNewIdentifier ? 1 : 0),
         createdAt: existing ? snap.data()?.createdAt ?? now : now,
@@ -165,12 +177,18 @@ export async function patchSpeakerProfile(
   const nextId = slugifySpeakerProfileId(nextName);
   if (!nextId) throw new Error("Speaker name produced an empty profile id.");
 
+  const nextIdentifiers =
+    patch.speakerIdentifiers == null
+      ? current.speakerIdentifiers
+      : capSpeakerIdentifiers(patch.speakerIdentifiers);
   const payload = {
     name: nextName,
-    speakerIdentifiers:
+    speakerIdentifiers: nextIdentifiers,
+    // Replacing the prints outright is a re-enrollment: the new set is anchors.
+    anchorCount:
       patch.speakerIdentifiers == null
-        ? current.speakerIdentifiers
-        : capSpeakerIdentifiers(patch.speakerIdentifiers),
+        ? Math.min(current.anchorCount, nextIdentifiers.length)
+        : nextIdentifiers.length,
     sampleCount: patch.sampleCount ?? current.sampleCount,
     createdAt: snap.data()?.createdAt ?? FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),

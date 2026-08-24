@@ -9,6 +9,7 @@ import { generateMeetingSummary } from "@/lib/sessions/client";
 import type { SessionDoc, TranscriptionMode } from "@/lib/sessions/types";
 import { useAriaStore } from "@/lib/store";
 import type { SessionSpeakerClusterSnapshot } from "@/lib/speakers/session-learning";
+import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 
 const CONSENT_ACK_KEY = "kivo_consent_ack";
 
@@ -48,6 +49,12 @@ export interface AriaRecording {
   requestStart: () => Promise<void>;
   stop: () => Promise<void>;
   stopSpeaking: () => boolean;
+  /** Relabels the live stream and re-seeds diarization after a correction. */
+  correctSpeaker: (input: {
+    providerSpeakerLabel: string;
+    correctedName: string | null;
+    learnedProfile?: SpeakerProfileDoc | null;
+  }) => Promise<void>;
   confirmConsent: () => void;
   cancelConsent: () => void;
 }
@@ -187,6 +194,17 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
     []
   );
 
+  const correctSpeaker = useCallback(
+    async (input: {
+      providerSpeakerLabel: string;
+      correctedName: string | null;
+      learnedProfile?: SpeakerProfileDoc | null;
+    }) => {
+      await engineRef.current?.correctSpeakerAttribution(input);
+    },
+    []
+  );
+
   const confirmConsent = useCallback(() => {
     try {
       window.localStorage.setItem(CONSENT_ACK_KEY, "1");
@@ -208,6 +226,7 @@ export function useAriaRecording(input: UseAriaRecordingInput): AriaRecording {
     requestStart,
     stop,
     stopSpeaking,
+    correctSpeaker,
     confirmConsent,
     cancelConsent,
   };

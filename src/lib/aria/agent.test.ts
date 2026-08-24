@@ -105,16 +105,42 @@ describe("voice agent configuration", () => {
 
   it("keeps voice responses plain and resolves imperfect transcripts from context", () => {
     const prompt = buildAriaSystemPrompt({ speakerAware: false });
-    expect(prompt).toContain("helpful voice assistant");
+    expect(prompt).toContain("spoken aloud into a live conversation");
+    expect(prompt).toContain("Start with the answer");
     expect(prompt).toContain("infer the most plausible reading");
-    expect(prompt).toContain("forcing the user to choose between interpretations");
     expect(prompt).toContain("not a reason to ask for repetition");
-    expect(prompt).toContain("acknowledge real uncertainty when it matters");
+    expect(prompt).toContain("acknowledge uncertainties plainly");
     expect(prompt).not.toMatch(/didn['’]t catch that/i);
     expect(prompt).not.toMatch(/are you asking/i);
     expect(prompt).not.toContain("incisive, low-ego");
     expect(prompt).not.toContain('Never say "it depends"');
     expect(prompt.length).toBeLessThan(6_000);
+  });
+
+  /**
+   * Kivo's character is delivery-independent: speaking into a room and writing
+   * into a thread are the same participant. Only the delivery section differs.
+   */
+  it("carries an identical character block into voice and text", () => {
+    const voice = buildAriaSystemPrompt({ speakerAware: false });
+    const text = buildAriaSystemPrompt({ speakerAware: false, delivery: "text" });
+
+    for (const trait of [
+      "Speak naturally, like a capable colleague",
+      "skip filler, flattery, and conversational preambles",
+      "acknowledge uncertainties plainly without unnecessary hedging",
+      "infer the most plausible reading",
+      "Real conversations frequently contain profanity",
+    ]) {
+      expect(voice).toContain(trait);
+      expect(text).toContain(trait);
+    }
+
+    // No deference-shaped filler survives in either delivery.
+    for (const prompt of [voice, text]) {
+      expect(prompt).not.toMatch(/perform a strong persona/i);
+      expect(prompt).not.toMatch(/debate the user/i);
+    }
   });
 
   /**

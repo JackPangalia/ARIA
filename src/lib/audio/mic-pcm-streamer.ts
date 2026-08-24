@@ -25,6 +25,18 @@ export function buildMicAudioConstraints(
   };
 }
 
+/**
+ * An AudioContext pinned to the capture rate, falling back to the device rate
+ * on browsers that reject the option.
+ */
+export function createCaptureAudioContext(): AudioContext {
+  try {
+    return new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+  } catch {
+    return new AudioContext();
+  }
+}
+
 export function floatToInt16(input: Float32Array): Int16Array {
   const output = new Int16Array(input.length);
   for (let i = 0; i < input.length; i++) {
@@ -58,7 +70,14 @@ export class MicPcmStreamer {
     });
     this.audioTrack = this.stream.getAudioTracks()[0] ?? null;
 
-    this.audioContext = new AudioContext();
+    // Ask the graph itself to run at the target rate. The browser's own
+    // resampler is a proper multiphase filter; StreamingLinearResampler is
+    // linear interpolation, which barely attenuates content above 8kHz — at
+    // 48k->16k that folds fricatives and speaker-embedding cues back into the
+    // 6-7kHz band. When the context honors the request the resampler below
+    // becomes a pass-through; when it doesn't (Firefox, some devices) it
+    // still covers us.
+    this.audioContext = createCaptureAudioContext();
     this.source = this.audioContext.createMediaStreamSource(this.stream);
     this.silentGain = this.audioContext.createGain();
     this.silentGain.gain.value = 0;

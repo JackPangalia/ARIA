@@ -52,9 +52,10 @@ html.kivo-desktop .kivo-settings-page {
 }
 
 .kivo-settings-page-title {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.025em;
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
   line-height: 1.2;
   color: var(--app-fg);
 }
@@ -76,8 +77,9 @@ html.kivo-desktop .kivo-settings-page {
 }
 
 .kivo-settings-card {
-  overflow: visible;
-  background: transparent;
+  overflow: hidden;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--app-surface) 55%, transparent);
 }
 
 .kivo-settings-card-row {
@@ -86,14 +88,12 @@ html.kivo-desktop .kivo-settings-page {
   gap: 16px;
   min-height: 64px;
   padding: 14px 16px;
-  margin-bottom: 2px;
   border: 0;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--app-surface) 48%, transparent);
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .kivo-settings-card-row--last {
-  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .kivo-settings-row-title {
@@ -1054,71 +1054,6 @@ button.grok-option-card:hover:not(:disabled) {
   background: color-mix(in srgb, var(--grok-danger-fg) 8%, transparent);
 }
 
-.grok-connector-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.grok-connector-group {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.grok-connector-group-label {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--grok-subtle);
-}
-
-.grok-connector-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.grok-connector-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 60px;
-}
-
-.grok-connector-icon {
-  flex-shrink: 0;
-  display: flex;
-  height: 36px;
-  width: 36px;
-  align-items: center;
-  justify-content: center;
-}
-
-.grok-connector-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--grok-fg);
-}
-
-.grok-connector-status-dot {
-  flex-shrink: 0;
-  height: 8px;
-  width: 8px;
-  border-radius: 9999px;
-  background: #4ade80;
-}
-
-.grok-connector-blurb {
-  font-size: 12px;
-  color: var(--grok-muted);
-  margin-top: 2px;
-}
-
 .grok-speaker-enroll {
   margin-bottom: 4px;
 }
@@ -1126,16 +1061,6 @@ button.grok-option-card:hover:not(:disabled) {
 .grok-speaker-enroll-idle {
   display: flex;
   flex-direction: column;
-}
-
-.grok-speaker-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.grok-speaker-list-item--divided {
-  border-bottom: 1px solid var(--grok-border);
 }
 
 .grok-speaker-orb-glyph {

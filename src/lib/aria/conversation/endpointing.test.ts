@@ -110,17 +110,17 @@ describe("graceMsFor / settleMsFor", () => {
   it("keeps residual grace short on asks and completed turns", () => {
     expect(graceMsFor("clear-ask", false)).toBe(80);
     expect(graceMsFor("clear-ask", true)).toBe(80);
-    expect(graceMsFor("likely-ask", false)).toBe(250);
-    expect(graceMsFor("likely-ask", true)).toBe(250);
-    expect(graceMsFor("complete-turn", false)).toBe(400);
-    expect(graceMsFor("complete-turn", true)).toBe(400);
+    expect(graceMsFor("likely-ask", false)).toBe(150);
+    expect(graceMsFor("likely-ask", true)).toBe(150);
+    expect(graceMsFor("complete-turn", false)).toBe(250);
+    expect(graceMsFor("complete-turn", true)).toBe(250);
   });
 
   it("is more patient on first-wake statements than follow-ups", () => {
-    expect(graceMsFor("statement", false)).toBe(900);
-    expect(graceMsFor("statement", true)).toBe(550);
-    expect(graceMsFor("unfinished", false)).toBe(2400);
-    expect(graceMsFor("unfinished", true)).toBe(1800);
+    expect(graceMsFor("statement", false)).toBe(650);
+    expect(graceMsFor("statement", true)).toBe(400);
+    expect(graceMsFor("unfinished", false)).toBe(2000);
+    expect(graceMsFor("unfinished", true)).toBe(1500);
   });
 
   it("keeps settle longer than residual grace in both modes", () => {
@@ -139,15 +139,21 @@ describe("graceMsFor / settleMsFor", () => {
 });
 
 describe("shouldForceEndpoint", () => {
-  it("always forces asks and yield closers", () => {
+  it("forces unambiguous asks and yield closers", () => {
     expect(shouldForceEndpoint("clear-ask", "what should we charge?")).toBe(
       true
     );
-    expect(
-      shouldForceEndpoint("likely-ask", "how much does the pro tier cost")
-    ).toBe(true);
     expect(shouldForceEndpoint("complete-turn", "alright yeah")).toBe(true);
     expect(shouldForceEndpoint("complete-turn", "that's it")).toBe(true);
+  });
+
+  it("does not force an unpunctuated question shape", () => {
+    // The words read like an ask the moment they land, but the speaker may
+    // still be going ("...how much does the pro tier cost compared to"). These
+    // wait for the acoustic end-of-turn; speculation keeps them fast anyway.
+    expect(
+      shouldForceEndpoint("likely-ask", "how much does the pro tier cost")
+    ).toBe(false);
   });
 
   it("does not force punctuated briefings or statements", () => {

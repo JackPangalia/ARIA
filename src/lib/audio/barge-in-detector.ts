@@ -56,7 +56,12 @@ export const DEFAULT_BARGE_IN_PARAMS: BargeInDetectorParams = {
   hangoverMs: 180,
   primeMs: 200,
   floorEmaAlpha: 0.05,
-  speechProbability: 0.42,
+  // Room-tested 2026-08-22: 0.42 read ordinary room chatter (not just the
+  // person Kivo is listening to) as "voiced" almost as readily as real speech
+  // directed at Kivo, since this detector has no speaker/content gating — it's
+  // pure energy + spectral shape. Raised so it takes clearer, more sustained
+  // speech-like energy to start a duck/confirm run.
+  speechProbability: 0.55,
 };
 
 export interface BargeInCallbacks {
@@ -149,10 +154,12 @@ export class BargeInDetector {
     );
 
     // Probability is the normal confirmation path. Very strong energy remains
-    // a fallback for browsers whose AEC distorts speech spectral features.
+    // a fallback for browsers whose AEC distorts speech spectral features, but
+    // it's a blunt energy-only check — kept high so ordinary room noise can't
+    // trip it on volume alone.
     const voiced =
       activity.probability >= this.params.speechProbability ||
-      rms >= threshold * 1.8;
+      rms >= threshold * 2.6;
 
     if (voiced) {
       this.voicedMs += frameMs;

@@ -34,7 +34,7 @@ export function KivoMark(props: { onClick?: () => void; dimmed?: boolean }) {
       type="button"
       onClick={props.onClick}
       aria-label="Return to Kivo home"
-      className={`kivo-wordmark shrink-0 select-none rounded-lg text-app-muted transition-colors hover:text-app focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
+      className={`kivo-wordmark shrink-0 select-none rounded-lg text-app transition-colors hover:text-app-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
         props.dimmed ? "opacity-0 focus-visible:opacity-100" : ""
       }`}
     >
@@ -77,8 +77,8 @@ export function BreadcrumbCrumb(props: { icon?: ReactNode; children: ReactNode }
  */
 export function WorkspaceHeader(props: { breadcrumb: ReactNode; actions?: ReactNode }) {
   return (
-    <header className="kivo-session-topbar pointer-events-auto z-10 flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">{props.breadcrumb}</div>
+    <header className="kivo-session-topbar pointer-events-auto z-20 flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">{props.breadcrumb}</div>
       {props.actions ? (
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">{props.actions}</div>
       ) : null}
@@ -98,7 +98,7 @@ export function HeaderIconButton(props: {
       onClick={props.onClick}
       aria-label={props.label}
       aria-expanded={props.expanded}
-      className="rounded-lg p-1.5 text-app-muted transition-colors hover:bg-surface-hover hover:text-app-secondary"
+      className="rounded-lg p-1.5 text-app-muted transition-[background-color,color,transform] hover:bg-surface-hover hover:text-app-secondary active:scale-[0.94] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
     >
       {props.children}
     </button>
@@ -115,7 +115,7 @@ export function HeaderPrimaryButton(props: {
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
-      className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50"
+      className="flex items-center gap-1.5 rounded-xl bg-accent px-3.5 py-1.5 text-sm font-medium text-accent-fg transition-[opacity,transform] hover:-translate-y-0.5 hover:opacity-90 active:translate-y-px active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app disabled:opacity-50"
     >
       {props.children}
     </button>

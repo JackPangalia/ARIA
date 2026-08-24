@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { energyFor, type Mode } from "@/components/aria/visual-state";
-import { useTheme } from "@/components/theme/ThemeProvider";
 import { useAriaStore } from "@/lib/store";
 
 const ENERGY_ATTACK_MS = 18;
@@ -40,8 +39,8 @@ void main() {
 `;
 
 /**
- * ChatGPT-style voice orb: a perfectly smooth circular limb holding
- * raymarched ice/white gas. No mesh, so no facets.
+ * Voice orb: a solid two-tone disc. The terminator rotates and the
+ * sphere breathes; no noise, grain, or haze.
  */
 const FRAG = /* glsl */ `
 precision highp float;
@@ -54,132 +53,46 @@ uniform float uThink;
 uniform float uSpeak;
 uniform float uInput;
 uniform float uOutput;
-uniform float uLight;
 uniform float uScale;
-
-vec3 hash33(vec3 p3) {
-  p3 = fract(p3 * vec3(0.1031, 0.11369, 0.13787));
-  p3 += dot(p3, p3.yxz + 19.19);
-  return -1.0 + 2.0 * fract(vec3(p3.x + p3.y, p3.x + p3.z, p3.y + p3.z) * p3.zyx);
-}
-
-float snoise(vec3 p) {
-  const float K1 = 0.333333333;
-  const float K2 = 0.166666667;
-  vec3 i = floor(p + (p.x + p.y + p.z) * K1);
-  vec3 d0 = p - (i - (i.x + i.y + i.z) * K2);
-  vec3 e = step(vec3(0.0), d0 - d0.yzx);
-  vec3 i1 = e * (1.0 - e.zxy);
-  vec3 i2 = 1.0 - e.zxy * (1.0 - e);
-  vec3 d1 = d0 - (i1 - K2);
-  vec3 d2 = d0 - (i2 - K1);
-  vec3 d3 = d0 - 0.5;
-  vec4 h = max(0.6 - vec4(dot(d0, d0), dot(d1, d1), dot(d2, d2), dot(d3, d3)), 0.0);
-  vec4 n = h * h * h * h * vec4(
-    dot(d0, hash33(i)),
-    dot(d1, hash33(i + i1)),
-    dot(d2, hash33(i + i2)),
-    dot(d3, hash33(i + 1.0))
-  );
-  return dot(vec4(31.316), n);
-}
-
-float fbm(vec3 p) {
-  float f = 0.0;
-  float a = 0.5;
-  mat3 m = mat3(
-    0.00,  0.80,  0.60,
-   -0.80,  0.36, -0.48,
-   -0.60, -0.48,  0.64
-  );
-  for (int i = 0; i < 3; i++) {
-    f += a * snoise(p);
-    p = m * p * 1.9;
-    a *= 0.5;
-  }
-  return f;
-}
-
-vec3 rotY(vec3 p, float a) {
-  float c = cos(a);
-  float s = sin(a);
-  return vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
-}
-
-vec3 rotX(vec3 p, float a) {
-  float c = cos(a);
-  float s = sin(a);
-  return vec3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
-}
 
 void main() {
   vec2 uv = vUv * 2.0 - 1.0;
   float r = length(uv);
-  float sphereR = 0.72 * uScale;
+  float sphereR = 0.70 * uScale;
   float nr = r / sphereR;
 
-  vec3 ice = vec3(0.73, 0.85, 1.0);
-  vec3 steel = vec3(0.58, 0.72, 0.92);
-  vec3 lilac = vec3(0.80, 0.76, 0.96);
-  vec3 white = vec3(0.97, 0.98, 1.0);
-  vec3 deep = vec3(0.50, 0.66, 0.90);
-  vec3 haloCol = mix(ice, lilac, 0.2);
-
-  float halo = exp(-4.4 * max(0.0, r - sphereR * 0.9) / sphereR);
-  halo *= (0.28 + uEnergy * 0.16) * mix(1.0, 0.42, uLight);
-  float haloA = halo * smoothstep(1.42, 0.98, nr);
-
-  if (nr > 1.002) {
-    gl_FragColor = vec4(haloCol, haloA * 0.5);
-    return;
+  if (nr > 1.02) {
+    discard;
   }
 
-  // Analytic sphere (pixel-smooth, never faceted).
-  float z = sqrt(max(0.0, 1.0 - nr * nr));
-  vec3 nrm = vec3(uv / sphereR, z);
+  vec2 p = uv / sphereR;
+  float z = sqrt(max(0.0, 1.0 - min(1.0, dot(p, p))));
+  vec3 nrm = normalize(vec3(p, z));
 
-  float t = uTime * uSpin;
+  float a = uTime * uSpin;
+  vec2 dir = vec2(cos(a), sin(a));
 
-  // Cheap volume: samples along the view chord through the sphere.
-  vec3 acc = vec3(0.0);
-  float trans = 1.0;
-  float turb = 1.05 + uThink * 0.18 + uSpeak * 0.12 + uEnergy * 0.08;
+  float g = dot(p, dir) * 0.5 + 0.5;
+  g += (1.0 - z) * 0.05;
+  g -= (uSpeak * uOutput * 0.04 + uListen * uInput * 0.03);
+  g += sin(uTime * 1.15) * uThink * 0.018;
+  g = clamp(g, 0.0, 1.0);
 
-  for (int i = 0; i < 8; i++) {
-    float fi = float(i) / 7.0;
-    vec3 sp = rotY(rotX(nrm * (1.0 - fi * 0.55), t * 0.37), t);
-    float n = fbm(sp * turb + vec3(0.0, uTime * 0.08, 0.12));
-    float dens = smoothstep(0.1, 0.74, n * 0.5 + 0.5);
-    dens *= 0.24 + 0.2 * (1.0 - fi);
-    vec3 sCol = mix(deep, ice, dens);
-    sCol = mix(sCol, steel, (1.0 - dens) * 0.22);
-    sCol = mix(sCol, lilac, uThink * 0.08 + dens * 0.08);
-    sCol = mix(sCol, white, smoothstep(0.42, 1.0, dens) * 0.28);
-    acc += trans * dens * sCol;
-    trans *= 1.0 - dens * 0.7;
-  }
+  // Oatmeal cream (#e3ded1) and lifted ink (#252620) — each sits off the
+  // page so the disc doesn't collapse to a half-circle in either theme.
+  vec3 lit = vec3(0.890, 0.871, 0.820);
+  vec3 deep = vec3(0.145, 0.149, 0.125);
 
-  vec3 col = acc + trans * mix(ice, white, 0.28);
+  // Hard terminator — one pixel of AA so the cut stays crisp without stair-steps.
+  float edge = max(fwidth(g), 0.0008);
+  vec3 col = mix(lit, deep, smoothstep(0.5 - edge, 0.5 + edge, g));
 
-  vec3 L = normalize(vec3(-0.38, 0.5, 0.82));
-  float wrap = clamp(dot(nrm, L) * 0.28 + 0.78, 0.0, 1.05);
-  col *= wrap;
+  vec3 lightDir = normalize(vec3(-0.35, 0.48, 0.80));
+  float diff = max(0.0, dot(nrm, lightDir));
+  col *= 0.90 + diff * 0.12;
 
-  float fres = pow(1.0 - nrm.z, 2.35);
-  col = mix(col, ice, fres * 0.18);
-  col = mix(col, white, fres * fres * 0.12);
-
-  float ang = uTime * (0.24 + uThink * 0.4 + uSpeak * 0.22);
-  vec2 lamp = vec2(cos(ang), sin(ang * 0.87)) * sphereR * 0.22;
-  float lampD = length(uv - lamp);
-  col += exp(-lampD * lampD * 13.0) * (0.08 + uEnergy * 0.1) * white;
-  col += uSpeak * uOutput * 0.06 * ice;
-  col += uListen * uInput * 0.04 * ice;
-  col *= mix(1.0, 0.98, uLight);
-
-  float limb = 1.0 - smoothstep(0.985, 1.0, nr);
-  col = mix(haloCol, col, limb);
-  float alpha = max(limb, haloA * 0.16);
+  float aa = max(0.0035, fwidth(nr) * 1.35);
+  float alpha = 1.0 - smoothstep(1.0 - aa, 1.0, nr);
   gl_FragColor = vec4(col, alpha);
 }
 `;
@@ -188,14 +101,9 @@ export function GlowOrb(props: { mode: Mode }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const modeRef = useRef(props.mode);
-  const { resolvedTheme } = useTheme();
-  const lightRef = useRef(resolvedTheme === "light" ? 1 : 0);
   useEffect(() => {
     modeRef.current = props.mode;
   }, [props.mode]);
-  useEffect(() => {
-    lightRef.current = resolvedTheme === "light" ? 1 : 0;
-  }, [resolvedTheme]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -212,7 +120,7 @@ export function GlowOrb(props: { mode: Mode }) {
       alpha: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setPixelRatio(Math.min(3, window.devicePixelRatio || 1));
     renderer.setClearColor(0x000000, 0);
     renderer.toneMapping = THREE.NoToneMapping;
     renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
@@ -228,7 +136,6 @@ export function GlowOrb(props: { mode: Mode }) {
       uSpeak: { value: 0 },
       uInput: { value: 0 },
       uOutput: { value: 0 },
-      uLight: { value: lightRef.current },
       uScale: { value: 1 },
     };
     const material = new THREE.ShaderMaterial({
@@ -322,7 +229,6 @@ export function GlowOrb(props: { mode: Mode }) {
       uniforms.uSpeak.value = speak;
       uniforms.uInput.value = input;
       uniforms.uOutput.value = output;
-      uniforms.uLight.value = lightRef.current;
       uniforms.uScale.value = reduceMotion ? 1 : scale;
       renderer.render(scene, camera);
     };
@@ -335,7 +241,7 @@ export function GlowOrb(props: { mode: Mode }) {
       material.dispose();
       renderer.dispose();
     };
-    // Loop reads mode/theme through refs so a state change never rebuilds WebGL.
+    // Loop reads mode through a ref so a state change never rebuilds WebGL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
