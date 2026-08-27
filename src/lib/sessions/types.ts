@@ -236,14 +236,15 @@ export interface ContextBundle {
    */
   stableContext: string;
   /**
-   * Volatile tail: recent room transcript and question-specific search hits.
-   * Stays uncached so the model still sees the last seconds of the room.
+   * Volatile tail: the keyword archive lookup into parts of the session that
+   * already fell out of the recent window. Empty for most asks. Recent room
+   * speech is NOT here — it lives in `history`, in order.
    */
   liveTranscript: string;
   /**
-   * Prior user_question/assistant turns as alternating chat messages —
-   * append-only within a session, which keeps the prompt prefix stable for
-   * provider-side caching.
+   * The recent window as one chronological conversation: room speech, questions
+   * put to Kivo, and Kivo's answers, in the order they happened. Consecutive
+   * human turns are folded into a single user message.
    */
   history: ContextHistoryTurn[];
   tokenEstimate: number;

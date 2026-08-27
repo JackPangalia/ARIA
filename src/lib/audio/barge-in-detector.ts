@@ -7,8 +7,24 @@ import { SpeechActivityDetector } from "./speech-activity-detector";
 // While Kivo is speaking, the mic keeps streaming. Echo cancellation removes
 // Kivo's own voice (see mic-pcm-streamer), so what's left on the feed is the
 // room — and, when the user starts talking over Kivo, their voice. This module
-// watches the mic energy during playback and reports, in two stages, when the
-// user is interrupting:
+// watches the mic during playback and reports, in two stages, when the user is
+// interrupting.
+//
+// Interrupting takes *both* of two independent signals, because either one
+// alone is wrong in a way the room notices:
+//
+//   - Energy above the primed residual-echo floor. On its own this is what a
+//     dropped mug, a chair scrape, or a slammed door looks like, and those used
+//     to kill answers mid-sentence.
+//   - A neural speech probability (Silero, supplied by the caller). On its own
+//     this fires on the residual echo of Kivo's own voice, which is speech.
+//
+// Requiring both means a loud non-voice transient is rejected for not being a
+// voice, and a quiet voice-shaped residue is rejected for not being loud enough
+// to be in the room. When no neural probability is supplied — the model hasn't
+// loaded, or failed to — the energy term decides alone, as it always did.
+//
+// The two stages are:
 //
 //   1. `onSuspected` — a short run of voiced energy. The engine *ducks* the
 //      answer (drops its volume) so the user hears they've been heard, but the
@@ -42,6 +58,11 @@ export interface BargeInDetectorParams {
   floorEmaAlpha: number;
   /** Smoothed speech probability required for normal confirmation. */
   speechProbability: number;
+  /**
+   * Neural speech probability required *in addition* to the energy term, when
+   * the caller supplies one. Silero's own speech/non-speech operating point.
+   */
+  neuralSpeechProbability: number;
 }
 
 // Defaults tuned for echo-cancelled 16 kHz mono speech. Adjust these while
@@ -62,6 +83,10 @@ export const DEFAULT_BARGE_IN_PARAMS: BargeInDetectorParams = {
   // pure energy + spectral shape. Raised so it takes clearer, more sustained
   // speech-like energy to start a duck/confirm run.
   speechProbability: 0.55,
+  // Silero v5's conventional speech threshold. It is deliberately not tuned
+  // upward: this is a gate on *what the sound is*, not on how much of it there
+  // is — the energy term and the duck/confirm windows decide that.
+  neuralSpeechProbability: 0.5,
 };
 
 export interface BargeInCallbacks {
@@ -131,8 +156,14 @@ export class BargeInDetector {
     return this.active;
   }
 
-  /** Feed one mic frame. No-op unless started. */
-  process(frame: Int16Array): void {
+  /**
+   * Feed one mic frame. No-op unless started.
+   *
+   * @param neuralSpeechProbability Speech probability for this frame from the
+   *   engine's neural VAD, when it is loaded. Omit it (or pass undefined) to
+   *   let the energy term decide alone.
+   */
+  process(frame: Int16Array, neuralSpeechProbability?: number): void {
     if (!this.active) return;
 
     const frameMs = (frame.length / this.params.sampleRate) * 1000;
@@ -153,13 +184,23 @@ export class BargeInDetector {
       this.params.absoluteMinRms
     );
 
-    // Probability is the normal confirmation path. Very strong energy remains
-    // a fallback for browsers whose AEC distorts speech spectral features, but
-    // it's a blunt energy-only check — kept high so ordinary room noise can't
-    // trip it on volume alone.
-    const voiced =
+    // Is there something in the room, over and above the residual echo? The
+    // spectral probability is the normal path; very strong energy is a fallback
+    // for browsers whose AEC distorts speech features badly enough to fool it.
+    const loudEnough =
       activity.probability >= this.params.speechProbability ||
       rms >= threshold * 2.6;
+
+    // Is that something a voice? A dropped coaster, a chair scrape, or a door
+    // clears `loudEnough` easily — it is loud and broadband — and used to stop
+    // an answer dead. Silero rejects it for what it is. This gate only applies
+    // when the model is actually loaded; the caller passes nothing otherwise.
+    const soundsLikeVoice =
+      neuralSpeechProbability === undefined ||
+      !Number.isFinite(neuralSpeechProbability) ||
+      neuralSpeechProbability >= this.params.neuralSpeechProbability;
+
+    const voiced = loudEnough && soundsLikeVoice;
 
     if (voiced) {
       this.voicedMs += frameMs;

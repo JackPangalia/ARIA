@@ -154,6 +154,21 @@ const INCOMPLETE_TAIL_WORDS = new Set([
   "um", "uh", "umm", "uhh", "er", "erm", "ah", "hmm", "uhm",
 ]);
 
+// Bare interrogatives dangling at the end of an *unpunctuated* draft. "Tell me
+// what", "who do you think is going to" and "walk me through how" are all
+// sentences still in flight — the speaker has named the question word but not
+// the question. Unlike INCOMPLETE_TAIL_WORDS these are only suspicious without
+// terminal punctuation, because plenty of finished questions legitimately end
+// on one ("so what?", "I don't know why."). Speechmatics punctuates, so the
+// terminal mark is a reliable discriminator.
+//
+// This is what let "What? Tell me what" grade as a clear directive ask and
+// force an endpoint half a second into a thinking pause — cutting the speaker
+// off, then answering the fragment with "you're cutting off there".
+const TRAILING_INTERROGATIVE_WORDS = new Set([
+  "what", "who", "whom", "how", "why", "where", "when", "whether",
+]);
+
 /**
  * Semantic endpointing: does the captured question look unfinished? Checked
  * when the STT provider reports end-of-turn — silence alone doesn't mean the
@@ -173,14 +188,37 @@ export function looksIncompleteQuestion(text: string): boolean {
     .pop();
   if (!lastToken) return false;
   const word = lastToken.replace(/[^a-z']/g, "");
-  return INCOMPLETE_TAIL_WORDS.has(word);
+  if (INCOMPLETE_TAIL_WORDS.has(word)) return true;
+  const punctuated = /[.!?]$/.test(trimmed);
+  return !punctuated && TRAILING_INTERROGATIVE_WORDS.has(word);
 }
 // How long Kivo keeps listening for a follow-up (no wake word) after answering.
 export const FOLLOW_UP_WINDOW_MS = 8000;
 // In-person conversation mode: after Kivo answers, briefly accept the next
 // utterance without a wake word. If the room stays quiet, return to passive
-// listening quickly rather than leaving the orb in "Anything else?".
-export const CONVERSATION_WINDOW_MS = 3_000;
+// listening quickly rather than leaving the orb on "Follow-up".
+//
+// This measures *silence only* — the engine holds the window open for as long
+// as someone is actually speaking (see `holdFollowUpWindow` in aria-engine),
+// so it decides how long you have to *start* a follow-up, never how long you
+// have to finish one. At 3s a normal beat of thought after an answer ran out
+// before the question was even spoken.
+export const CONVERSATION_WINDOW_MS = 4_000;
+// After the open floor closes, the conversation is not over — it just gets
+// pickier. For this much longer, Kivo still takes a wake-free turn, but only
+// from an utterance that reads as a question or directive aimed at it
+// (`clear-ask` / `likely-ask`); a statement in the room stays transcript.
+//
+// This exists because the open floor is measured from the end of Kivo's
+// answer, and a person listens to a forty-second answer before deciding what
+// to ask. "Did it win any awards?" landing eight seconds later is the single
+// most ordinary thing a person can say, and a hard four-second cut-off met it
+// with silence.
+//
+// The orb stays on "Follow-up" for the whole window, tail included — it is
+// still listening, so it still says so. Showing passive listening while a
+// follow-up would in fact be taken made the UI lie about what Kivo was doing.
+export const CONVERSATION_TAIL_MS = 25_000;
 
 export function extractQuestionAfterWake(text: string): {
   detected: boolean;

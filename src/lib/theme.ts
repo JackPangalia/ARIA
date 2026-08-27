@@ -45,7 +45,7 @@ export function storeTheme(theme: ThemePreference) {
 }
 
 export function isLandingPath(pathname: string): boolean {
-  return pathname === "/" || pathname === "";
+  return pathname === "/" || pathname === "" || pathname === "/guide" || pathname === "/guide/";
 }
 
 export function isLandingActive(): boolean {
@@ -76,4 +76,4 @@ export function applyTheme(preference: ThemePreference) {
   root.style.colorScheme = resolved;
 }
 
-export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""){document.documentElement.classList.add("landing-active");document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";}})();`;
+export const themeInitScript = `(function(){try{var p=location.pathname;if(p==="/"||p===""||p==="/guide"||p==="/guide/"){document.documentElement.classList.add("landing-active");document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";return;}var k=${JSON.stringify(THEME_STORAGE_KEY)};var t=localStorage.getItem(k);var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){document.documentElement.classList.remove("dark");document.documentElement.style.colorScheme="light";}})();`;

@@ -14,22 +14,31 @@ import {
 } from "@/components/sessions/WorkspaceRail";
 import {
   BreadcrumbCrumb,
-  BreadcrumbSeparator,
   FolderIcon,
   HeaderIconButton,
   HeaderPrimaryButton,
-  KivoMark,
   WorkspaceHeader,
 } from "@/components/sessions/WorkspaceHeader";
+import { ProjectEditorModal, type ProjectEditorState } from "@/components/sessions/ProjectEditorModal";
 import { ProjectActionsMenu } from "@/components/sessions/ProjectActionsMenu";
 import {
   createSession,
-  getSessionDetail,
   listSessions,
   patchSession,
   relabelSessionTurns,
   subscribeSessionTurns,
 } from "@/lib/sessions/client";
+import {
+  getCachedSessionDetail,
+  invalidateSessionDetail,
+  loadSessionDetail,
+  prefetchSessionDetail,
+  primeSessionDetail,
+} from "@/lib/sessions/detail-cache";
+import {
+  BootLoader,
+  SessionOpeningSkeleton,
+} from "@/components/sessions/Loaders";
 import { useSessionStore } from "@/lib/sessions/session-store";
 import { useAriaStore } from "@/lib/store";
 import { useOrbStatePublisher } from "@/lib/desktop/use-orb-state-publisher";
@@ -39,13 +48,9 @@ import {
   DEFAULT_SETTINGS_TAB,
   type SettingsTab,
 } from "@/components/settings/settings-nav";
-import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
-import {
-  getOnboardingStatus,
-  isOnboardingPreview,
-} from "@/lib/onboarding/client";
-import { StopIcon } from "@/components/sessions/icons";
+import { SessionIcon, StopIcon } from "@/components/sessions/icons";
 import { OverviewTray } from "@/components/sessions/OverviewTray";
+import { SidebarProfileFooter } from "@/components/sessions/SidebarProfileFooter";
 import {
   OverviewView,
   type OverviewContentMode,
@@ -69,9 +74,9 @@ import {
   listProjects,
   patchProject,
 } from "@/lib/projects/client";
-import type { ProjectDoc } from "@/lib/projects/types";
 import { useAuth } from "@/components/firebase/AuthProvider";
 import { mostRecentActiveSession } from "@/lib/home";
+import { EducationActivity, EducationProvider } from "@/components/education/EducationProvider";
 
 const WORKSPACE_RAIL_STORAGE_KEY = "kivo-workspace-rail-expanded";
 
@@ -101,122 +106,13 @@ function NavigationIcon() {
   );
 }
 
-type ProjectEditorState =
-  | { mode: "create"; project?: undefined }
-  | { mode: "edit"; project: ProjectDoc };
-
-function ProjectEditorModal(props: {
-  state: ProjectEditorState | null;
-  busy: boolean;
-  onSave: (input: { name: string; instructions: string }) => void;
-  onArchive: (projectId: string) => void;
-  onClose: () => void;
-}) {
-  const [name, setName] = useState(
-    props.state?.mode === "edit" ? props.state.project.name : "",
-  );
-  const [instructions, setInstructions] = useState(
-    props.state?.mode === "edit" ? props.state.project.instructions : "",
-  );
-
-  if (!props.state) return null;
-
-  const title = props.state.mode === "edit" ? "Edit project" : "New project";
-  const canSave = name.trim().length > 0 && !props.busy;
-  const editingProject =
-    props.state.mode === "edit" ? props.state.project : null;
-
-  return (
-    <div className="fixed inset-0 z-[280] flex items-center justify-center bg-overlay px-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="project-editor-title"
-        className="max-h-[min(88dvh,40rem)] w-full max-w-lg overflow-y-auto rounded-[1.5rem] border border-app-subtle bg-menu p-5 shadow-menu sm:p-6"
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2
-              id="project-editor-title"
-              className="font-serif text-[1.65rem] font-normal tracking-[-0.035em] text-app"
-            >
-              {title}
-            </h2>
-            <p className="mt-1 text-sm text-app-muted">
-              Project instructions are included whenever Kivo answers inside
-              this project.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={props.onClose}
-            className="rounded-lg px-2 py-1 text-sm text-app-muted hover:bg-surface-hover hover:text-app"
-          >
-            Close
-          </button>
-        </div>
-
-        <label className="mt-5 block text-sm text-app-secondary">
-          Name
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={120}
-            className="mt-2 w-full rounded-xl border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
-            placeholder="Project name"
-          />
-        </label>
-
-        <label className="mt-4 block text-sm text-app-secondary">
-          Instructions
-          <textarea
-            value={instructions}
-            onChange={(event) => setInstructions(event.target.value)}
-            maxLength={12000}
-            rows={8}
-            className="mt-2 w-full resize-none rounded-xl border border-app bg-surface px-3 py-2 text-sm text-app outline-none focus:border-app-strong"
-            placeholder="How should Kivo answer in this project? Add product context, preferences, or constraints."
-          />
-        </label>
-
-        <div className="mt-5 flex items-center justify-between gap-3">
-          {editingProject ? (
-            <button
-              type="button"
-              onClick={() => props.onArchive(editingProject.id)}
-              disabled={props.busy}
-              className="rounded-xl px-3 py-2 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-50"
-            >
-              Archive project
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={props.onClose}
-              disabled={props.busy}
-              className="rounded-xl px-4 py-2 text-sm text-app-muted transition-colors hover:bg-surface-hover hover:text-app disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => props.onSave({ name, instructions })}
-              disabled={!canSave}
-              className="rounded-xl bg-accent px-4 py-2 text-sm text-accent-fg transition-opacity disabled:opacity-50"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+export function SessionWorkspace() {
+  const { user } = useAuth();
+  if (!user) return null;
+  return <EducationProvider key={user.uid} uid={user.uid}><SessionWorkspaceContent /></EducationProvider>;
 }
 
-export function SessionWorkspace() {
+function SessionWorkspaceContent() {
   const { user } = useAuth();
   const {
     projects,
@@ -241,11 +137,14 @@ export function SessionWorkspace() {
   const [actionBusy, setActionBusy] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [railExpanded, setRailExpanded] = useState(false);
+  const [railExpanded, setRailExpanded] = useState(true);
   const [railHoverExpanded, setRailHoverExpanded] = useState(false);
   const [pendingAutoStartSessionId, setPendingAutoStartSessionId] = useState<
     string | null
   >(null);
+  // Set from the moment a conversation is clicked until its detail lands, so
+  // the workspace can show that conversation's shell instead of the list.
+  const [openingSessionId, setOpeningSessionId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("settings") === "1";
@@ -262,9 +161,6 @@ export function SessionWorkspace() {
   const [overviewMode, setOverviewMode] = useState(true);
   const [overviewContentMode, setOverviewContentMode] =
     useState<OverviewContentMode>("summary");
-  const [onboardingNeeded, setOnboardingNeeded] = useState<boolean | null>(
-    null,
-  );
   const [speakerProfileState, setSpeakerProfileState] = useState<{
     sessionId: string;
     profiles: SpeakerProfileDoc[];
@@ -273,11 +169,12 @@ export function SessionWorkspace() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       try {
+        // Missing key and "1" both mean open. Only an explicit "0" collapses.
         setRailExpanded(
-          window.localStorage.getItem(WORKSPACE_RAIL_STORAGE_KEY) === "1",
+          window.localStorage.getItem(WORKSPACE_RAIL_STORAGE_KEY) !== "0",
         );
       } catch {
-        // Storage is optional; compact is the intentional default.
+        // Storage is optional; the open rail is the default.
       }
     });
     return () => window.cancelAnimationFrame(frame);
@@ -324,6 +221,7 @@ export function SessionWorkspace() {
   }, [settingsOpen, closeSettings]);
 
   const ariaStatus = useAriaStore((state) => state.status);
+  const ariaNotice = useAriaStore((state) => state.notice);
   const liveUtterances = useAriaStore((state) => state.utterances);
   // Feeds the desktop shell's floating orb widget; no-ops in the browser.
   useOrbStatePublisher();
@@ -370,9 +268,15 @@ export function SessionWorkspace() {
   );
 
   const refreshDetail = useCallback(
-    async (sessionId: string) => {
-      const next = await getSessionDetail(sessionId);
-      setDetail(next);
+    async (sessionId: string, options: { allowCached?: boolean } = {}) => {
+      const next = await loadSessionDetail(sessionId, {
+        force: !options.allowCached,
+      });
+      // Clicking through conversations quickly leaves earlier fetches in
+      // flight; a late one must not paint over the conversation now open.
+      if (useSessionStore.getState().selectedSessionId === sessionId) {
+        setDetail(next);
+      }
       setSessions(
         useSessionStore.getState().sessions.map((session) =>
           session.id === sessionId
@@ -415,25 +319,6 @@ export function SessionWorkspace() {
       }
     })();
   }, [refreshDetail, refreshProjects, refreshSessions, setError, setLoading]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (isOnboardingPreview()) {
-      setOnboardingNeeded(true);
-      return;
-    }
-    let cancelled = false;
-    void getOnboardingStatus()
-      .then(({ needed }) => {
-        if (!cancelled) setOnboardingNeeded(needed);
-      })
-      .catch(() => {
-        if (!cancelled) setOnboardingNeeded(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [loading]);
 
   useEffect(() => {
     if (!selectedSessionId || detail?.session.transcriptionMode !== "speaker") {
@@ -591,6 +476,7 @@ export function SessionWorkspace() {
       setError(null);
       try {
         await relabelSessionTurns(selectedSessionId, turnIds, correctedName);
+        invalidateSessionDetail(selectedSessionId);
         await refreshDetail(selectedSessionId);
       } catch (err) {
         setError(
@@ -704,7 +590,9 @@ export function SessionWorkspace() {
       (turns) => {
         const current = useSessionStore.getState().detail;
         if (!current || current.session.id !== selectedSessionId) return;
-        setDetail({ ...current, turns });
+        const next = { ...current, turns };
+        setDetail(next);
+        primeSessionDetail(next);
       },
     );
 
@@ -814,20 +702,41 @@ export function SessionWorkspace() {
   };
 
   const handleSelectSession = async (sessionId: string) => {
-    setActionBusy(true);
     setError(null);
+
+    // Hovering the row usually warmed the cache, so the common path is a
+    // synchronous swap with no loading state at all.
+    const cached = getCachedSessionDetail(sessionId);
+    if (cached) {
+      setSelectedSessionId(sessionId);
+      setDetail(cached);
+      setOverviewMode(
+        !(!cached.meetingSummary && cached.turns.length === 0),
+      );
+      void refreshDetail(sessionId).catch(() => undefined);
+      return;
+    }
+
+    // Otherwise leave the list immediately and draw the conversation's shell
+    // while it loads, rather than holding the click on the old screen.
+    setOpeningSessionId(sessionId);
+    setActionBusy(true);
     try {
       setSelectedSessionId(sessionId);
-      await refreshDetail(sessionId);
-      const loaded = useSessionStore.getState().detail;
-      const isEmpty =
-        loaded && !loaded.meetingSummary && loaded.turns.length === 0;
+      const loaded = await refreshDetail(sessionId, { allowCached: true });
+      const isEmpty = !loaded.meetingSummary && loaded.turns.length === 0;
       setOverviewMode(!isEmpty);
     } catch (err) {
+      // The selection moved ahead of the detail; put it back rather than
+      // leaving the workspace pointed at a conversation it never loaded.
+      setSelectedSessionId(
+        useSessionStore.getState().detail?.session.id ?? null,
+      );
       setError(
         err instanceof Error ? err.message : "Failed to load conversation.",
       );
     } finally {
+      setOpeningSessionId(null);
       setActionBusy(false);
     }
   };
@@ -860,6 +769,7 @@ export function SessionWorkspace() {
     setError(null);
     try {
       const updated = await patchSession(sessionId, { title });
+      invalidateSessionDetail(sessionId);
       if (detail?.session.id === sessionId) {
         setDetail({ ...detail, session: updated });
       }
@@ -876,6 +786,7 @@ export function SessionWorkspace() {
     setError(null);
     try {
       await patchSession(sessionId, { status: "trashed" });
+      invalidateSessionDetail(sessionId);
       if (selectedSessionId === sessionId) {
         await refreshSessions(searchQuery);
         goToStartScreen();
@@ -904,6 +815,7 @@ export function SessionWorkspace() {
     setError(null);
     try {
       await patchSession(sessionId, { status: "archived" });
+      invalidateSessionDetail(sessionId);
       if (selectedSessionId === sessionId) {
         await refreshSessions(searchQuery);
         goToStartScreen();
@@ -941,23 +853,33 @@ export function SessionWorkspace() {
   const filteredSessions = useMemo(() => sessions, [sessions]);
 
   const hasSession = Boolean(selectedSessionId && detail);
+  // While a conversation is opening it owns the content column outright: no
+  // hub behind it, no half-loaded detail from the session we just left.
+  const opening =
+    openingSessionId !== null && detail?.session.id !== openingSessionId;
+  const openingTitle =
+    sessions.find((session) => session.id === openingSessionId)?.title ?? null;
   const activeProject =
     projectFilter === "project" && selectedProjectId
       ? (projects.find((project) => project.id === selectedProjectId) ?? null)
       : null;
-  const showProjectHub = Boolean(activeProject && !hasSession);
-  const showHub = !hasSession && !activeProject;
+  const showProjectHub = Boolean(activeProject && !hasSession) && !opening;
+  const showHub = !hasSession && !activeProject && !opening;
   const showOverviewPanel =
-    hasSession && overviewMode && !conversationIsEmpty && !recording.isRunning;
+    !opening &&
+    hasSession &&
+    overviewMode &&
+    !conversationIsEmpty &&
+    !recording.isRunning;
   const showVoicePanel =
+    !opening &&
     !showHub &&
     !showProjectHub &&
     (!overviewMode ||
       conversationIsEmpty ||
       (hasSession && recording.isRunning));
   const railSurface = showHub ? "home" : showProjectHub ? "project" : "session";
-  const effectiveRailExpanded =
-    railHoverExpanded || (railExpanded && !recording.isRunning);
+  const effectiveRailExpanded = railHoverExpanded || railExpanded;
   const canSilence =
     ariaStatus === "thinking" ||
     ariaStatus === "searching" ||
@@ -971,13 +893,16 @@ export function SessionWorkspace() {
     [sessions, activeProject],
   );
 
-  // The header shows one crumb after the Kivo mark, naming the current surface.
-  // Recording collapses it so nothing competes with the orb.
+  // The header names the current surface. Recording replaces it with Stop.
   const crumb = recording.isRunning ? null : showHub ? (
     <BreadcrumbCrumb>Home</BreadcrumbCrumb>
   ) : showProjectHub && activeProject ? (
     <BreadcrumbCrumb icon={<FolderIcon />}>
       {activeProject.name}
+    </BreadcrumbCrumb>
+  ) : opening ? (
+    <BreadcrumbCrumb icon={<SessionIcon />}>
+      {openingTitle ?? "Conversation"}
     </BreadcrumbCrumb>
   ) : hasSession && detail && selectedSessionId && !showOverviewPanel ? (
     <EditableSessionTitle
@@ -986,12 +911,10 @@ export function SessionWorkspace() {
     />
   ) : null;
 
-  if (loading || onboardingNeeded === null) {
+  if (loading) {
     return (
-      <div className="kivo-desktop-shell grid h-dvh w-full grid-cols-1 overflow-hidden bg-app">
-        <div className="flex items-center justify-center">
-          <div className="kivo-skeleton h-48 w-48 rounded-full" />
-        </div>
+      <div className="kivo-desktop-shell flex h-dvh w-full flex-col overflow-hidden bg-app">
+        <BootLoader />
       </div>
     );
   }
@@ -1001,18 +924,13 @@ export function SessionWorkspace() {
       className="kivo-desktop-shell relative flex h-dvh w-full flex-col overflow-hidden bg-app text-app"
       data-sidebar-collapsed={effectiveRailExpanded ? "false" : "true"}
     >
-      {onboardingNeeded ? (
-        <OnboardingFlow
-          preview={isOnboardingPreview()}
-          onComplete={() => {
-            setOnboardingNeeded(false);
-            if (isOnboardingPreview()) {
-              window.history.replaceState({}, "", window.location.pathname);
-            }
-          }}
-        />
-      ) : null}
-
+      <EducationActivity
+        status={ariaStatus}
+        running={recording.isRunning}
+        home={showHub}
+        overview={Boolean(showOverviewPanel && !recording.busy && (detail?.meetingSummary || transcriptLines.length))}
+        blocked={Boolean(opening || actionBusy || recording.busy || ariaNotice || error || recording.consentOpen || settingsOpen || searchOpen || mobileNavOpen || projectEditor || trashConfirmId || projectArchiveId)}
+      />
       <SettingsMobile
         open={settingsOpen}
         tab={settingsTab}
@@ -1077,6 +995,7 @@ export function SessionWorkspace() {
             : (projectEditor?.mode ?? "closed")
         }
         state={projectEditor}
+        suspended={projectArchiveId !== null}
         busy={actionBusy}
         onSave={(input) => void handleSaveProject(input)}
         onArchive={(projectId) => setProjectArchiveId(projectId)}
@@ -1100,6 +1019,7 @@ export function SessionWorkspace() {
       />
 
       <WorkspaceNavSheet
+        footer={<SidebarProfileFooter onOpenSettings={() => { setMobileNavOpen(false); openSettings(); }} />}
         open={mobileNavOpen}
         onClose={() => setMobileNavOpen(false)}
         surface={railSurface}
@@ -1126,7 +1046,7 @@ export function SessionWorkspace() {
           onToggle={toggleRail}
           pinnedExpanded={railExpanded}
           onHoverExpandedChange={setRailHoverExpanded}
-          expandOnHover
+          expandOnHover={!railExpanded}
           onHome={goToHub}
           onNewConversation={() => void handleNewSessionFromHub()}
           onSearch={openSearch}
@@ -1140,6 +1060,17 @@ export function SessionWorkspace() {
             the window drag region, and the offset the orb centres against, so
             no surface may opt out of it. */}
           <WorkspaceHeader
+            navigation={
+              <span className="kivo-mobile-nav-trigger lg:hidden">
+                <HeaderIconButton
+                  onClick={() => setMobileNavOpen(true)}
+                  label="Open navigation"
+                  expanded={mobileNavOpen}
+                >
+                  <NavigationIcon />
+                </HeaderIconButton>
+              </span>
+            }
             breadcrumb={
               showOverviewPanel && detail && selectedSessionId ? (
                 <OverviewTray
@@ -1154,7 +1085,6 @@ export function SessionWorkspace() {
                   resumeDisabled={
                     recording.busy || detail.session.status === "archived"
                   }
-                  leading={<KivoMark onClick={goToHub} />}
                 />
               ) : recording.isRunning ? (
                 <div className="flex items-center gap-2">
@@ -1180,11 +1110,7 @@ export function SessionWorkspace() {
                   ) : null}
                 </div>
               ) : (
-                <>
-                  <KivoMark onClick={goToHub} />
-                  {crumb ? <BreadcrumbSeparator /> : null}
-                  {crumb}
-                </>
+                crumb
               )
             }
             actions={
@@ -1198,7 +1124,7 @@ export function SessionWorkspace() {
                           disabled={actionBusy}
                         >
                           <PlusIcon />
-                          <span className="max-[420px]:sr-only">New conversation</span>
+                          <span className="sr-only sm:not-sr-only">New conversation</span>
                         </HeaderPrimaryButton>
                         <ProjectActionsMenu
                           onEditProject={() =>
@@ -1232,84 +1158,84 @@ export function SessionWorkspace() {
                     ) : null}
                   </>
                 )}
-                <span className="kivo-mobile-nav-trigger lg:hidden">
-                  <HeaderIconButton
-                    onClick={() => setMobileNavOpen(true)}
-                    label="Open navigation"
-                    expanded={mobileNavOpen}
-                  >
-                    <NavigationIcon />
-                  </HeaderIconButton>
-                </span>
               </>
             }
           />
 
-          {error ? (
-            <div className="mx-3 mb-2 shrink-0 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger sm:mx-4">
-              {error}
-            </div>
-          ) : null}
+          <div className="kivo-desktop-surface relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {error ? (
+              <div className="mx-3 mb-2 shrink-0 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger sm:mx-4">
+                {error}
+              </div>
+            ) : null}
 
-          {showHub ? (
-            <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
-              <SessionHub
-                displayName={
-                  user?.displayName ?? user?.email?.split("@")[0] ?? null
-                }
-                projects={projects}
-                sessions={filteredSessions}
-                activeSession={activeHomeSession}
-                onPrimaryAction={() => void handleHomePrimaryAction()}
-                onOpenSearch={openSearch}
-                onSelectProject={selectProject}
-                onCreateProject={() => setProjectEditor({ mode: "create" })}
-                onSelectSession={(sessionId) =>
-                  void handleSelectSession(sessionId)
-                }
-              />
-            </div>
-          ) : null}
+            {showHub ? (
+              <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
+                <SessionHub
+                  displayName={
+                    user?.displayName ?? user?.email?.split("@")[0] ?? null
+                  }
+                  projects={projects}
+                  sessions={filteredSessions}
+                  activeSession={activeHomeSession}
+                  onPrimaryAction={() => void handleHomePrimaryAction()}
+                primaryBusy={actionBusy}
+                  onOpenSearch={openSearch}
+                  onSelectProject={selectProject}
+                  onCreateProject={() => setProjectEditor({ mode: "create" })}
+                  onSelectSession={(sessionId) =>
+                    void handleSelectSession(sessionId)
+                  }
+                />
+              </div>
+            ) : null}
 
-          {showProjectHub && activeProject ? (
-            <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
-              <ProjectHubView
-                project={activeProject}
-                sessions={projectHubSessions}
-                onOpenSearch={openSearch}
-                onSelectSession={(sessionId) =>
-                  void handleSelectSession(sessionId)
-                }
-              />
-            </div>
-          ) : null}
+            {showProjectHub && activeProject ? (
+              <div className="kivo-fade-in pointer-events-none flex min-h-0 flex-1 flex-col">
+                <ProjectHubView
+                  project={activeProject}
+                  sessions={projectHubSessions}
+                  onOpenSearch={openSearch}
+                  onSelectSession={(sessionId) =>
+                    void handleSelectSession(sessionId)
+                  }
+                />
+              </div>
+            ) : null}
 
-          {showOverviewPanel && detail && selectedSessionId ? (
-            <div className="kivo-desktop-content-glass kivo-fade-in flex min-h-0 flex-1 flex-col">
-              <OverviewView
-                summary={detail.meetingSummary ?? null}
-                transcriptLines={transcriptLines}
-                contentMode={overviewContentMode}
-                isRunning={recording.isRunning}
-                generating={recording.busy && !recording.isRunning}
-                resume={Boolean(detail.session.turnCount > 0)}
-                archived={detail.session.status === "archived"}
-                busy={recording.busy}
-                speakerCorrection={speakerCorrection}
-                onStart={handleRecordingStart}
-              />
-            </div>
-          ) : null}
+            {opening ? (
+              <div className="kivo-desktop-content-glass flex min-h-0 flex-1 flex-col">
+                <SessionOpeningSkeleton title={openingTitle} />
+              </div>
+            ) : null}
 
-          <ConfirmDialog
-            open={recording.consentOpen}
-            title="Before Kivo starts listening"
-            description="Kivo transcribes everything your microphone hears, including other people. Make sure everyone present knows the conversation is being transcribed and consents — some places legally require it."
-            confirmLabel="Everyone knows — start"
-            cancelLabel="Not yet"
-            onConfirm={recording.confirmConsent}
-            onCancel={recording.cancelConsent}
-          />
+            {showOverviewPanel && detail && selectedSessionId ? (
+              <div className="kivo-desktop-content-glass kivo-fade-in flex min-h-0 flex-1 flex-col">
+                <OverviewView
+                  summary={detail.meetingSummary ?? null}
+                  transcriptLines={transcriptLines}
+                  contentMode={overviewContentMode}
+                  isRunning={recording.isRunning}
+                  generating={recording.busy && !recording.isRunning}
+                  resume={Boolean(detail.session.turnCount > 0)}
+                  archived={detail.session.status === "archived"}
+                  busy={recording.busy}
+                  speakerCorrection={speakerCorrection}
+                  onStart={handleRecordingStart}
+                />
+              </div>
+            ) : null}
+
+            <ConfirmDialog
+              open={recording.consentOpen}
+              title="Before Kivo starts listening"
+              description="Kivo transcribes everything your microphone hears, including other people. Make sure everyone present knows the conversation is being transcribed and consents — some places legally require it."
+              confirmLabel="Everyone knows — start"
+              cancelLabel="Not yet"
+              onConfirm={recording.confirmConsent}
+              onCancel={recording.cancelConsent}
+            />
+          </div>
         </section>
       </div>
 

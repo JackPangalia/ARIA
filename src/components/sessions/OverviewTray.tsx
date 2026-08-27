@@ -1,12 +1,12 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { EditableSessionTitle } from "@/components/aria/EditableSessionTitle";
 import {
   FileIcon,
   SessionIcon,
 } from "@/components/sessions/icons";
 import type { OverviewContentMode } from "@/components/sessions/OverviewView";
+import { useEducationAnchor } from "@/components/education/EducationProvider";
 
 function ResumeArrowIcon() {
   return (
@@ -30,16 +30,15 @@ export function OverviewTray(props: {
   resume: boolean;
   onResume: () => void;
   resumeDisabled?: boolean;
-  leading?: ReactNode;
 }) {
+  const educationAnchor = useEducationAnchor<HTMLDivElement>("overview");
   return (
     <div
       className="kivo-overview-tray"
       role="toolbar"
       aria-label="Conversation controls"
     >
-      {props.leading}
-      <div className="kivo-overview-tray-title">
+      <div ref={educationAnchor} className="kivo-overview-tray-title">
         <EditableSessionTitle
           variant="tray"
           title={props.title}

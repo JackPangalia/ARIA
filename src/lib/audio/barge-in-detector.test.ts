@@ -26,8 +26,13 @@ function makeDetector() {
   return { detector, onSuspected, onConfirmed, onEnded };
 }
 
-function feed(detector: BargeInDetector, frames: Int16Array[]) {
-  for (const frame of frames) detector.process(frame);
+function feed(
+  detector: BargeInDetector,
+  frames: Int16Array[],
+  neuralSpeechProbability?: number
+) {
+  for (const frame of frames)
+    detector.process(frame, neuralSpeechProbability);
 }
 
 describe("BargeInDetector", () => {
@@ -102,5 +107,45 @@ describe("BargeInDetector", () => {
     detector.process(SPEECH());
     detector.process(SPEECH());
     expect(onConfirmed).not.toHaveBeenCalled();
+  });
+
+  describe("neural speech gate", () => {
+    it("ignores a loud noise the neural VAD says is not a voice", () => {
+      const { detector, onSuspected, onConfirmed } = makeDetector();
+      detector.start();
+      feed(detector, [SILENCE(), SILENCE()], 0.02);
+      // A dropped coaster: plenty loud, sustained well past confirmMs, and not
+      // a voice. This used to stop the answer dead.
+      feed(detector, Array.from({ length: 10 }, SPEECH), 0.02);
+      expect(onSuspected).not.toHaveBeenCalled();
+      expect(onConfirmed).not.toHaveBeenCalled();
+    });
+
+    it("still confirms when the neural VAD agrees it is a voice", () => {
+      const { detector, onSuspected, onConfirmed } = makeDetector();
+      detector.start();
+      feed(detector, [SILENCE(), SILENCE()], 0.9);
+      feed(detector, Array.from({ length: 10 }, SPEECH), 0.9);
+      expect(onSuspected).toHaveBeenCalledTimes(1);
+      expect(onConfirmed).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores voice-shaped residue that never rises above the floor", () => {
+      const { detector, onSuspected, onConfirmed } = makeDetector();
+      detector.start();
+      // Residual echo of Kivo's own voice: Silero calls it speech, but it sits
+      // at the primed floor, so the energy term rejects it.
+      feed(detector, Array.from({ length: 12 }, SILENCE), 0.9);
+      expect(onSuspected).not.toHaveBeenCalled();
+      expect(onConfirmed).not.toHaveBeenCalled();
+    });
+
+    it("falls back to energy alone when no probability is supplied", () => {
+      const { detector, onConfirmed } = makeDetector();
+      detector.start();
+      feed(detector, [SILENCE(), SILENCE()]);
+      feed(detector, Array.from({ length: 10 }, SPEECH));
+      expect(onConfirmed).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -231,6 +231,31 @@ describe("Anthropic prompt cache layout", () => {
     });
     expect(items[3].providerOptions).toBeUndefined();
   });
+
+  /**
+   * Room speech lands on the trailing user turn, so that turn grows between
+   * asks. Marking cache there would invalidate the whole conversation prefix
+   * every time someone in the room said anything.
+   */
+  it("marks cache on the last assistant turn, not a trailing user turn", () => {
+    const items = buildAriaInputItems({
+      stableContext: "# Session\nTitle: Planning",
+      history: [
+        { role: "user", text: "first ask" },
+        { role: "assistant", text: "first answer" },
+        { role: "user", text: "room chatter since then" },
+      ],
+      finalUserPrompt: "When are we shipping?",
+      provider: "anthropic",
+    });
+
+    expect(items[2]).toMatchObject({
+      role: "assistant",
+      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+    });
+    expect(items[3]).toMatchObject({ role: "user", content: "room chatter since then" });
+    expect(items[3].providerOptions).toBeUndefined();
+  });
 });
 
 /**

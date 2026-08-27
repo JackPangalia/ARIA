@@ -67,6 +67,25 @@ describe("isBackchannelOnly", () => {
     expect(isBackchannelOnly("oh nice")).toBe(true);
     expect(isBackchannelOnly("makes sense")).toBe(true);
     expect(isBackchannelOnly("mhm")).toBe(true);
+    // Reactions, not just acknowledgments. "Okay, that's pretty cool" taken as
+    // a question gets sent to the model with nothing to answer, and comes back
+    // as a summary of whatever the room was last talking about.
+    expect(isBackchannelOnly("okay that's pretty cool")).toBe(true);
+    expect(isBackchannelOnly("damn that's crazy")).toBe(true);
+    expect(isBackchannelOnly("I'm not sure")).toBe(true);
+  });
+
+  it("leaves short real questions alone", () => {
+    for (const text of [
+      "is it good",
+      "why not",
+      "tell me more",
+      "what about Hawaii",
+      "did it win any awards",
+      "which one",
+    ]) {
+      expect(isBackchannelOnly(text), text).toBe(false);
+    }
   });
 
   it("does not swallow real interruptions", () => {

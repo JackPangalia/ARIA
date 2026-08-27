@@ -1,24 +1,12 @@
 import { NextRequest } from "next/server";
-import { completeOnboarding, getOrCreatePlan } from "@/lib/plan/repository";
-import { userHasAnySession } from "@/lib/sessions/repository";
+import { completeOnboarding } from "@/lib/plan/repository";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function onboardingNeeded(uid: string): Promise<boolean> {
-  const [plan, hasSession] = await Promise.all([
-    getOrCreatePlan(uid),
-    userHasAnySession(uid),
-  ]);
-  return !plan.onboardingCompletedAt && !hasSession;
-}
-
 export async function GET(req: NextRequest) {
-  return withAuth(req, async ({ uid }) => {
-    const needed = await onboardingNeeded(uid);
-    return jsonOk({ needed });
-  });
+  return withAuth(req, async () => jsonOk({ needed: false }));
 }
 
 export async function POST(req: NextRequest) {

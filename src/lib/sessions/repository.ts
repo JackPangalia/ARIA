@@ -14,6 +14,10 @@ import {
   SEARCH_PREVIEW_LENGTH,
 } from "@/lib/sessions/constants";
 import { applyCleanedTranscript } from "@/lib/sessions/cleaned-transcript";
+import {
+  decideQuestionFold,
+  type QuestionFold,
+} from "@/lib/sessions/question-fold";
 import { getAdminDb } from "@/lib/firebase/admin";
 import { assertActiveProjectOwner } from "@/lib/projects/repository";
 import type {
@@ -470,46 +474,37 @@ export async function getNextSequence(
 }
 
 /**
- * Finds a `user_question` turn that the incoming question is still extending.
- *
- * A speaker who pauses mid-thought endpoints early, so one long question can
- * dispatch several times: each attempt persists a question turn and gets its
- * answer cut off by the speaker resuming. The transcript then shows the same
- * sentence three or four times, each a little longer. Those are one question,
- * so the earlier turn is rewritten rather than a new one appended.
- *
- * The signature is narrow on purpose: the previous question turn, separated
- * from this one only by answers that were themselves interrupted, whose text
- * the new question begins with.
+ * Looks at the turns just before an incoming question and decides whether it is
+ * really a new ask or another pass over one already recorded. See
+ * `decideQuestionFold` for the rules; this only supplies the stored turns.
  */
-async function findSupersededQuestionTurn(
+async function planQuestionFold(
   db: Firestore,
   uid: string,
   sessionId: string,
   text: string
-): Promise<FirebaseFirestore.QueryDocumentSnapshot | null> {
+): Promise<{
+  fold: QuestionFold;
+  byId: Map<string, FirebaseFirestore.QueryDocumentSnapshot>;
+}> {
   const snap = await turnsCol(db, uid, sessionId)
     .orderBy("sequence", "desc")
     .limit(6)
     .get();
 
-  for (const doc of snap.docs) {
+  const byId = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  const recent = snap.docs.map((doc) => {
+    byId.set(doc.id, doc);
     const data = doc.data();
-    if (data.role === "assistant") {
-      // Only a cut-off answer means the speaker talked over it and kept going.
-      if (!data.interrupted) return null;
-      continue;
-    }
-    if (data.role !== "user_question") return null;
+    return {
+      id: doc.id,
+      role: String(data.role ?? ""),
+      text: String(data.text ?? ""),
+      interrupted: Boolean(data.interrupted),
+    };
+  });
 
-    const previous = String(data.text ?? "").trim();
-    if (!previous) return null;
-    const extended =
-      text.length > previous.length && text.startsWith(previous);
-    return extended ? doc : null;
-  }
-
-  return null;
+  return { fold: decideQuestionFold(recent, text), byId };
 }
 
 export async function appendTurn(
@@ -527,42 +522,64 @@ export async function appendTurn(
 ): Promise<TurnDoc> {
   const db = getAdminDb();
   const session = await assertSessionOwner(uid, sessionId);
-  const tokenEstimate = estimateTokens(input.text);
+  let text = input.text;
 
   if (input.role === "user_question") {
-    const superseded = await findSupersededQuestionTurn(
-      db,
-      uid,
-      sessionId,
-      input.text
-    );
-    if (superseded) {
-      const previousTokens = Number(superseded.data().tokenEstimate ?? 0);
-      await superseded.ref.update({
-        text: input.text,
-        tokenEstimate,
+    const { fold, byId } = await planQuestionFold(db, uid, sessionId, text);
+
+    if (fold.mode === "trim") {
+      // The answered half stays where it is; only the new words are recorded.
+      text = fold.text;
+    } else if (fold.mode === "supersede" || fold.mode === "fold") {
+      const target = byId.get(fold.targetId)!;
+      const previousTokens = Number(target.data().tokenEstimate ?? 0);
+      const mergedText =
+        fold.mode === "supersede" ? fold.text : String(target.data().text ?? "");
+      const mergedTokens = estimateTokens(mergedText);
+
+      await target.ref.update({
+        text: mergedText,
+        tokenEstimate: mergedTokens,
         sourceUtteranceIds: [
           ...new Set([
-            ...(superseded.data().sourceUtteranceIds ?? []),
+            ...(target.data().sourceUtteranceIds ?? []),
             ...(input.sourceUtteranceIds ?? []),
           ]),
         ],
       });
+
+      // The cut-off answers in between replied to a half-heard question that
+      // no longer exists. Leaving them turns one exchange into a run of
+      // truncated fragments.
+      let droppedTokens = 0;
+      if (fold.mode === "supersede") {
+        for (const id of fold.dropTurnIds) {
+          const doc = byId.get(id);
+          if (!doc) continue;
+          droppedTokens += Number(doc.data().tokenEstimate ?? 0);
+          await doc.ref.delete();
+        }
+      }
+
       await sessionRef(db, uid, sessionId).update({
         updatedAt: FieldValue.serverTimestamp(),
-        tokenEstimate: FieldValue.increment(tokenEstimate - previousTokens),
+        tokenEstimate: FieldValue.increment(
+          mergedTokens - previousTokens - droppedTokens
+        ),
       });
-      const updated = await superseded.ref.get();
-      return mapTurn(superseded.ref.id, updated.data() ?? {});
+      const updated = await target.ref.get();
+      return mapTurn(target.ref.id, updated.data() ?? {});
     }
   }
+
+  const tokenEstimate = estimateTokens(text);
 
   const sequence = await getNextSequence(uid, sessionId);
   const turnRef = turnsCol(db, uid, sessionId).doc();
 
   await turnRef.set({
     role: input.role,
-    text: input.text,
+    text,
     speaker: input.speaker ?? null,
     speakerName: input.speakerName?.trim() || null,
     providerSpeakerLabel: input.providerSpeakerLabel?.trim() || null,
@@ -578,10 +595,7 @@ export async function appendTurn(
     updatedAt: FieldValue.serverTimestamp(),
     turnCount: FieldValue.increment(1),
     tokenEstimate: FieldValue.increment(tokenEstimate),
-    searchableTextPreview: appendPreview(
-      session.searchableTextPreview,
-      input.text
-    ),
+    searchableTextPreview: appendPreview(session.searchableTextPreview, text),
   });
 
   const snap = await turnRef.get();

@@ -163,8 +163,20 @@ describe("looksIncompleteQuestion", () => {
       "the main thing is...",
       "how does it work with",
       "is it better than his",
+      // Bare interrogatives left dangling: the speaker has named the question
+      // word but not the question. Unpunctuated only.
+      "tell me what",
+      "who do you think is going to who",
+      "walk me through how",
     ]) {
       expect(looksIncompleteQuestion(draft), draft).toBe(true);
+    }
+  });
+
+  it("keeps a question that genuinely ends on an interrogative", () => {
+    // The terminal mark is what separates "so what?" from "tell me what".
+    for (const draft of ["so what?", "I don't know why.", "than who?"]) {
+      expect(looksIncompleteQuestion(draft), draft).toBe(false);
     }
   });
 

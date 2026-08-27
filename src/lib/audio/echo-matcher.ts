@@ -9,18 +9,43 @@
 // own "…so you should stop there" would silence itself); anything else is a
 // human and deserves an interruption.
 
-// Listener acknowledgments that ride under an answer without meaning
-// "stop talking". An utterance made only of these must not trigger barge-in.
+// Listener acknowledgments and reactions that ride under (or follow) an answer
+// without meaning "stop talking" or "answer this". An utterance made only of
+// these must not trigger barge-in, and must not be taken as a follow-up turn.
+//
+// The reaction vocabulary matters as much as the acknowledgment one: "okay,
+// that's pretty cool" is a person reacting to what you just said, not a
+// question. Taken as a turn it gets sent to the model as an ask, and the model
+// — with nothing to answer — reaches for whatever the room was last talking
+// about. That is how "that's pretty cool" came back as a summary of someone's
+// IDE preferences.
+//
+// Everything here is checked under a four-word cap and requires *every* word to
+// match, so adding a word only ever suppresses very short utterances. Words
+// that carry a real short question ("is", "what", "why", "how") stay out
+// deliberately: "is it good" and "why not" must keep working.
 const BACKCHANNEL_WORDS = new Set([
+  // acknowledgment
   "yeah", "yes", "yep", "yup", "no", "nah", "right", "okay", "ok", "kay",
   "exactly", "sure", "true", "totally", "definitely", "absolutely",
-  "mhm", "mm", "hmm", "uh", "huh", "oh", "ah", "wow", "nice", "cool",
-  "interesting", "good", "great", "perfect", "got", "it", "makes", "sense",
-  "i", "see", "really",
+  "mhm", "mm", "mmm", "hmm", "hm", "uh", "huh", "oh", "ah", "got", "it",
+  "makes", "sense", "i", "see", "really", "alright", "fine", "noted",
+  "understood", "gotcha", "word", "fair", "thanks", "thank", "you",
+  // reaction
+  "wow", "whoa", "woah", "damn", "dang", "man", "dude", "haha", "lol",
+  "yikes", "oof", "ugh", "nice", "cool", "sweet", "neat", "dope", "sick",
+  "rad", "solid", "crazy", "wild", "awesome", "amazing", "brilliant",
+  "excellent", "fantastic", "wonderful", "beautiful", "lovely", "funny",
+  "weird", "clever", "smart", "impressive", "good", "great", "perfect",
+  "interesting", "rough", "tough", "terrible",
+  // hedges and intensifiers that only ever pad the two groups above
+  "that", "that's", "thats", "this", "pretty", "very", "so", "such",
+  "i'm", "im", "not", "don't", "dont", "know", "guess", "maybe", "probably",
 ]);
 
-/** True when the utterance is pure listener acknowledgment ("yeah exactly",
- * "oh nice", "makes sense") rather than an attempt to take the floor. */
+/** True when the utterance is pure listener acknowledgment or reaction ("yeah
+ * exactly", "oh nice", "makes sense", "okay that's pretty cool") rather than an
+ * attempt to take the floor or ask something. */
 export function isBackchannelOnly(text: string): boolean {
   const words = tokenize(text);
   if (words.length === 0) return true;

@@ -6,6 +6,8 @@ import { ClientBoot } from "@/components/ClientBoot";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
+import "./education.css";
+import "./mobile-workspace.css";
 
 const inter = Inter({
   variable: "--font-inter",

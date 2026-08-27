@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useModalFocus } from "@/components/ui/use-modal-focus";
 
 export function ConfirmDialog(props: {
   open: boolean;
@@ -15,6 +16,10 @@ export function ConfirmDialog(props: {
   onCancel: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocus(panelRef, props.open && mounted, {
+    onEscape: () => { if (!props.busy) props.onCancel(); },
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -23,12 +28,9 @@ export function ConfirmDialog(props: {
   useEffect(() => {
     if (!props.open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (props.busy) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        props.onCancel();
-      }
-      if (event.key === "Enter") {
+      if (props.busy || event.defaultPrevented) return;
+      // Focused buttons handle Enter themselves (especially Cancel).
+      if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
         event.preventDefault();
         props.onConfirm();
       }
@@ -54,6 +56,7 @@ export function ConfirmDialog(props: {
         }}
       />
       <div
+        ref={panelRef}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"

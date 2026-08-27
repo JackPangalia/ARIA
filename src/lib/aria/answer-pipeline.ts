@@ -59,6 +59,19 @@ export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
   return false;
 }
 
+/**
+ * Shortest interrupted answer worth keeping. Below this an answer says nothing
+ * except that it was cut off — see `persistInterruptedAnswer`. Five words is
+ * about where a cut-off answer starts carrying a claim ("Stanley Park's bigger
+ * and has") rather than a false start ("I'm", "What kinds of things").
+ */
+const MIN_INTERRUPTED_ANSWER_WORDS = 5;
+
+function countWords(text: string): number {
+  const matched = text.trim().match(/[^\s]+/g);
+  return matched ? matched.length : 0;
+}
+
 function closeStreamOnAbort(
   controller: ReadableStreamDefaultController<Uint8Array>,
   signal: AbortSignal
@@ -438,11 +451,27 @@ export async function runAnswerPipeline(
       // A stopped answer must still exist in the transcript, holding only what
       // was actually spoken — otherwise the next ask sees a question Kivo
       // apparently never answered (or an answer nobody heard).
+      //
+      // Unless there is nothing in it. An answer cut off after two or three
+      // words ("I'm", "What kinds of things") carries no claim anyone could
+      // have heard; all it carries is the fact that it was cut off. Kept, it
+      // shows up in the transcript as a run of one-word Kivo turns, and it
+      // reaches the next prompt as a stack of "[The user cut this answer off
+      // here.]" markers — which is what has Kivo opening turns by apologising
+      // for being interrupted instead of answering. Dropped, the question
+      // simply reads as not yet answered, which is what actually happened.
       const persistInterruptedAnswer = async () => {
         const spoken = wsCtx
           ? estimatePcmSpokenText()
           : spokenSegments.join(" ").trim();
         if (!spoken) return;
+        if (countWords(spoken) < MIN_INTERRUPTED_ANSWER_WORDS) {
+          pipeline.stage("persist.interrupted", {
+            skipped: "too_short",
+            chars: spoken.length,
+          });
+          return;
+        }
         try {
           await appendTurn(uid, sessionId, {
             role: "assistant",

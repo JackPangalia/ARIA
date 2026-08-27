@@ -54,6 +54,7 @@ function SiteHeader() {
         <a href="#top" className="lp-wordmark" aria-label="Kivo, back to top">Kivo</a>
         <nav className="lp-nav-links" aria-label="Primary">
           <a href="#how" className="lp-link">How it works</a>
+          <Link href="/guide" className="lp-link">Guide</Link>
           <a href="#pricing" className="lp-link">Pricing</a>
           <a href="#faq" className="lp-link">FAQ</a>
         </nav>
@@ -68,6 +69,7 @@ function SiteHeader() {
       <div className="lp-wrap lp-mobile-menu" id="mobile-menu">
         <nav aria-label="Mobile">
           <a href="#how">How it works</a>
+          <Link href="/guide">Guide</Link>
           <a href="#pricing">Pricing</a>
           <a href="#faq">FAQ</a>
           <Link href="/sign-in">Sign in</Link>
@@ -245,7 +247,7 @@ function Closing() {
         </section>
         <div className="lp-footer-meta">
           <a href="#top" className="lp-footer-wordmark">Kivo</a>
-          <div className="lp-footer-links"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="mailto:hello@kivo.ai">Contact</a></div>
+          <div className="lp-footer-links"><Link href="/guide">Guide</Link><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="mailto:hello@kivo.ai">Contact</a></div>
           <p>© 2026 Centonis AI Inc.</p>
         </div>
       </div>

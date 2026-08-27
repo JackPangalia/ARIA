@@ -12,6 +12,8 @@ import {
   SearchIcon,
   SessionIcon,
 } from "@/components/sessions/icons";
+import { useModalFocus } from "@/components/ui/use-modal-focus";
+import { sessionPrefetchProps } from "@/lib/sessions/detail-cache";
 
 type Surface = "home" | "project" | "session";
 
@@ -130,12 +132,10 @@ function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   return (
     <>
       <nav
-        className={`flex flex-col px-2 pb-2 ${
-          props.variant === "sheet" ? "" : "min-h-0 flex-1"
-        }`}
+        className="kivo-workspace-navigation flex min-h-0 flex-1 flex-col px-2 pb-2"
         aria-label="Workspace"
       >
-        <div className="space-y-1">
+        <div className="kivo-nav-primary shrink-0 space-y-1">
           <NavButton
             expanded={props.expanded}
             primary
@@ -160,12 +160,12 @@ function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
         {props.expanded ? (
           <div
-            className={`kivo-fade-in mt-7 flex flex-col px-1 ${
-              props.variant === "sheet" ? "" : "min-h-0 flex-1"
+            className={`kivo-nav-lists kivo-fade-in mt-7 flex min-h-0 flex-1 flex-col px-1 ${
+              props.variant === "sheet" ? "overflow-y-auto overscroll-contain" : ""
             }`}
           >
-            <section className="shrink-0" aria-labelledby="rail-projects-heading">
-              <p id="rail-projects-heading" className="kivo-rail-section-label">
+            <section className="shrink-0" aria-labelledby={`rail-projects-${props.variant ?? "rail"}`}>
+              <p id={`rail-projects-${props.variant ?? "rail"}`} className="kivo-rail-section-label">
                 Projects
               </p>
               <div className="mt-1 space-y-0.5">
@@ -196,13 +196,13 @@ function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             <section
               className={
                 props.variant === "sheet"
-                  ? "mt-6"
+                  ? "mt-6 shrink-0"
                   : "mt-6 flex min-h-0 flex-1 flex-col"
               }
-              aria-labelledby="rail-recent-heading"
+              aria-labelledby={`rail-recent-${props.variant ?? "rail"}`}
             >
               <p
-                id="rail-recent-heading"
+                id={`rail-recent-${props.variant ?? "rail"}`}
                 className="kivo-rail-section-label shrink-0"
               >
                 Recent
@@ -219,6 +219,7 @@ function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                     key={session.id}
                     type="button"
                     onClick={() => props.onSelectSession(session.id)}
+                    {...sessionPrefetchProps(session.id)}
                     aria-current={
                       props.selectedSessionId === session.id
                         ? "page"
@@ -257,10 +258,6 @@ function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           </div>
         )}
       </nav>
-      <SidebarProfileFooter
-        collapsed={!props.expanded}
-        onOpenSettings={props.onOpenSettings}
-      />
     </>
   );
 }
@@ -284,18 +281,18 @@ export function WorkspaceRail(
   return (
     <Sidebar open={props.expanded} setOpen={setHoverOpen}>
       <DesktopSidebar
-        className="kivo-workspace-rail !hidden border-r border-app-subtle !bg-transparent !p-0 lg:!flex"
+        className="kivo-workspace-rail !hidden !bg-transparent !p-0 lg:!flex"
         collapsedWidth={64}
         expandedWidth={260}
         expandOnHover={props.expandOnHover}
         visibilityClassName="hidden lg:flex"
-        data-expanded={props.expanded}
+        data-expanded={props.expanded ? "true" : "false"}
         role="navigation"
         aria-label="Workspace"
       >
         <div
           className="kivo-sidebar-topbar shrink-0"
-          data-expanded={props.expanded}
+          data-expanded={props.expanded ? "true" : "false"}
         >
           <button
             type="button"
@@ -337,6 +334,7 @@ export function WorkspaceRail(
           </div>
         ) : null}
         <WorkspaceNavigation {...props} />
+        <SidebarProfileFooter collapsed={!props.expanded} onOpenSettings={props.onOpenSettings} />
       </DesktopSidebar>
     </Sidebar>
   );
@@ -346,43 +344,24 @@ export function WorkspaceNavSheet(
   props: Omit<WorkspaceNavigationProps, "expanded"> & {
     open: boolean;
     onClose: () => void;
+    footer: ReactNode;
   },
 ) {
   const panelRef = useRef<HTMLElement>(null);
   const { open, onClose } = props;
   const reduceMotion = useReducedMotion();
 
+  useModalFocus(panelRef, open, { onEscape: onClose });
   useEffect(() => {
     if (!open) return;
-    const panel = panelRef.current;
-    const focusable = panel?.querySelectorAll<HTMLElement>(
-      'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    focusable?.[0]?.focus();
-
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab" || !focusable?.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const onResize = () => { if (desktop.matches) onClose(); };
+    desktop.addEventListener("change", onResize);
     return () => {
       document.body.style.overflow = prevOverflow;
-      document.removeEventListener("keydown", onKeyDown);
+      desktop.removeEventListener("change", onResize);
     };
   }, [open, onClose]);
 
@@ -410,6 +389,8 @@ export function WorkspaceNavSheet(
             type="button"
             aria-label="Close navigation"
             className="absolute inset-0 bg-overlay"
+            tabIndex={-1}
+            aria-hidden="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -421,13 +402,13 @@ export function WorkspaceNavSheet(
             role="dialog"
             aria-modal="true"
             aria-label="Workspace navigation"
-            className="kivo-mobile-nav absolute inset-y-0 right-0 flex w-[min(20.5rem,88vw)] flex-col"
-            initial={{ x: "100%" }}
+            className="kivo-mobile-nav absolute inset-y-0 left-0 flex w-[min(22rem,90vw)] flex-col"
+            initial={{ x: "-100%" }}
             animate={{ x: 0 }}
-            exit={{ x: "100%" }}
+            exit={{ x: "-100%" }}
             transition={slide}
           >
-            <div className="safe-pt flex h-14 shrink-0 items-center justify-between px-4">
+            <div className="kivo-mobile-nav-heading flex shrink-0 items-center justify-between">
               <button
                 type="button"
                 onClick={closeThen(props.onHome)}
@@ -445,7 +426,7 @@ export function WorkspaceNavSheet(
                 <CloseIcon />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="flex min-h-0 flex-1 flex-col">
               <WorkspaceNavigation
                 {...props}
                 expanded
@@ -461,6 +442,7 @@ export function WorkspaceNavSheet(
                 }
                 onOpenSettings={closeThen(props.onOpenSettings)}
               />
+              {props.footer}
             </div>
           </motion.aside>
         </motion.div>

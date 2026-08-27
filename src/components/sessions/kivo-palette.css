@@ -206,21 +206,54 @@
   }
 }
 
-@media (max-width: 640px) {
-  .kivo-palette-modal {
-    max-height: min(86vh, 36rem);
-  }
+/* A visible exit is useful on both pointer and touch devices. */
+.kivo-palette-heading { display: flex; align-items: center; justify-content: space-between; padding: 0.8rem 1.35rem 0; }
+.kivo-palette-heading h2 { font-family: var(--font-serif); font-size: 1.5rem; font-weight: 400; letter-spacing: -0.03em; }
+.kivo-palette-close { min-height: 2.75rem; padding: 0.5rem 0.65rem; border-radius: 0.7rem; font-size: 0.8125rem; color: var(--app-fg-muted); }
+.kivo-palette-close:hover { background: var(--app-surface-hover); color: var(--app-fg); }
+.kivo-palette-more, .kivo-palette-action-label { display: none; }
+.kivo-palette-row-main:focus-visible,
+.kivo-palette-more:focus-visible,
+.kivo-palette-close:focus-visible { outline: 2px solid var(--app-fg); outline-offset: -2px; border-radius: 0.7rem; }
+.kivo-palette-search:focus-within { box-shadow: inset 0 -1px var(--app-border-strong); }
+.kivo-palette-rename-input { min-width: 0; }
 
+@media (max-width: 639px) {
+  .kivo-search-overlay { top: var(--search-top, 0px); bottom: auto; height: var(--search-height, 100dvh); }
+  .kivo-search-overlay .kivo-palette-modal {
+    height: 100%; max-height: none; max-width: none; border: 0; border-radius: 0; box-shadow: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation: kivo-fade-in 160ms ease both;
+  }
+  .kivo-palette-heading { padding: max(0.75rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right)) 0.5rem max(1.25rem, env(safe-area-inset-left)); }
+  .kivo-palette-heading h2 { font-size: 1.65rem; }
   .kivo-palette-search {
-    padding: 1.05rem 1.15rem 0.85rem;
+    margin: 0.15rem max(1rem, env(safe-area-inset-right)) 0.65rem max(1rem, env(safe-area-inset-left));
+    padding: 0.75rem 0.9rem; gap: 0.65rem;
+    border: 1px solid var(--app-border-subtle); border-radius: 0.9rem; background: var(--app-surface);
   }
+  .kivo-palette-search-input { font-size: 1rem; line-height: 1.5; }
+  .kivo-palette-search:focus-within { border-color: var(--app-border-strong); box-shadow: none; }
+  .kivo-palette-body { padding: 0 max(0.75rem, env(safe-area-inset-right)) 1rem max(0.75rem, env(safe-area-inset-left)); overscroll-behavior: contain; }
+  .kivo-palette-actions-label { display: none; }
+  .kivo-palette-section { padding: 0.35rem 0; }
+  .kivo-palette-section + .kivo-palette-section { padding-top: 1rem; }
+  .kivo-palette-section-label { font-size: 0.6875rem; padding-inline: 0.65rem; }
+  .kivo-palette-action { min-height: 2.75rem; padding: 0.65rem; font-size: 0.875rem; }
+  .kivo-palette-row { flex-wrap: wrap; min-height: 4.1rem; border-radius: 0.85rem; }
+  .kivo-palette-row-main { flex-direction: column; align-items: stretch; gap: 0.3rem; padding: 0.75rem 0.65rem; font-size: 0.875rem; line-height: 1.4; }
+  .kivo-palette-row-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+  .kivo-palette-row-date { font-size: 0.6875rem; }
+  .kivo-palette-more { display: grid; place-items: center; flex: none; width: 2.75rem; height: 2.75rem; margin-right: 0.2rem; border-radius: 0.75rem; color: var(--app-fg-muted); }
+  .kivo-palette-more[aria-expanded="true"] { background: var(--app-surface-selected); color: var(--app-fg); }
+  .kivo-palette-row-actions { display: none; flex: 0 0 100%; padding: 0 0.4rem 0.4rem; gap: 0.4rem; opacity: 1; }
+  .kivo-palette-row-actions[data-expanded="true"] { display: flex; }
+  .kivo-palette-icon-btn { min-height: 2.75rem; flex: 1; gap: 0.5rem; padding: 0.6rem; background: var(--app-surface); }
+  .kivo-palette-action-label { display: inline; font-size: 0.8125rem; }
+  .kivo-palette-rename-input { font-size: 1rem; min-height: 2.75rem; }
+}
 
-  .kivo-palette-row-main,
-  .kivo-palette-action {
-    padding: 0.75rem;
-  }
-
-  .kivo-palette-icon-btn {
-    padding: 0.5rem;
-  }
+@media (prefers-reduced-motion: reduce) {
+  .kivo-search-overlay .kivo-palette-modal { animation: none; }
+  .kivo-palette-modal * { transition: none; }
 }

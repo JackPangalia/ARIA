@@ -44,19 +44,33 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+/**
+ * Each label names the mode the session is in, because this caption is the only
+ * thing telling someone whether Kivo will pick up what they say next:
+ *
+ *   Listening   passive — the room is being heard and transcribed, but nothing
+ *               reaches Kivo until someone says "Kivo".
+ *   Question    the wake word landed; this speech is being captured as the ask.
+ *   Thinking / Searching the web / Speaking — working on that ask.
+ *   Follow-up   the wake-free window after an answer: just talk, no wake word.
+ *
+ * Conversational phrasings ("Yes?", "Anything else?") read as things Kivo was
+ * saying rather than states it was in, which made the two open-mic modes
+ * indistinguishable from the caption alone.
+ */
 const STATUS_LABEL: Record<AriaStatus, string> = {
-  idle: "Tap start",
+  idle: "Not listening",
   listening: "Listening",
-  "wake-detected": "Yes?",
-  "capturing-question": "Hearing you out",
+  "wake-detected": "Question",
+  "capturing-question": "Question",
   thinking: "Thinking",
   searching: "Searching the web",
   speaking: "Speaking",
-  "follow-up-listening": "Anything else?",
+  "follow-up-listening": "Follow-up",
   error: "Something went wrong",
 };
 
-/** Human label for a live Aria status — shown in the header recording strip. */
+/** Human label for a live Aria status — shown in the caption under the orb. */
 export function statusLabelFor(status: AriaStatus): string {
   return STATUS_LABEL[status];
 }

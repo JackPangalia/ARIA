@@ -13,6 +13,12 @@ import {
   SearchIcon,
   SessionIcon,
 } from "./icons";
+import {
+  prefetchSessionDetail,
+  sessionPrefetchProps,
+} from "@/lib/sessions/detail-cache";
+import { Spinner } from "./Loaders";
+import { useEducationAnchor } from "@/components/education/EducationProvider";
 
 function formatDate(value: string | number) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -35,12 +41,14 @@ export function SessionHub(props: {
   sessions: SessionDoc[];
   activeSession: SessionDoc | null;
   onPrimaryAction: () => void;
+  primaryBusy?: boolean;
   onOpenSearch: () => void;
   onSelectProject: (projectId: string) => void;
   onCreateProject: () => void;
   onSelectSession: (sessionId: string) => void;
 }) {
   const [hour] = useState(() => new Date().getHours());
+  const educationAnchor = useEducationAnchor<HTMLButtonElement>("start");
 
   const sortedSessions = useMemo(
     () =>
@@ -57,7 +65,7 @@ export function SessionHub(props: {
     props.sessions.filter((session) => session.projectId === projectId).length;
 
   return (
-    <main className="pointer-events-auto h-full min-h-0 overflow-y-auto overscroll-contain" id="main-content">
+    <main className="pointer-events-auto h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain" id="main-content">
       <div className="kivo-home-canvas mx-auto w-full max-w-[70rem] px-5 pb-24 pt-4 sm:px-8 sm:pb-28 sm:pt-7 xl:px-10">
         <section
           className="kivo-home-hero group relative isolate overflow-hidden rounded-[1.75rem]"
@@ -88,12 +96,20 @@ export function SessionHub(props: {
                 : "Start listening, ask out loud, and leave with the conversation intact."}
             </p>
             <button
+              ref={educationAnchor}
               type="button"
               onClick={props.onPrimaryAction}
-              className="kivo-home-hero-action mt-7 inline-flex items-center gap-2 rounded-xl bg-[#f8f4ea] px-4 py-2.5 text-sm font-semibold text-[#171713] shadow-[0_12px_30px_rgba(0,0,0,0.18)] transition-[transform,background-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] active:translate-y-px active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+              onPointerEnter={
+                props.activeSession
+                  ? () => prefetchSessionDetail(props.activeSession!.id)
+                  : undefined
+              }
+              disabled={props.primaryBusy}
+              aria-busy={props.primaryBusy || undefined}
+              className="kivo-home-hero-action mt-7 inline-flex items-center gap-2 rounded-xl bg-[#f8f4ea] px-4 py-2.5 text-sm font-semibold text-[#171713] shadow-[0_12px_30px_rgba(0,0,0,0.18)] transition-[transform,background-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] active:translate-y-px active:scale-[0.985] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white disabled:cursor-wait disabled:hover:translate-y-0"
             >
               {props.activeSession ? "Resume conversation" : "Start conversation"}
-              <ArrowIcon />
+              {props.primaryBusy ? <Spinner className="h-3.5 w-3.5" /> : <ArrowIcon />}
             </button>
           </div>
         </section>
@@ -104,19 +120,19 @@ export function SessionHub(props: {
           className="kivo-home-search group mt-5 flex w-full items-center gap-3 rounded-2xl border border-app-subtle bg-[color-mix(in_srgb,var(--app-surface)_55%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] duration-200 hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
         >
           <SearchIcon className="shrink-0 transition-colors group-hover:text-app" />
-          <span className="flex-1">Search conversations and projects</span>
+          <span className="min-w-0 flex-1 truncate">Search conversations</span>
           <kbd className="hidden rounded-md border border-app-subtle bg-[color-mix(in_srgb,var(--app-bg)_60%,transparent)] px-2 py-0.5 font-mono text-[10px] text-app-subtle sm:inline">⌘K</kbd>
         </button>
 
-        <div className="mt-8 grid items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.8fr)] lg:gap-10">
-          <section aria-labelledby="home-recent-heading" className="kivo-home-section order-2 lg:order-1">
+        <div className="kivo-home-sections mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.8fr)] lg:gap-10">
+          <section aria-labelledby="home-recent-heading" className="kivo-home-section min-w-0 order-1">
             <div className="flex items-end justify-between gap-4 border-b border-app-subtle pb-3">
-              <div>
+              <div className="min-w-0">
                 <p className="kivo-kicker">Your history</p>
                 <h2 id="home-recent-heading" className="mt-1 font-serif text-[1.75rem] leading-tight tracking-[-0.035em] text-app">Recent conversations</h2>
               </div>
               {sortedSessions.length > recentSessions.length ? (
-                <button type="button" onClick={props.onOpenSearch} className="rounded-lg px-2 py-1 text-xs font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app">View all</button>
+                <button type="button" onClick={props.onOpenSearch} className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app">View all</button>
               ) : null}
             </div>
 
@@ -127,9 +143,10 @@ export function SessionHub(props: {
                     <button
                       type="button"
                       onClick={() => props.onSelectSession(session.id)}
-                      className="group flex w-full items-center gap-3 rounded-xl px-2 py-3.5 text-left transition-[background-color,transform] duration-200 hover:translate-x-1 hover:bg-[color-mix(in_srgb,var(--app-surface-hover)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
+                      {...sessionPrefetchProps(session.id)}
+                      className="kivo-home-session-row group flex w-full items-center gap-3 rounded-xl px-2 py-3.5 text-left transition-[background-color,transform] duration-200 hover:translate-x-1 hover:bg-[color-mix(in_srgb,var(--app-surface-hover)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface text-app-muted transition-colors group-hover:bg-surface-strong group-hover:text-app"><SessionIcon size={17} /></span>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center text-app-muted transition-colors group-hover:text-app"><SessionIcon size={17} /></span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-app">{session.title}</span>
                         <span className="mt-0.5 block text-xs text-app-subtle">
@@ -154,7 +171,7 @@ export function SessionHub(props: {
             )}
           </section>
 
-          <section aria-labelledby="home-projects-heading" className="kivo-home-projects order-1 rounded-[1.5rem] bg-[color-mix(in_srgb,var(--app-surface)_65%,transparent)] p-5 sm:p-6 lg:order-2">
+          <section aria-labelledby="home-projects-heading" className="kivo-home-projects min-w-0 order-2 p-5 sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <h2 id="home-projects-heading" className="font-serif text-[1.65rem] leading-tight tracking-[-0.035em] text-app">
                 Projects

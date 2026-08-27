@@ -46,29 +46,47 @@ function speakerLabel(id: number | null): string {
 }
 
 /**
- * Prior Q/A exchanges become real chat turns instead of transcript lines —
- * the model tracks a conversation it actually had, not one it reads about.
- * Multi-party sessions keep the asker's name inside the user turn so answers
- * to different people stay attributable.
+ * The recent window becomes one chronological conversation: room speech,
+ * questions put to Kivo, and Kivo's own answers, in the order they happened.
+ * Consecutive human turns fold into a single user message so the alternation
+ * the API expects survives.
+ *
+ * Q/A used to become chat turns while room speech went to a trailing blob
+ * labeled "not what you are being asked about". That split destroyed the
+ * ordering — the model could not tell what was said a second ago from what was
+ * said ten turns back, so "what did I just say" and "go on" reached for the
+ * wrong exchange, and anything Kivo heard but didn't answer was effectively
+ * invisible. Keeping one ordered list is what a chat client does, and it is the
+ * only representation where recency is legible.
  */
 export function buildHistoryTurns(turns: TurnDoc[]): ContextHistoryTurn[] {
-  return turns
-    .filter((turn) => turn.role === "user_question" || turn.role === "assistant")
-    .map((turn) =>
-      turn.role === "assistant"
-        ? {
-            role: "assistant" as const,
-            text: turn.interrupted
-              ? `${heardTurnText(turn)}\n\n[The user cut this answer off here.]`
-              : turn.text,
-          }
-        : {
-            role: "user" as const,
-            text: turn.speakerName
-              ? `${turn.speakerName}: ${turn.text}`
-              : turn.text,
-          }
-    );
+  const history: ContextHistoryTurn[] = [];
+
+  for (const turn of turns) {
+    if (turn.role === "assistant") {
+      history.push({
+        role: "assistant",
+        text: turn.interrupted
+          ? `${heardTurnText(turn)}\n\n[The user cut this answer off here.]`
+          : turn.text,
+      });
+      continue;
+    }
+
+    // Multi-party sessions keep the speaker's name inline so answers to
+    // different people stay attributable.
+    const line = turn.speakerName
+      ? `${turn.speakerName}: ${turn.text}`
+      : turn.text;
+    const previous = history[history.length - 1];
+    if (previous && previous.role === "user") {
+      previous.text = `${previous.text}\n${line}`;
+      continue;
+    }
+    history.push({ role: "user", text: line });
+  }
+
+  return history;
 }
 
 export function buildSessionHeader(session: SessionDoc): string {
@@ -131,6 +149,19 @@ export function buildProjectKnowledgeSection(input: {
   return sections.length > 0 ? sections.join("\n\n") : null;
 }
 
+const CURRENT_QUESTION_LOOKBACK = 3;
+
+function dropCurrentQuestionCopy(turns: TurnDoc[], question: string): TurnDoc[] {
+  const start = Math.max(0, turns.length - CURRENT_QUESTION_LOOKBACK);
+  for (let index = turns.length - 1; index >= start; index--) {
+    const turn = turns[index];
+    if (turn.role !== "user_question") continue;
+    if (sanitizeQuestionText(turn.text) !== question) continue;
+    return [...turns.slice(0, index), ...turns.slice(index + 1)];
+  }
+  return turns;
+}
+
 export async function buildContextBundle(input: {
   uid: string;
   session: SessionDoc;
@@ -179,20 +210,20 @@ export async function buildContextBundle(input: {
   // context build runs, so the question may or may not already be in the
   // recent-turn window. It's passed separately as the live question — a copy
   // here would make the model see it twice.
-  const withoutCurrentQuestion =
-    recentTurnsRaw.length > 0 &&
-    recentTurnsRaw[recentTurnsRaw.length - 1].role === "user_question" &&
-    sanitizeQuestionText(recentTurnsRaw[recentTurnsRaw.length - 1].text) ===
-      question
-      ? recentTurnsRaw.slice(0, -1)
-      : recentTurnsRaw;
+  //
+  // Room speech can be persisted after the question, so the copy is not always
+  // the last turn. Scan back a few, but no further: repeating yourself in a
+  // long session is legitimate history and shouldn't be erased.
+  const withoutCurrentQuestion = dropCurrentQuestionCopy(
+    recentTurnsRaw,
+    question
+  );
 
   const recentTurns = dedupeAdjacentContextTurns(withoutCurrentQuestion);
 
-  // Q/A exchanges leave the transcript blob and become real chat history;
-  // only ambient room speech stays as reference text.
+  // Everything recent — room speech included — becomes ordered chat history.
+  // Nothing about the live conversation is left in a side blob.
   const history = buildHistoryTurns(recentTurns);
-  const roomTurns = recentTurns.filter((turn) => turn.role === "speaker");
 
   const recentIds = new Set(recentTurns.map((turn) => turn.id));
   const supplementalHits = searchHits.filter((turn) => !recentIds.has(turn.id));
@@ -258,19 +289,15 @@ export async function buildContextBundle(input: {
     );
   }
 
+  // The only thing left outside the conversation is the keyword lookup into
+  // parts of the session that have already fallen out of the recent window.
+  // It is explicitly older than the conversation so the model stops treating a
+  // stray keyword match as the current topic.
   const liveSections: string[] = [];
 
   if (supplementalHits.length > 0) {
     liveSections.push(
-      `# Relevant earlier context\n\n${supplementalHits
-        .map((turn) => formatTurnForContext(turn))
-        .join("\n")}`
-    );
-  }
-
-  if (roomTurns.length > 0) {
-    liveSections.push(
-      `# Recent room transcript\n\n${roomTurns
+      `# Archive lookup\n\nOlder lines from earlier in this session, matched on keywords. They are out of order and may be unrelated. The conversation above is what is current; use these only if the question is explicitly about something earlier.\n\n${supplementalHits
         .map((turn) => formatTurnForContext(turn))
         .join("\n")}`
     );
@@ -292,9 +319,11 @@ export async function buildContextBundle(input: {
     estimateTokensForTexts([messages, ...historyTexts(), question]) >
     CONTEXT_BUDGET_TOKENS
   ) {
+    // Drop the archive lookup first and keep the tail of the conversation —
+    // recency is what answers follow-ups, and the rolling summary already
+    // carries whatever fell off the front.
     budgetTrimApplied = true;
-    historyTurns = history.slice(-12);
-    const trimmedRoom = roomTurns.slice(-10);
+    historyTurns = history.slice(-16);
     stableContext = [
       projectSection,
       buildSessionHeader(input.session),
@@ -305,11 +334,7 @@ export async function buildContextBundle(input: {
     ]
       .filter(Boolean)
       .join("\n\n");
-    liveTranscript = trimmedRoom.length
-      ? `# Recent room transcript\n\n${trimmedRoom
-          .map((turn) => formatTurnForContext(turn))
-          .join("\n")}`
-      : "";
+    liveTranscript = "";
     messages = [stableContext, liveTranscript].filter(Boolean).join("\n\n");
     tokenEstimate = estimateTokensForTexts([
       messages,

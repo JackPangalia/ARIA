@@ -21,6 +21,7 @@ import {
   TrashIcon,
   UploadIcon,
 } from "./icons";
+import { sessionPrefetchProps } from "@/lib/sessions/detail-cache";
 
 function formatSessionDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
@@ -189,7 +190,7 @@ export function ProjectHubView(props: {
     }`;
 
   return (
-    <div className="pointer-events-auto mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col">
+    <div className="kivo-project-hub pointer-events-auto mx-auto flex h-full min-h-0 min-w-0 w-full max-w-5xl flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-16 pt-5 sm:px-9 sm:pt-8 lg:px-12">
         <div>
           <header className="mb-6 max-w-2xl">
@@ -208,14 +209,14 @@ export function ProjectHubView(props: {
               className="group flex w-full items-center gap-2.5 rounded-2xl border border-app-subtle bg-[color-mix(in_srgb,var(--app-surface)_55%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
             >
               <SearchIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app-secondary" />
-              <span className="flex-1 text-sm font-normal">Search conversations & project sources...</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-normal">Search conversations</span>
               <kbd className="hidden rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-app-subtle sm:inline">
                 ⌘K
               </kbd>
             </button>
           </div>
 
-          <div className="mt-7 flex items-center gap-1 border-b border-app-subtle pb-1">
+          <div className="kivo-project-tabs mt-7 flex items-center gap-1 border-b border-app-subtle pb-1">
             <button type="button" onClick={() => setTab("sessions")} className={tabClass(tab === "sessions")}>
               Conversations ({sortedSessions.length})
             </button>
@@ -240,7 +241,8 @@ export function ProjectHubView(props: {
                         <button
                           type="button"
                           onClick={() => props.onSelectSession(session.id)}
-                          className="group flex w-full items-center justify-between gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
+                          {...sessionPrefetchProps(session.id)}
+                          className="kivo-project-session-row group flex w-full items-center justify-between gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
                         >
                           <div className="flex min-w-0 items-center gap-2.5">
                             <SessionIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app" />

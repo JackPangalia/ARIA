@@ -29,6 +29,7 @@ const mockStore = vi.hoisted(() => {
 const mockCueMethods = vi.hoisted(() => ({
   ensureReady: vi.fn(),
   playWake: vi.fn(),
+  playRelease: vi.fn(),
   playClose: vi.fn(),
   playSearch: vi.fn(),
   startSearchingLoop: vi.fn(),
@@ -134,6 +135,41 @@ function emit(engine: AriaEngine, u: TranscriptUtterance) {
   ).handleUtterance(u);
 }
 
+/** Let the engine hear real speech from each label, so it stops reading the
+ * session as a one-on-one. Call before the follow-up window is open. */
+function hearVoices(engine: AriaEngine, labels: string[]) {
+  labels.forEach((label, i) => {
+    emit(engine, {
+      ...utterance(`${label} said something substantial here`, `seed-${label}`),
+      providerSpeakerLabel: label,
+      speaker: i,
+      speakerName: label,
+      start: 0,
+      end: 6,
+    });
+  });
+}
+
+/** Drive the engine's local VAD directly: onset, then measured silence. */
+function speechDriver(engine: AriaEngine) {
+  const internals = engine as unknown as {
+    localSpeechDetector: { process: () => { probability: number } };
+    localSpeechLastPositiveMs: number;
+    observeLocalSpeech: (frame: Int16Array) => void;
+  };
+  return {
+    onset() {
+      internals.localSpeechDetector = { process: () => ({ probability: 1 }) };
+      internals.observeLocalSpeech(new Int16Array(512));
+    },
+    silentFor(ms: number) {
+      internals.localSpeechDetector = { process: () => ({ probability: 0 }) };
+      internals.localSpeechLastPositiveMs = performance.now() - ms;
+      internals.observeLocalSpeech(new Int16Array(512));
+    },
+  };
+}
+
 function capturedQuestion(engine: AriaEngine): string {
   return (
     engine as unknown as {
@@ -153,7 +189,10 @@ describe("AriaEngine follow-up lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("returns to passive listening after three seconds of silence", () => {
+  it("keeps the orb on the conversation window for as long as it is open", () => {
+    // The window narrows to direct questions after four seconds, but it is
+    // still open — dropping the orb to passive listening there made the UI lie
+    // about what Kivo was doing and read as "follow-up stopped working".
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
@@ -164,11 +203,317 @@ describe("AriaEngine follow-up lifecycle", () => {
     ).startFollowUpWindow();
 
     expect(mockStore.status).toBe("follow-up-listening");
-    vi.advanceTimersByTime(2_999);
+    vi.advanceTimersByTime(4_000);
+    expect(mockStore.status).toBe("follow-up-listening");
+    vi.advanceTimersByTime(24_999);
     expect(mockStore.status).toBe("follow-up-listening");
     vi.advanceTimersByTime(1);
     expect(mockStore.status).toBe("listening");
+  });
 
+  it("holds the window open while the follow-up is still being spoken", () => {
+    // The window measures silence, not wall-clock. Letting it expire mid
+    // question is what made a spoken follow-up land on a closed window and
+    // get answered by a silent return to passive listening.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const speech = speechDriver(engine);
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    speech.onset();
+    vi.advanceTimersByTime(10_000);
+    expect(mockStore.status).toBe("follow-up-listening");
+
+    // Their final transcript arrives a beat after they stop talking — well
+    // past where the plain countdown would have shut the window.
+    emit(engine, utterance("what about the plus tier", "u9"));
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+  });
+
+  it("closes the window a transcript-grace after speech ends with no follow-up", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    const speech = speechDriver(engine);
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    speech.onset();
+    vi.advanceTimersByTime(5_000);
+    speech.silentFor(1_000);
+
+    // The hold releases into the transcript grace, and the phase runs out into
+    // the ask-only tail rather than closing outright.
+    const internals = engine as unknown as { followUpAskOnly: boolean };
+    expect(internals.followUpAskOnly).toBe(false);
+    vi.advanceTimersByTime(1_999);
+    expect(internals.followUpAskOnly).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(internals.followUpAskOnly).toBe(true);
+    expect(mockStore.status).toBe("follow-up-listening");
+  });
+
+  it("takes a directed question after the open floor has closed", () => {
+    // The open floor is measured from the end of Kivo's answer, but a person
+    // listens to a long answer before deciding what to ask. "Did it win any
+    // awards?" eight seconds later used to be met with silence.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    vi.advanceTimersByTime(4_000);
+
+    emit(engine, utterance("Did it win any awards?", "u9"));
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+    expect(capturedQuestion(engine)).toBe("Did it win any awards?");
+  });
+
+  it("hands a room statement back to the transcript once the window has narrowed", () => {
+    // The ask-only bar is applied to the assembled question at dispatch, not to
+    // the first fragment that arrives — so a statement is captured, graded, and
+    // then given back rather than answered.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "speaker",
+    });
+    hearVoices(engine, ["jack", "sam"]);
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    vi.advanceTimersByTime(4_000);
+    // Two voices in the room, so the orb tells the truth: this is no longer an
+    // open floor.
+    expect(mockStore.status).toBe("listening");
+
+    emit(engine, utterance("I'm on the free tier for Whisper Flow.", "u9"));
+    vi.advanceTimersByTime(3_000);
+
+    expect(turnAssemblerOf(engine).append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u9" })
+    );
+    // ...and the floor goes back to the room with a cue, rather than the orb
+    // sitting open implying it is still waiting on a question.
+    expect(
+      (engine as unknown as { followUpListening: boolean }).followUpListening
+    ).toBe(false);
+    expect(mockStore.status).toBe("listening");
+    expect(mockCueMethods.playRelease).toHaveBeenCalled();
+  });
+
+  it("answers a conversational reply when it is the only voice it has heard", () => {
+    // Real session, 2026-08-25: "I mean, yeah, I guess that's valid" got
+    // silence, because the late window was question-only. In a one-on-one every
+    // word said near Kivo is said to it, and going quiet reads as broken.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "speaker",
+    });
+    hearVoices(engine, ["jack"]);
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    vi.advanceTimersByTime(4_000);
+    // One voice, so the window is still an open floor and says so.
+    expect(mockStore.status).toBe("follow-up-listening");
+
+    emit(engine, utterance("I mean, yeah, I guess that's valid.", "u9"));
+    vi.advanceTimersByTime(3_000);
+
+    // Taken as a turn — not handed back to the transcript.
+    expect(turnAssemblerOf(engine).append).not.toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u9" })
+    );
+    expect(askSessionQuestion).toHaveBeenCalled();
+  });
+
+  it("still takes a long follow-up that arrives in fragments", () => {
+    // Speechmatics emits interim finals every `max_delay`, so a long question
+    // shows up in pieces that each start like filler. Judging the first piece
+    // is what made follow-ups fail exactly when you talked for a while.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    vi.advanceTimersByTime(4_000);
+    emit(
+      engine,
+      utterance("Okay so", "u9", { isFinal: true, speechFinal: false })
+    );
+    emit(
+      engine,
+      utterance("what do you reckon about the pricing?", "u10", {
+        isFinal: true,
+        speechFinal: true,
+      })
+    );
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+    expect(capturedQuestion(engine)).toBe(
+      "Okay so what do you reckon about the pricing?"
+    );
+  });
+
+  it("stops taking wake-free turns once the tail has run out", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    vi.advanceTimersByTime(4_000 + 25_000);
+    emit(engine, utterance("Did it win any awards?", "u9"));
+    vi.advanceTimersByTime(3_000);
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+    expect(turnAssemblerOf(engine).append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u9" })
+    );
+  });
+
+  it("leaves a listener's acknowledgment as transcript instead of answering it", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    emit(engine, utterance("yeah exactly", "u2"));
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+    expect(turnAssemblerOf(engine).append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u2", text: "yeah exactly" })
+    );
+  });
+
+  it("does not answer a reaction to the answer it just gave", () => {
+    // Real session, 2026-08-25: "Okay, that's pretty cool" was taken as a
+    // follow-up question, and the model — handed a reaction with nothing to
+    // answer — replied with a summary of the room's earlier IDE chat.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    emit(engine, utterance("Okay, that's pretty cool.", "u2"));
+
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+    expect(turnAssemblerOf(engine).append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u2" })
+    );
+  });
+
+  /**
+   * Reported 2026-08-25: saying "that's interesting" left the orb sitting in
+   * follow-up, silently waiting for a question that was never coming. Not
+   * answering the reaction is right; staying open about it is not.
+   */
+  it("hands the floor back with a cue when a reaction ends the exchange", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+    expect(mockStore.status).toBe("follow-up-listening");
+
+    emit(engine, utterance("That's interesting.", "u2"));
+
+    // Not answered...
+    expect(mockStore.setStatus).not.toHaveBeenCalledWith("capturing-question");
+    // ...and not left open either: back to passive listening, out loud, so the
+    // next question is known to need the wake word.
+    expect(
+      (engine as unknown as { followUpListening: boolean }).followUpListening
+    ).toBe(false);
+    expect(mockStore.status).toBe("listening");
+    expect(mockCueMethods.playRelease).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays silent when the window simply runs out", () => {
+    // Nothing was said, so there is nothing to acknowledge. Cueing here would
+    // put a chime after every single answer.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    vi.advanceTimersByTime(4_000 + 25_000 + 1_000);
+
+    expect(
+      (engine as unknown as { followUpListening: boolean }).followUpListening
+    ).toBe(false);
+    expect(mockStore.status).toBe("listening");
+    expect(mockCueMethods.playRelease).not.toHaveBeenCalled();
+  });
+
+  it("puts an abandoned follow-up capture back in the transcript", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+
+    (
+      engine as unknown as { startFollowUpWindow: () => void }
+    ).startFollowUpWindow();
+
+    emit(engine, utterance("the quarterly numbers came in this morning", "u9"));
+    // Capture deliberately withholds the words from the saved transcript
+    // because the server persists the resolved question instead.
+    expect(turnAssemblerOf(engine).append).not.toHaveBeenCalled();
+
+    // Simulate the dispatch never settling (the case the capture timeout
+    // exists for): the speech must come back rather than vanish from the
+    // record.
+    (
+      engine as unknown as { clearQuestionSettleTimer: () => void }
+    ).clearQuestionSettleTimer();
+    vi.advanceTimersByTime(6_000);
+
+    expect(mockStore.upsertUtterance).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u9" })
+    );
+    expect(turnAssemblerOf(engine).append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "u9" })
+    );
   });
 
   it("stays silent on a wake-free follow-up", () => {
@@ -327,6 +672,37 @@ describe("AriaEngine assistant command path", () => {
     expect(mockStore.upsertUtterance).not.toHaveBeenCalled();
     expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
     expect(mockCueMethods.playWake).toHaveBeenCalled();
+  });
+
+  it("interrupts on the name alone, without acoustic corroboration", () => {
+    // Volume is what the energy detector needs; "Kivo" is what a person
+    // actually uses. A quiet, single-word partial has neither the duck nor the
+    // three words the generic barge-in bar wants — the name is enough.
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "speaking";
+
+    emit(
+      engine,
+      utterance("Kivo", "p1", { isFinal: false, speechFinal: false })
+    );
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+  });
+
+  it("takes a new question by name while an answer is still generating", () => {
+    const engine = new AriaEngine({
+      sessionId: "session-1",
+      transcriptionMode: "basic",
+    });
+    mockStore.status = "thinking";
+
+    emit(engine, utterance("Kivo what about the plus tier", "u2"));
+
+    expect(mockStore.setStatus).toHaveBeenCalledWith("capturing-question");
+    expect(capturedQuestion(engine)).toBe("what about the plus tier");
   });
 
   it("allows bare stop commands in speaker mode (echo is timing-gated, not wake-gated)", () => {

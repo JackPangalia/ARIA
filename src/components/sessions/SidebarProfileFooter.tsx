@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/firebase/AuthProvider";
 import { useTheme } from "@/components/theme/ThemeProvider";
-import { isKivoDesktop } from "@/lib/desktop/bridge";
+import { getKivoDesktop, isKivoDesktop } from "@/lib/desktop/bridge";
 
 function SettingsIcon({ className }: { className?: string }) {
   return (
@@ -53,6 +53,33 @@ function useIsDesktopSidebar() {
   }, []);
 
   return isDesktop;
+}
+
+function ProfileAvatar(props: { photoURL: string | null; initial: string }) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [props.photoURL]);
+
+  const showPhoto = Boolean(props.photoURL) && !failed;
+
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color-mix(in_srgb,var(--app-indigo)_74%,var(--app-surface))] text-sm font-medium text-white">
+      {showPhoto ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={props.photoURL ?? ""}
+          alt=""
+          referrerPolicy="no-referrer"
+          className="h-full w-full rounded-xl object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        props.initial
+      )}
+    </span>
+  );
 }
 
 export function SidebarProfileFooter(props: {
@@ -196,9 +223,32 @@ export function SidebarProfileFooter(props: {
   return (
     <div
       ref={rootRef}
-      className="relative shrink-0 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      className="kivo-profile-footer relative shrink-0 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
       {accountMenu}
+
+      <a
+        href="/guide"
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(event) => {
+          const desktop = getKivoDesktop();
+          if (desktop) {
+            event.preventDefault();
+            desktop.openExternal(new URL("/guide", window.location.origin).href);
+          }
+        }}
+        className={`kivo-education-help ${props.collapsed ? "is-collapsed" : ""}`}
+        aria-label="How to use Kivo (opens in a new tab)"
+        title={props.collapsed ? "How to use Kivo" : undefined}
+      >
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+          <circle cx="10" cy="10" r="7.25" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M8 7.5a2 2 0 0 1 4 .25c0 1.4-2 1.5-2 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          <circle cx="10" cy="13.5" r=".75" fill="currentColor" />
+        </svg>
+        {!props.collapsed ? <span>How to use Kivo</span> : null}
+      </a>
 
       <button
         type="button"
@@ -228,22 +278,12 @@ export function SidebarProfileFooter(props: {
           props.onOpenSettings();
         }}
         aria-expanded={isDesktop ? open : undefined}
-        className={`flex w-full items-center rounded-xl py-2 text-left transition-colors hover:bg-surface-hover active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
+        aria-label={isDesktop ? `Account: ${displayName}` : `Settings for ${displayName}`}
+        className={`flex w-full flex-nowrap items-center overflow-hidden rounded-xl py-2 text-left transition-colors hover:bg-surface-hover active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
           props.collapsed ? "justify-center px-0" : "gap-3 px-2"
         }`}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--app-indigo)_74%,var(--app-surface))] text-sm font-medium text-white">
-          {user.photoURL ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={user.photoURL}
-              alt=""
-              className="h-full w-full rounded-full object-cover"
-            />
-          ) : (
-            initial
-          )}
-        </span>
+        <ProfileAvatar photoURL={user.photoURL ?? null} initial={initial} />
         <span className={`min-w-0 flex-1 ${props.collapsed ? "hidden" : "block"}`}>
           <span className="block truncate text-sm font-normal text-app">{displayName}</span>
           {email ? (
@@ -252,6 +292,7 @@ export function SidebarProfileFooter(props: {
             </span>
           ) : null}
         </span>
+        {!props.collapsed && !isDesktop ? <SettingsIcon className="shrink-0 text-app-muted" /> : null}
       </button>
     </div>
   );

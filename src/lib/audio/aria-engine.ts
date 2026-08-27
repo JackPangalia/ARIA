@@ -60,6 +60,7 @@ import {
   detectTrailingStop,
   extractQuestionAfterWakeInPerson,
   isSubstantiveQuestion,
+  CONVERSATION_TAIL_MS,
   CONVERSATION_WINDOW_MS,
   QUESTION_SETTLE_MS,
 } from "@/lib/aria/conversation/wake";
@@ -85,6 +86,20 @@ const SPEAKER_SNAPSHOT_INTERVAL_MS = 30_000;
 // meaningful transcript text arrives; normal semantic endpointing resolves
 // much sooner.
 const FOLLOW_UP_CAPTURE_TIMEOUT_MS = 6_000;
+// Once speech that started inside the follow-up window ends, keep the window
+// open this much longer. Speechmatics finals lag the audio they describe by up
+// to `max_delay` plus the end-of-utterance trigger, so the transcript that
+// decides "was that a follow-up?" arrives about a second after the last word —
+// closing on the local VAD's speech-end would drop it on a shut window.
+const FOLLOW_UP_SPEECH_GRACE_MS = 2_000;
+// Absolute cap on a held window, so a room the VAD never hears go quiet (a fan,
+// a nearby conversation) can't strand Kivo on the "Follow-up" caption forever.
+const FOLLOW_UP_MAX_HOLD_MS = 12_000;
+// Cumulative speech a diarization label needs before it counts as a distinct
+// person. Guards the one-on-one test below against a spurious cluster — a
+// cough, a laugh, a half-second of crosstalk split off the main speaker —
+// quietly turning a conversation into a "room".
+const DISTINCT_SPEAKER_MIN_MS = 4_000;
 // Barge-in ducking: how far to drop the answer volume the moment we suspect
 // the user is talking over Kivo, and how fast to ramp there / back.
 const DUCK_GAIN = 0.15;
@@ -189,7 +204,23 @@ export class AriaEngine {
   private followUpStartTimer: ReturnType<typeof setTimeout> | null = null;
   private followUpListening = false;
   private followUpCaptureTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Someone started speaking inside the follow-up window — the countdown is
+   * paused until they stop, so a question is never cut off by the clock. */
+  private followUpHeldBySpeech = false;
+  /** The open floor has closed and the window is in its ask-only tail: still
+   * listening for a wake-free turn, but only for a directed question. */
+  private followUpAskOnly = false;
+  /** When the current follow-up phase is due to end, so a speech hold can give
+   * the phase its remaining time back instead of restarting or truncating it. */
+  private followUpPhaseDeadlineMs = 0;
+  /** What the live capture inherited from the window it was latched in: whether
+   * the ask-only bar applies when the assembled question is dispatched. */
+  private followUpCaptureContext: { askOnly: boolean } | null = null;
   private capturingFollowUp = false;
+  /** Untouched copies of the utterances pulled into a wake-free follow-up
+   * capture, so an abandoned capture can put them back in the transcript
+   * instead of deleting real speech. */
+  private capturedRawUtterances: TranscriptUtterance[] = [];
   private captureWholeAnchorUtterance = false;
   private activeFetchAbort: AbortController | null = null;
   /**
@@ -254,6 +285,12 @@ export class AriaEngine {
   // permanently if it can't. Swapped in on start(); reset()/process() are
   // interface-compatible with the plain RMS detector.
   private localSpeechDetector: LocalSpeechDetector = new SpeechActivityDetector();
+  /** The same detector as above, but only once its model is live — the handle
+   * the barge-in gate needs to know a neural probability is worth trusting. */
+  private neuralVad: SileroVadDetector | null = null;
+  /** Last probability `observeLocalSpeech` computed, reused by the barge-in
+   * gate so one frame is never run through the model twice. */
+  private lastLocalSpeechProbability = 0;
   private localSpeechActive = false;
   private localSpeechLastPositiveMs = 0;
   private enrolledProfiles: SpeakerProfileDoc[] = [];
@@ -273,6 +310,12 @@ export class AriaEngine {
   // reinforced sets are session-scoped, because a label the user rejected once
   // should stay untrusted even after a restart re-seeds the clusters.
   private attributedSpeechMsByLabel = new Map<string, number>();
+  /** Cumulative speech per diarization label across the whole session, used
+   * only to answer "is this a one-on-one or a room?". Deliberately separate
+   * from `attributedSpeechMsByLabel`, which serves enrolled-profile
+   * reinforcement, counts only named speakers, and resets with the STT stream —
+   * room composition does not change because a socket blipped. */
+  private sessionSpeechMsByLabel = new Map<string, number>();
   private correctedSpeakerLabels = new Set<string>();
   private reinforcedProfileIds = new Set<string>();
   private lastSpeakerSnapshotRequestAt = new Map<number, number>();
@@ -332,6 +375,7 @@ export class AriaEngine {
       // fallback until the model is ready (or permanently if it never loads).
       const silero = new SileroVadDetector();
       this.localSpeechDetector = silero;
+      this.neuralVad = silero;
       void silero.init();
       const profileCount = await this.connectStt();
       this.mic = new MicPcmStreamer({
@@ -344,8 +388,11 @@ export class AriaEngine {
         useAriaStore.getState().setMicLevel(visualLevel);
         this.observeLocalSpeech(frame);
         // Watch for the user talking over Kivo. The detector only reacts while
-        // it's been started (during playback); it's a no-op otherwise.
-        this.bargeIn.process(frame);
+        // it's been started (during playback); it's a no-op otherwise. It gets
+        // the neural probability from the frame `observeLocalSpeech` just ran,
+        // so a loud non-voice noise — a dropped coaster, a door — can't pass
+        // for an interruption on volume alone.
+        this.bargeIn.process(frame, this.neuralSpeechProbability());
         // The mic is never gated off. It used to go deaf for 300ms after
         // playback ended, which deleted the first word of an immediate
         // follow-up outright — the audio was dropped, not delayed, so nothing
@@ -427,6 +474,7 @@ export class AriaEngine {
     this.currentTurnTelemetry?.finish("aborted", { reason: "session_stop" });
     this.currentTurnTelemetry = null;
     this.localSpeechDetector.reset();
+    this.lastLocalSpeechProbability = 0;
     this.localSpeechActive = false;
     this.turnController.invalidate("idle");
     if (activeAriaEngine === this) {
@@ -507,14 +555,35 @@ export class AriaEngine {
     }
   }
 
+  /**
+   * The neural speech probability for the frame just observed, or undefined
+   * while the model is still loading (or if it failed) — in which case the
+   * barge-in gate falls back to energy alone rather than gating on the RMS
+   * fallback's probability, which is the same signal it already computes.
+   */
+  private neuralSpeechProbability(): number | undefined {
+    return this.neuralVad?.isReady
+      ? this.lastLocalSpeechProbability
+      : undefined;
+  }
+
   private observeLocalSpeech(frame: Int16Array): void {
     const activity = this.localSpeechDetector.process(frame);
+    this.lastLocalSpeechProbability = activity.probability;
     const now = performance.now();
     if (activity.probability >= 0.42) {
       this.localSpeechLastPositiveMs = now;
       this.speculationProbed = false;
       if (!this.localSpeechActive) {
         this.localSpeechActive = true;
+        // Somebody started talking inside the follow-up window. Freeze it: the
+        // transcript that decides whether this is a follow-up lands up to a
+        // second after the words, and letting the clock run through the
+        // question is what left a perfectly good follow-up arriving at a
+        // closed window — answered by a return to passive listening.
+        if (this.followUpListening && !this.capturingQuestion) {
+          this.holdFollowUpWindow();
+        }
         if (this.capturingQuestion) {
           this.currentTurnTelemetry?.mark("speech_onset", {
             probability: activity.probability,
@@ -566,6 +635,9 @@ export class AriaEngine {
     // ForceEndOfUtterance landed mid-word.
     if (silentMs >= SPEECH_END_COMMIT_MS) {
       this.localSpeechActive = false;
+      if (this.followUpHeldBySpeech) {
+        this.releaseFollowUpWindowHold();
+      }
       if (this.capturingQuestion) {
         this.currentTurnTelemetry?.mark("speech_end", {
           probability: activity.probability,
@@ -625,6 +697,10 @@ export class AriaEngine {
     if (!question || !isSubstantiveQuestion(question)) return;
     const completeness = assessQuestionCompleteness(question);
     if (!shouldSpeculateAsk(completeness, this.capturingFollowUp)) return;
+    // A late follow-up that will fail the ask bar at dispatch must not pre-warm
+    // an answer nobody will ever hear — that is a full LLM turn per stray
+    // sentence.
+    if (!this.resolvedFollowUpPassesAskBar(question)) return;
 
     const spec = this.speculativeAsk;
     if (spec) {
@@ -778,6 +854,7 @@ export class AriaEngine {
     }
 
     useAriaStore.getState().upsertUtterance(u);
+    if (u.isFinal && u.speechFinal) this.creditSessionSpeech(u);
     if (u.isFinal) {
       const speakerLabel = u.speakerName ?? `Speaker ${u.speaker + 1}`;
       devLog(
@@ -792,8 +869,7 @@ export class AriaEngine {
     // question as its own turn, and persisting the raw utterance too would
     // duplicate it in the transcript.
     const willEnterCapture =
-      wake.detected ||
-      (utteranceStable && this.followUpListening && u.text.trim().length > 0);
+      wake.detected || (utteranceStable && this.acceptsAsFollowUp(u));
     const isQuestionCaptureUtterance = this.capturingQuestion || willEnterCapture;
 
     if (u.isFinal && u.speechFinal && !isQuestionCaptureUtterance) {
@@ -814,17 +890,15 @@ export class AriaEngine {
           u.speakerName ?? null,
           u.providerSpeakerLabel ?? null
         );
-      } else if (
-        utteranceStable &&
-        this.followUpListening &&
-        u.text.trim().length > 0
-      ) {
+      } else if (utteranceStable && this.acceptsAsFollowUp(u)) {
         this.handleFollowUp(
           u.id,
           u.speaker,
           u.speakerName ?? null,
           u.providerSpeakerLabel ?? null
         );
+      } else if (this.isFollowUpReaction(u)) {
+        this.handFloorBackToListening("reaction, not a question");
       }
     }
 
@@ -832,6 +906,7 @@ export class AriaEngine {
 
     if (this.capturingFollowUp && u.text.trim()) {
       this.scheduleFollowUpCaptureTimeout();
+      if (utteranceStable) this.rememberRawCaptureUtterance(u);
     }
 
     // Track the freshest partial for the semantic fast path; a stable
@@ -872,6 +947,171 @@ export class AriaEngine {
         );
       }
     }
+  }
+
+  /**
+   * True when this utterance should be taken as a wake-free follow-up. The
+   * window means "the next thing said is meant for Kivo" — but a listener's
+   * "yeah", "makes sense" or "okay" is not an ask. Answering one wastes a turn
+   * and, because capture keeps its text out of the transcript, deletes the
+   * line as well. Those stay ordinary speech.
+   */
+  private creditSessionSpeech(u: TranscriptUtterance): void {
+    const label = u.providerSpeakerLabel;
+    if (!label || u.overlapsAssistantSpeech) return;
+    const durationMs = Math.max(0, (u.end - u.start) * 1000);
+    if (durationMs === 0) return;
+    this.sessionSpeechMsByLabel.set(
+      label,
+      (this.sessionSpeechMsByLabel.get(label) ?? 0) + durationMs
+    );
+  }
+
+  /**
+   * True while Kivo has only ever heard one voice — a one-on-one, where
+   * everything said near it is said *to* it, and going quiet on "yeah, I guess
+   * that's valid" reads as the thing being broken. In a room (two or more
+   * voices with real speech behind them) the late window stays question-only,
+   * so Kivo doesn't interject into a conversation that isn't with it.
+   *
+   * Basic transcription has no labels at all, so it counts as one-on-one: the
+   * user opted out of telling people apart, and answering is the friendlier
+   * side of that trade.
+   */
+  private isOneOnOneSession(): boolean {
+    let distinct = 0;
+    for (const ms of this.sessionSpeechMsByLabel.values()) {
+      if (ms >= DISTINCT_SPEAKER_MIN_MS) distinct += 1;
+    }
+    return distinct <= 1;
+  }
+
+  /** Whether the window is currently taking *anything* said, as opposed to
+   * questions only. Drives the orb: the "Follow-up" caption must mean what it says. */
+  private followUpWindowIsOpenFloor(): boolean {
+    return !this.followUpAskOnly || this.isOneOnOneSession();
+  }
+
+  private acceptsAsFollowUp(u: TranscriptUtterance): boolean {
+    if (!this.followUpListening) return false;
+    const text = u.text.trim();
+    if (text.length === 0) return false;
+    // Only a *complete* utterance can be judged a reaction. Speechmatics emits
+    // interim finals roughly every `max_delay`, so a long question arrives in
+    // pieces — and the first piece is usually how people start talking: "okay
+    // so", "I mean", "so I don't know". Grading those as reactions is what made
+    // follow-ups fail exactly when you spoke for a while.
+    if (u.speechFinal && isBackchannelOnly(text)) return false;
+    return true;
+  }
+
+  /**
+   * The ask-only bar for a late (tail) follow-up, applied to the *assembled*
+   * question at dispatch rather than to the first fragment that arrived. A long
+   * question splits across several finals and no single one of them reads as a
+   * complete ask, so judging any one of them decides the wrong thing.
+   */
+  private resolvedFollowUpPassesAskBar(question: string): boolean {
+    if (!this.followUpCaptureContext?.askOnly) return true;
+    if (this.isOneOnOneSession()) return true;
+    const completeness = assessQuestionCompleteness(question);
+    return completeness === "clear-ask" || completeness === "likely-ask";
+  }
+
+  private acceptsResolvedFollowUp(question: string): boolean {
+    const accepted = this.resolvedFollowUpPassesAskBar(question);
+    if (!accepted) {
+      devLog(
+        "wake",
+        `Not a late follow-up — reads ${assessQuestionCompleteness(
+          question
+        )}, left as transcript.`
+      );
+    }
+    return accepted;
+  }
+
+  private rememberRawCaptureUtterance(u: TranscriptUtterance) {
+    const idx = this.capturedRawUtterances.findIndex((x) => x.id === u.id);
+    if (idx === -1) {
+      this.capturedRawUtterances.push({ ...u });
+      return;
+    }
+    this.capturedRawUtterances[idx] = { ...u };
+  }
+
+  /**
+   * Put an abandoned follow-up capture back in the transcript. Capture
+   * deliberately withholds its utterances (the server persists the resolved
+   * question as the turn instead), but a capture that never resolves would
+   * otherwise erase real speech outright — which is how room conversation
+   * right after an answer went missing from the record.
+   */
+  /**
+   * Tear down a capture that turned out not to be a question: the speech goes
+   * back to the transcript and the floor goes back to the room.
+   *
+   * This used to reopen the window for whatever seconds were left, on the
+   * theory that a stray sentence shouldn't eat the time in which the real
+   * question was coming. In use that reads as broken — you say "that's
+   * interesting", nothing happens, and the orb sits there implying it is still
+   * waiting on a question you were never going to ask. Closing out loud is the
+   * honest end of the exchange.
+   */
+  private abandonFollowUpCapture(reason: string) {
+    this.clearCaptureFromLive();
+    this.restoreAbandonedFollowUpCapture();
+    this.resetQuestionCapture();
+    this.turnController.transition("listening");
+    this.handFloorBackToListening(reason);
+  }
+
+  /**
+   * Close the conversation window, return to passive listening, and say so with
+   * a cue: the next question needs the wake word again.
+   *
+   * Every caller here is the same situation: Kivo *heard* something and chose
+   * not to answer it. Nothing visible happens on that path, so without a sound
+   * it is indistinguishable from a failure. The window's own silent expiry does
+   * not come through here — nothing was said, so there is nothing to
+   * acknowledge, and a chime after every answer would be exactly the gadget
+   * noise the cue design avoids.
+   */
+  private handFloorBackToListening(reason: string) {
+    this.stopFollowUpWindow();
+    useAriaStore.getState().setStatus("listening");
+    this.cues.playRelease();
+    devLog("wake", `Conversation window closed — ${reason}.`);
+  }
+
+  /**
+   * A complete utterance inside the window that reads as a reaction to the
+   * answer rather than a turn for Kivo: "that's interesting", "yeah, fair".
+   * It belongs in the transcript and nowhere else — and it ends the exchange,
+   * because someone who just responded to an answer is done with it.
+   */
+  private isFollowUpReaction(u: TranscriptUtterance): boolean {
+    if (!this.followUpListening || this.capturingQuestion) return false;
+    if (!u.isFinal || !u.speechFinal) return false;
+    if (u.overlapsAssistantSpeech) return false;
+    const text = u.text.trim();
+    if (text.length === 0) return false;
+    return isBackchannelOnly(text);
+  }
+
+  private restoreAbandonedFollowUpCapture() {
+    const raw = this.capturedRawUtterances;
+    this.capturedRawUtterances = [];
+    if (raw.length === 0) return;
+    const store = useAriaStore.getState();
+    for (const u of raw) {
+      store.upsertUtterance(u);
+      void this.bufferSpeakerTurn(u);
+    }
+    devLog(
+      "wake",
+      `Follow-up abandoned — restored ${raw.length} utterance(s) to the transcript.`
+    );
   }
 
   private shouldUseAssistantCommandPath(status: AriaStatus): boolean {
@@ -949,6 +1189,16 @@ export class AriaEngine {
         u.speakerName ?? null,
         u.providerSpeakerLabel ?? null
       );
+      return;
+    }
+
+    // Saying the name is content-level proof this is aimed at Kivo, so it
+    // takes the floor on its own — no acoustic corroboration, no word-count
+    // bar, and it works while Kivo is thinking as well as speaking. Volume is
+    // what the energy detector needs; "Kivo" is what a person actually uses,
+    // and they shouldn't have to shout it over the answer.
+    if (wakeDetected) {
+      this.handleTranscriptBargeIn(u, true, utteranceStable);
       return;
     }
 
@@ -1190,6 +1440,10 @@ export class AriaEngine {
     this.stopFollowUpWindow();
     this.clearQuestionSettleTimer();
     this.questionUtterances = [];
+    // A superseded capture's words are already dropped from the live
+    // transcript above; forget them here too, or a later abandonment would
+    // restore the wrong turn's speech.
+    this.capturedRawUtterances = [];
     this.inlineQuestion = "";
     this.capturePrefix = "";
     this.capturePrefixSourceIds = [];
@@ -1672,9 +1926,16 @@ export class AriaEngine {
       this.currentTurnTelemetry.mark("speech_onset", { backfilled: true });
     }
     this.clearCaptureFromLive();
+    this.followUpCaptureContext = this.followUpListening
+      ? { askOnly: this.followUpAskOnly }
+      : null;
     this.stopFollowUpWindow();
     this.clearQuestionSettleTimer();
     this.questionUtterances = [];
+    // A superseded capture's words are already dropped from the live
+    // transcript above; forget them here too, or a later abandonment would
+    // restore the wrong turn's speech.
+    this.capturedRawUtterances = [];
     this.inlineQuestion = "";
     this.capturePrefix = "";
     this.capturePrefixSourceIds = [];
@@ -1856,9 +2117,11 @@ export class AriaEngine {
       return;
     }
     if (!isSubstantiveQuestion(question)) {
-      this.clearCaptureFromLive();
-      this.resetQuestionCapture();
-      useAriaStore.getState().setStatus("listening");
+      this.abandonFollowUpCapture("nothing substantive to answer");
+      return;
+    }
+    if (!this.acceptsResolvedFollowUp(question)) {
+      this.abandonFollowUpCapture("late follow-up is not a question");
       return;
     }
     const captured = this.getCapturedQuestion();
@@ -1939,6 +2202,8 @@ export class AriaEngine {
     this.releaseEchoCancellation();
     this.capturingQuestion = false;
     this.capturingFollowUp = false;
+    this.followUpCaptureContext = null;
+    this.capturedRawUtterances = [];
     this.questionUtterances = [];
     this.capturePartial = "";
     this.endpointForced = false;
@@ -2621,22 +2886,92 @@ export class AriaEngine {
   private startFollowUpWindow() {
     this.stopFollowUpWindow();
     this.followUpListening = true;
+    this.followUpAskOnly = false;
     useAriaStore.getState().setStatus("follow-up-listening");
     // Conversation mode: after an answer the session stays open — anything
     // said in this window is the next turn, no wake word, like a hands-free
     // Claude voice conversation. Renewed after every answer; ended by a
-    // stop/close command or by this much silence.
-    this.followUpTimer = setTimeout(() => {
-      this.followUpListening = false;
-      this.followUpTimer = null;
-      // Only revert if nothing else has taken over (wake/think/speak all
-      // explicitly set their own status, so we just no-op in those cases).
-      if (useAriaStore.getState().status === "follow-up-listening") {
-        useAriaStore.getState().setStatus("listening");
-      }
-      devLog("wake", "Conversation window closed.");
-    }, CONVERSATION_WINDOW_MS);
+    // stop/close command or by this much silence. The countdown only measures
+    // silence: once someone starts speaking it is held (see
+    // `holdFollowUpWindow`), so it can expire before a question but never
+    // during one.
+    this.armFollowUpTimer(CONVERSATION_WINDOW_MS);
+    // The window can open while someone is already mid-sentence — an immediate
+    // follow-up started before Kivo finished, or the echo tail of the answer
+    // itself. There is no onset left to wait for, so hold it now; the next
+    // speech-end releases it either way.
+    if (this.localSpeechActive) this.holdFollowUpWindow();
     devLog("wake", "Conversation window open.");
+  }
+
+  private armFollowUpTimer(
+    delayMs: number,
+    options: { keepDeadline?: boolean } = {}
+  ) {
+    if (this.followUpTimer) clearTimeout(this.followUpTimer);
+    if (!options.keepDeadline) {
+      this.followUpPhaseDeadlineMs = Date.now() + delayMs;
+    }
+    this.followUpTimer = setTimeout(() => this.endFollowUpPhase(), delayMs);
+  }
+
+  /** Only revert the status if nothing else has taken over — wake/think/speak
+   * all set their own, so we no-op in those cases. */
+  private returnOrbToPassiveListening() {
+    if (useAriaStore.getState().status !== "follow-up-listening") return;
+    useAriaStore.getState().setStatus("listening");
+  }
+
+  private endFollowUpPhase() {
+    this.followUpTimer = null;
+    this.followUpHeldBySpeech = false;
+
+    if (!this.followUpAskOnly) {
+      // The open floor is over, but the conversation isn't. Drop the orb back
+      // to passive listening and keep taking a wake-free turn for a while
+      // longer — from a directed question only. A person listens to a long
+      // answer before deciding what to ask, and cutting them off here is what
+      // met an ordinary follow-up with silence.
+      this.followUpAskOnly = true;
+      this.armFollowUpTimer(CONVERSATION_TAIL_MS);
+      // The "Follow-up" caption has to mean what it says. In a one-on-one the
+      // tail is still an open floor, so the orb stays; in a room it narrows to
+      // questions only, which is close enough to passive listening that
+      // claiming otherwise misleads.
+      if (!this.followUpWindowIsOpenFloor()) {
+        this.returnOrbToPassiveListening();
+        devLog("wake", "Conversation window narrowed to direct questions.");
+        return;
+      }
+      devLog("wake", "Conversation window still open — one-on-one.");
+      return;
+    }
+
+    this.followUpListening = false;
+    this.followUpAskOnly = false;
+    this.returnOrbToPassiveListening();
+    devLog("wake", "Conversation window closed.");
+  }
+
+  /** Pause the follow-up countdown while somebody is mid-utterance. */
+  private holdFollowUpWindow() {
+    if (this.followUpHeldBySpeech) return;
+    this.followUpHeldBySpeech = true;
+    // The phase keeps its own deadline: a hold pauses the countdown, it does
+    // not hand the phase a fresh twelve seconds.
+    this.armFollowUpTimer(FOLLOW_UP_MAX_HOLD_MS, { keepDeadline: true });
+    devLog("wake", "Speech in the conversation window — holding it open.");
+  }
+
+  /** Speech ended without the transcript arriving yet: keep the window open
+   * long enough for the trailing final, then let it close normally. */
+  private releaseFollowUpWindowHold() {
+    this.followUpHeldBySpeech = false;
+    if (!this.followUpListening || this.capturingQuestion) return;
+    // Give the phase back whatever it had left, but never less than the time
+    // the trailing final transcript needs to arrive.
+    const remainingMs = this.followUpPhaseDeadlineMs - Date.now();
+    this.armFollowUpTimer(Math.max(FOLLOW_UP_SPEECH_GRACE_MS, remainingMs));
   }
 
   private clearFollowUpStartTimer() {
@@ -2648,6 +2983,8 @@ export class AriaEngine {
   private stopFollowUpWindow() {
     this.clearFollowUpStartTimer();
     this.followUpListening = false;
+    this.followUpHeldBySpeech = false;
+    this.followUpAskOnly = false;
     if (!this.followUpTimer) return;
     clearTimeout(this.followUpTimer);
     this.followUpTimer = null;
@@ -2663,11 +3000,7 @@ export class AriaEngine {
         reason: "follow_up_capture_timeout",
       });
       this.currentTurnTelemetry = null;
-      this.clearCaptureFromLive();
-      this.resetQuestionCapture();
-      this.turnController.transition("listening");
-      useAriaStore.getState().setStatus("listening");
-      devLog("wake", "Follow-up capture timed out — returning to listening.");
+      this.abandonFollowUpCapture("capture timed out");
     }, FOLLOW_UP_CAPTURE_TIMEOUT_MS);
   }
 
@@ -2767,6 +3100,17 @@ export class AriaEngine {
 
     const text = u.text.trim();
     if (!text) return;
+    // A turn that is nothing but a reaction ("Oh.", "Yeah.") or one of the
+    // stock phrases STT hallucinates over room noise ("Thank you.") is not
+    // speech worth a transcript line — and, given each one seeds its own
+    // diarization cluster, it invents a phantom speaker on the way in. Mark it
+    // consumed so it can't come back, and drop it.
+    if (isBackchannelOnly(text)) {
+      for (const id of turn.sourceUtteranceIds) {
+        this.persistedUtteranceIds.add(id);
+      }
+      return;
+    }
 
     for (const id of turn.sourceUtteranceIds) {
       this.persistedUtteranceIds.add(id);

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SessionDoc } from "@/lib/sessions/types";
 import "./kivo-palette.css";
+import { prefetchSessionDetail } from "@/lib/sessions/detail-cache";
+import { useModalFocus } from "@/components/ui/use-modal-focus";
 
 function SearchIcon({ className }: { className?: string }) {
   return (
@@ -138,6 +140,8 @@ function SessionSearchPanel(props: {
   onClose: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const onSelectRef = useRef(props.onSelect);
   const onCloseRef = useRef(props.onClose);
   const onRenameRef = useRef(props.onRename);
@@ -146,11 +150,15 @@ function SessionSearchPanel(props: {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [actionsId, setActionsId] = useState<string | null>(null);
+  useModalFocus(panelRef, true, { initialFocus: inputRef });
 
-  onSelectRef.current = props.onSelect;
-  onCloseRef.current = props.onClose;
-  onRenameRef.current = props.onRename;
-  onArchiveRef.current = props.onArchive;
+  useEffect(() => {
+    onSelectRef.current = props.onSelect;
+    onCloseRef.current = props.onClose;
+    onRenameRef.current = props.onRename;
+    onArchiveRef.current = props.onArchive;
+  }, [props.onSelect, props.onClose, props.onRename, props.onArchive]);
 
   const groups = useMemo(
     () => groupSessionsByPeriod(props.sessions),
@@ -163,10 +171,6 @@ function SessionSearchPanel(props: {
   );
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
     setFocusedIndex(0);
   }, [props.query, flatSessions.length]);
 
@@ -176,6 +180,7 @@ function SessionSearchPanel(props: {
   }, []);
 
   const startRename = useCallback((session: SessionDoc) => {
+    setActionsId(null);
     setRenamingId(session.id);
     setRenameDraft(session.title);
   }, []);
@@ -196,6 +201,14 @@ function SessionSearchPanel(props: {
   const focusedSession = flatSessions[focusedIndex] ?? null;
 
   useEffect(() => {
+    const focusRow = (index: number) => {
+      const session = flatSessions[index];
+      if (!session) return;
+      setFocusedIndex(index);
+      const button = rowRefs.current.get(session.id);
+      button?.focus({ preventScroll: true });
+      button?.scrollIntoView({ block: "nearest" });
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (renamingId) {
         if (event.key === "Enter") {
@@ -211,18 +224,22 @@ function SessionSearchPanel(props: {
 
       if (event.key === "Escape") {
         event.preventDefault();
-        onCloseRef.current();
+        if (actionsId) setActionsId(null);
+        else onCloseRef.current();
         return;
       }
 
       if (document.activeElement === inputRef.current) {
         if (event.key === "ArrowDown" && flatSessions.length > 0) {
           event.preventDefault();
-          inputRef.current?.blur();
-          setFocusedIndex(0);
+          focusRow(0);
         }
         return;
       }
+
+      // Other buttons (Done, row options, New conversation) keep their native
+      // Enter/Space behavior. Arrow navigation belongs to the result buttons.
+      if (!document.activeElement?.matches(".kivo-palette-row-main")) return;
 
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "e") {
         event.preventDefault();
@@ -240,42 +257,45 @@ function SessionSearchPanel(props: {
 
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setFocusedIndex((i) => Math.min(i + 1, Math.max(flatSessions.length - 1, 0)));
+        focusRow(Math.min(focusedIndex + 1, flatSessions.length - 1));
         return;
       }
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setFocusedIndex((i) => Math.max(i - 1, 0));
+        if (focusedIndex === 0) inputRef.current?.focus();
+        else focusRow(focusedIndex - 1);
         return;
       }
 
-      if (event.key === "Enter" && focusedSession) {
-        event.preventDefault();
-        openSession(focusedSession.id);
-      }
     };
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [
     commitRename,
-    flatSessions.length,
+    flatSessions,
+    focusedIndex,
     focusedSession,
-    openSession,
     renamingId,
     startRename,
+    actionsId,
   ]);
 
   let rowIndex = -1;
 
   return (
     <div
+      ref={panelRef}
       role="dialog"
       aria-modal="true"
       aria-label="Search conversations"
       className="kivo-settings-modal-in kivo-palette-modal relative z-10 flex min-h-0 w-full max-w-[38rem] flex-col overflow-hidden rounded-t-[1.5rem] border border-app-subtle bg-menu shadow-menu ring-1 ring-menu sm:rounded-[1.75rem]"
     >
+      <div className="kivo-palette-heading">
+        <h2>Search</h2>
+        <button type="button" onClick={props.onClose} className="kivo-palette-close" aria-label="Close search">Done</button>
+      </div>
       <div className="kivo-palette-search">
         <SearchIcon className="kivo-palette-search-icon" />
         <input
@@ -290,7 +310,7 @@ function SessionSearchPanel(props: {
 
       <div className="kivo-palette-body">
         <div className="kivo-palette-section">
-          <p className="kivo-palette-section-label">Actions</p>
+          <p className="kivo-palette-section-label kivo-palette-actions-label">Actions</p>
           <button
             type="button"
             className="kivo-palette-action"
@@ -329,7 +349,10 @@ function SessionSearchPanel(props: {
                         className="kivo-palette-row"
                         data-focused={focused || undefined}
                         data-selected={selected || undefined}
-                        onMouseEnter={() => setHoverId(session.id)}
+                        onMouseEnter={() => {
+                          setHoverId(session.id);
+                          prefetchSessionDetail(session.id);
+                        }}
                         onMouseLeave={() =>
                           setHoverId((id) => (id === session.id ? null : id))
                         }
@@ -343,24 +366,31 @@ function SessionSearchPanel(props: {
                             onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault();
+                                event.stopPropagation();
                                 commitRename(session.id);
                               }
                               if (event.key === "Escape") {
                                 event.preventDefault();
+                                event.stopPropagation();
                                 setRenamingId(null);
                               }
                             }}
                             className="kivo-palette-rename-input"
+                            aria-label={`Rename ${session.title}`}
                             onClick={(event) => event.stopPropagation()}
                           />
                         ) : (
                           <button
+                            ref={(button) => {
+                              if (button) rowRefs.current.set(session.id, button);
+                              else rowRefs.current.delete(session.id);
+                            }}
                             type="button"
                             className="kivo-palette-row-main"
+                            onFocus={() => setFocusedIndex(index)}
                             onClick={() => openSession(session.id)}
-                            onMouseEnter={() => setFocusedIndex(index)}
                           >
-                            <span className="truncate">{session.title}</span>
+                            <span className="kivo-palette-row-title truncate">{session.title}</span>
                             <span className="kivo-palette-row-date">
                               {formatSessionDate(session.updatedAt)}
                             </span>
@@ -368,8 +398,22 @@ function SessionSearchPanel(props: {
                         )}
 
                         {!renaming ? (
+                          <button
+                            type="button"
+                            className="kivo-palette-more"
+                            aria-label={`Options for ${session.title}`}
+                            aria-expanded={actionsId === session.id}
+                            aria-controls={`search-actions-${session.id}`}
+                            onClick={() => setActionsId(actionsId === session.id ? null : session.id)}
+                          >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg>
+                          </button>
+                        ) : null}
+                        {!renaming ? (
                           <div
+                            id={`search-actions-${session.id}`}
                             className="kivo-palette-row-actions"
+                            data-expanded={actionsId === session.id || undefined}
                             data-visible={hovered || undefined}
                           >
                             <button
@@ -382,6 +426,7 @@ function SessionSearchPanel(props: {
                               }}
                             >
                               <PencilIcon />
+                              <span className="kivo-palette-action-label">Rename</span>
                             </button>
                             {session.status !== "archived" ? (
                               <button
@@ -394,6 +439,7 @@ function SessionSearchPanel(props: {
                                 }}
                               >
                                 <ArchiveIcon />
+                                <span className="kivo-palette-action-label">Archive</span>
                               </button>
                             ) : null}
                           </div>
@@ -424,6 +470,7 @@ export function SessionSearchModal(props: {
   onClose: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -436,19 +483,33 @@ export function SessionSearchModal(props: {
 
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const viewport = window.visualViewport;
+    const resize = () => {
+      overlayRef.current?.style.setProperty("--search-height", `${viewport?.height ?? window.innerHeight}px`);
+      overlayRef.current?.style.setProperty("--search-top", `${viewport?.offsetTop ?? 0}px`);
+    };
+    resize();
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
+    window.addEventListener("resize", resize);
 
     return () => {
       document.body.style.overflow = prev;
+      viewport?.removeEventListener("resize", resize);
+      viewport?.removeEventListener("scroll", resize);
+      window.removeEventListener("resize", resize);
     };
   }, [mounted, props.open]);
 
   if (!props.open || !mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[200] isolate flex items-end justify-center p-0 sm:items-center sm:p-6">
+    <div ref={overlayRef} className="kivo-search-overlay fixed inset-0 z-[200] isolate flex items-end justify-center p-0 sm:items-center sm:p-6">
       <button
         type="button"
         aria-label="Close search"
+        tabIndex={-1}
+        aria-hidden="true"
         className="kivo-overlay-in absolute inset-0 bg-overlay backdrop-blur-sm"
         onClick={props.onClose}
       />

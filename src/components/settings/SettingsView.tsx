@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { EducationSettings } from "@/components/education/EducationSettings";
 import { useAuth } from "@/components/firebase/AuthProvider";
 import { SpeakerProfilesManager } from "@/components/firebase/SpeakerProfilesManager";
 import { ConnectorsManager } from "@/components/firebase/ConnectorsManager";
@@ -713,6 +714,10 @@ function AccountPanel(props: {
             </GrokSettingsButton>
           }
         />
+      </SettingsGroup>
+
+      <SettingsGroup label="Learning Kivo">
+        <EducationSettings />
       </SettingsGroup>
 
       <SettingsGroup label="Danger zone">

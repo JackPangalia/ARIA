@@ -17,41 +17,6 @@ export function FolderIcon({ className }: { className?: string }) {
 }
 
 /**
- * The Kivo wordmark, and the way back to the home hub from anywhere.
- * Uses `.kivo-wordmark` — same Newsreader mark as the landing nav.
- */
-export function KivoMark(props: { onClick?: () => void; dimmed?: boolean }) {
-  if (!props.onClick) {
-    return (
-      <span className="kivo-wordmark shrink-0 select-none text-app-muted">
-        Kivo
-      </span>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      aria-label="Return to Kivo home"
-      className={`kivo-wordmark shrink-0 select-none rounded-lg text-app transition-colors hover:text-app-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
-        props.dimmed ? "opacity-0 focus-visible:opacity-100" : ""
-      }`}
-    >
-      Kivo
-    </button>
-  );
-}
-
-export function BreadcrumbSeparator() {
-  return (
-    <span aria-hidden className="shrink-0 text-[13px] text-app-subtle">
-      /
-    </span>
-  );
-}
-
-/**
  * The current surface's crumb — plain text for static titles, or a wrapper for
  * an interactive title such as the editable session name.
  */
@@ -75,12 +40,13 @@ export function BreadcrumbCrumb(props: { icon?: ReactNode; children: ReactNode }
  * region, and `.kivo-voice-stage` offsets the orb by this bar's height to
  * optically centre it. A surface that skips this header loses all three.
  */
-export function WorkspaceHeader(props: { breadcrumb: ReactNode; actions?: ReactNode }) {
+export function WorkspaceHeader(props: { breadcrumb: ReactNode; actions?: ReactNode; navigation?: ReactNode }) {
   return (
     <header className="kivo-session-topbar pointer-events-auto z-20 flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-[max(0.75rem,env(safe-area-inset-top))] sm:gap-3 sm:px-4">
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">{props.breadcrumb}</div>
+      {props.navigation}
+      <div className="kivo-header-breadcrumb flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">{props.breadcrumb}</div>
       {props.actions ? (
-        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">{props.actions}</div>
+        <div className="kivo-header-actions flex shrink-0 items-center gap-1.5 sm:gap-2">{props.actions}</div>
       ) : null}
     </header>
   );
@@ -98,7 +64,7 @@ export function HeaderIconButton(props: {
       onClick={props.onClick}
       aria-label={props.label}
       aria-expanded={props.expanded}
-      className="rounded-lg p-1.5 text-app-muted transition-[background-color,color,transform] hover:bg-surface-hover hover:text-app-secondary active:scale-[0.94] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+      className="kivo-header-icon rounded-lg p-1.5 text-app-muted transition-[background-color,color,transform] hover:bg-surface-hover hover:text-app-secondary active:scale-[0.94] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
     >
       {props.children}
     </button>

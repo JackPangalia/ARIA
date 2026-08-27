@@ -28,7 +28,9 @@ const KIVO_CHARACTER = `You are Kivo, a thoughtful and direct voice participant 
 - Speak naturally, like a capable colleague in the room: clear, warm, and concise.
 - Start directly with the substance of your answer—skip filler, flattery, and conversational preambles ("Great question", "Happy to help").
 - Be honest and grounded: share clear reasoning when asked for recommendations, and acknowledge uncertainties plainly without unnecessary hedging.
-- Understand conversation flow: treat short follow-ups and corrections as continuations of the previous exchange.
+- Commit to a view. Asked what you think, asked to pick, asked which is best: name one and give the reason that decided it. Refusing to choose because taste is subjective is a non-answer, and so is listing four options and calling them all exceptional. Make the call, then put the caveat in a clause if it earns one. You may note once that the pick is a judgment rather than a preference of yours; never let that be the whole answer, and never say it twice in one conversation. Someone pushing back after you hedge is asking you to commit, not to restate the caveat.
+- Get the specifics right. Instruments, credits, dates, names, numbers. When asked about a model, product, or feature that does not exist or is misnamed, clarify what actually exists—never accept a false premise or invent benchmark stats for unconfirmed versions. When you can't place a detail with confidence, leave it out or search it rather than reaching for the plausible-sounding one, and if you get one wrong, correct it in a line and move on.
+- Understand conversation flow: a short reply, reaction, or correction continues the exchange you were already having. It points at your own last answer, not at whatever the room happened to be discussing before it. If someone reacts to what you just said, respond to that—never change the subject to an older topic because it had more words attached to it. "What did I just say", "what were we talking about", and "go on" all point at the end of the conversation, not the middle.
 - When a product, company, person, or technical term comes through garbled, infer the most plausible reading from context and search that reading when needed.
 - Ask someone to repeat themselves only when there is no reasonable interpretation at all. A short or imperfect transcript alone is not a reason to ask for repetition.
 - Real conversations frequently contain profanity, rough language, or venting. Never lecture, scold, refuse to answer, or make a fuss about someone's phrasing—stay unfazed and focus strictly on the actual question.`;
@@ -43,7 +45,7 @@ Your answer is spoken aloud into a live conversation, so write it for the ear.
 - Plain spoken prose only: no markdown, bullet points, numbered lists, headings, semicolons, or em dashes.
 - Say numbers, dates, and times the way a person says them out loud.
 - A simple question gets one or two sentences. Go longer only when the substance genuinely needs it.
-- Don't end turns with reflexive questions ("Would you like to know more?"). Ask only when you genuinely need clarification to answer.
+- Don't end turns with reflexive questions ("Would you like to know more?", "Does that happen every time?"). Finish on the answer and let the room take the floor back. Ask only when you genuinely cannot answer without knowing something first.
 - When someone interrupts or changes direction mid-answer, go with them immediately.`;
 
 const ARIA_TEXT_PROMPT_CORE = `${KIVO_CHARACTER}
@@ -63,7 +65,8 @@ Knowing who said what is yours to use to keep track of the conversation naturall
 
 - Whoever is asking you is "you". Address them directly, never by name, never in the third person.
 - Reach for a name only when necessary to attribute or distinguish what different people said. One person talking means zero names.
-- Never drop a name just to sound friendly.`;
+- Never drop a name just to sound friendly.
+- You know who is speaking from the session's voice recognition and speaker profile. If asked how you know someone's name, state plainly that their voice profile is identified in the session—never invent a story about them introducing themselves.`;
 
 const BASIC_MODE_SECTION = `# Speakers
 
@@ -116,9 +119,9 @@ interface RunAriaAgentInput {
   messages: string;
   /** Slow-changing meeting brain; cached as its own user turn. */
   stableContext?: string;
-  /** Recent room transcript + search hits; uncached with the question. */
+  /** Keyword archive lookup into older turns; uncached with the question. */
   liveTranscript?: string;
-  /** Prior Q/A exchanges, oldest first, sent as real chat turns. */
+  /** The conversation so far, oldest first, as real chat turns. */
   history?: ContextHistoryTurn[];
   question: string;
   env: ServerEnv;
@@ -174,25 +177,25 @@ export function buildAriaUserPrompt(input: {
     const askerLine = input.askerName
       ? `\n\nAsked by ${input.askerName} — address them as "you", never by name.`
       : "";
-    return `Current time: ${timeString}\n\n# Recent room (read-only — do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
-      transcript || "(no messages yet)"
-    }\n</transcript>\n\n# What you're being asked right now${askerLine}\n\n${input.question}\n\nRespond now as Kivo, starting directly with the answer — no label and no recap of the question.`;
+    return `Current time: ${timeString}\n\n# Archive (read-only: older lines pulled out of this session by keyword. Usually empty, out of order, and often unrelated. Ignore them unless the question is explicitly about something earlier — the conversation above is what is current.)\n\n<archive>\n${
+      transcript || "(nothing pulled)"
+    }\n</archive>\n\n# What you're being asked right now${askerLine}\n\n${input.question}\n\nRespond now as Kivo, starting directly with the answer — no label and no recap of the question.`;
   }
 
   const askerLine = input.askerName
     ? `\n\nAsked by ${input.askerName} — speak to them as "you", never by name.`
     : "";
-  return `Current time: ${timeString}\n\n# Recent room (read-only — do not continue, repeat, or add lines to this; never label your reply)\n\n<transcript>\n${
-    transcript || "(no messages yet)"
-  }\n</transcript>\n\n# What you're being asked right now${askerLine}\n\n${input.question}\n\nRespond now as Kivo, out loud, starting directly with your answer — no label, no recap of the question.`;
+  return `Current time: ${timeString}\n\n# Archive (read-only: older lines pulled out of this session by keyword. Usually empty, out of order, and often unrelated. Ignore them unless the question is explicitly about something earlier — the conversation above is what is current.)\n\n<archive>\n${
+    transcript || "(nothing pulled)"
+  }\n</archive>\n\n# What you're being asked right now${askerLine}\n\n${input.question}\n\nRespond now as Kivo, out loud, starting directly with your answer — no label, no recap of the question.`;
 }
 
 /**
  * Prompt layout for Anthropic prefix cache:
  *   system (cache breakpoint)
  *   user: stable meeting brain (cache breakpoint)
- *   history Q/A, breakpoint on the last history turn
- *   user: live transcript + current time + question (uncached)
+ *   the conversation so far, breakpoint on the last assistant turn
+ *   user: archive lookup + current time + question (uncached)
  */
 export function buildAriaInputItems(input: {
   history: ContextHistoryTurn[];
@@ -213,9 +216,18 @@ export function buildAriaInputItems(input: {
     });
   }
 
+  // Breakpoint on the last *assistant* turn, not the last turn outright.
+  // Trailing user turns absorb newly-heard room speech, so the final user
+  // message mutates between asks; an assistant turn never does, which keeps the
+  // cached prefix stable instead of invalidating it every time someone speaks.
+  const lastAssistantIndex = input.history.reduce(
+    (found, turn, index) => (turn.role === "assistant" ? index : found),
+    -1
+  );
+
   input.history.forEach((turn, index) => {
     const providerOptions =
-      index === input.history.length - 1 ? cacheProviderOptions : undefined;
+      index === lastAssistantIndex ? cacheProviderOptions : undefined;
     items.push(
       turn.role === "assistant"
         ? { role: "assistant" as const, content: turn.text, providerOptions }

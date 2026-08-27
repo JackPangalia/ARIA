@@ -155,11 +155,12 @@ export class CueEngine {
     }
   }
 
-  // Kivo makes a sound at exactly three moments: it is called in, it leaves,
-  // and it is off looking something up. Everything in between — thinking,
-  // answering, staying open for a follow-up — is carried by the conversation
-  // itself and by the UI. Chimes inside a natural back-and-forth read as
-  // talking to a gadget; chimes at the edges read as it arriving and leaving.
+  // Kivo makes a sound at exactly four moments: it is called in, it hands the
+  // floor back, it leaves, and it is off looking something up. Everything in
+  // between — thinking, answering, staying open for a follow-up — is carried by
+  // the conversation itself and by the UI. Chimes inside a natural back-and-forth
+  // read as talking to a gadget; chimes at the edges read as it arriving and
+  // leaving.
 
   playWake() {
     // A single soft tick — "I'm listening" — quiet and over in under 200ms so
@@ -168,6 +169,17 @@ export class CueEngine {
     // continuing, not Kivo being called in again.
     this.playSequence([
       { freq: 830.61, durationMs: 170, gain: 0.06, attackMs: 12, releaseMs: 140 },
+    ]);
+  }
+
+  playRelease() {
+    // Two soft descending tones — the mirror of playWake. Kivo heard something,
+    // decided it wasn't a turn for it, and is handing the floor back: the next
+    // question needs the wake word again. Quieter and a touch longer than the
+    // wake tick so it lands as a release rather than a prompt.
+    this.playSequence([
+      { freq: 698.46, durationMs: 130, gain: 0.045, attackMs: 10, releaseMs: 100 },
+      { freq: 523.25, durationMs: 170, gain: 0.045, startOffsetMs: 65, attackMs: 10, releaseMs: 140 },
     ]);
   }
 

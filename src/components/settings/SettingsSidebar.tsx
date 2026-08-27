@@ -119,6 +119,11 @@ const TAB_ICONS: Record<
   trash: TrashIcon,
 };
 
+export function SettingsTabIcon({ tab, className }: { tab: SettingsTab; className?: string }) {
+  const Icon = TAB_ICONS[tab];
+  return <Icon className={className} />;
+}
+
 const navRowClass = (active: boolean) =>
   `flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-normal transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app ${
     active

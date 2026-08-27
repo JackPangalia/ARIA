@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
+import { useEducation, useEducationAnchor } from "@/components/education/EducationProvider";
 
 /** Wiring for "that wasn't Jack" — offered on speaker lines while listening. */
 export interface SpeakerCorrectionProps {
@@ -143,6 +144,8 @@ export function SpeakerLabelMenu(props: {
   children: ReactNode;
 }) {
   const [creating, setCreating] = useState(false);
+  const education = useEducation();
+  const educationAnchor = useEducationAnchor<HTMLButtonElement>("speaker");
   const [newSpeakerName, setNewSpeakerName] = useState("");
   const [style, setStyle] = useState<CSSProperties>({});
   const triggerRef = useRef<HTMLSpanElement>(null);
@@ -197,8 +200,9 @@ export function SpeakerLabelMenu(props: {
   return (
     <span ref={triggerRef} className="relative inline-flex max-w-full">
       <button
+        ref={educationAnchor}
         type="button"
-        onClick={props.onToggle}
+        onClick={() => { education?.retire("speaker"); props.onToggle(); }}
         aria-haspopup="menu"
         aria-expanded={props.open}
         aria-label={`Identify speaker (currently ${currentLabel})`}

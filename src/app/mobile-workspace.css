@@ -1,0 +1,225 @@
+/* Browser workspace on phones and tablets. Native Electron chrome stays intact. */
+@media (max-width: 1023px) {
+  html:not(.kivo-desktop) .kivo-desktop-main { margin: 0; gap: 0; }
+  html:not(.kivo-desktop) .kivo-desktop-surface { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+  html:not(.kivo-desktop) .kivo-desktop-shell { --kivo-session-topbar-height: calc(4rem + env(safe-area-inset-top, 0px)); }
+  html:not(.kivo-desktop) .kivo-desktop-main > .kivo-session-topbar {
+    display: grid;
+    grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+    gap: 0.5rem;
+    min-height: var(--kivo-session-topbar-height);
+    padding: calc(0.5rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right)) 0.5rem max(1rem, env(safe-area-inset-left));
+    background: var(--app-workspace);
+    border-bottom: 1px solid var(--app-border-subtle);
+  }
+  .kivo-mobile-nav-trigger { display: flex; align-items: center; }
+  .kivo-mobile-nav-trigger .kivo-header-icon {
+    display: grid; place-items: center; width: 2.75rem; height: 2.75rem;
+    padding: 0; border-radius: 0.8rem; color: var(--app-fg);
+    background: var(--app-surface);
+  }
+  html:not(.kivo-desktop) .kivo-header-actions button { min-width: 2.75rem; min-height: 2.75rem; }
+  html:not(.kivo-desktop) .kivo-session-stop,
+  html:not(.kivo-desktop) .kivo-session-silence { min-height: 2.75rem; }
+  html:not(.kivo-desktop) .kivo-header-breadcrumb { padding-left: 0.25rem; }
+  html:not(.kivo-desktop) .kivo-header-breadcrumb input { max-width: 100%; font-size: 1rem; }
+  /* Put the title on its own row, followed by named content controls. */
+  html:not(.kivo-desktop) .kivo-session-topbar:has(.kivo-overview-tray) { row-gap: 0.65rem; }
+  html:not(.kivo-desktop) .kivo-session-topbar:has(.kivo-overview-tray) .kivo-header-breadcrumb,
+  html:not(.kivo-desktop) .kivo-overview-tray { display: contents; }
+  html:not(.kivo-desktop) .kivo-session-topbar:has(.kivo-overview-tray) .kivo-header-actions { display: none; }
+  html:not(.kivo-desktop) .kivo-overview-tray-title { grid-column: 2 / -1; padding: 0 0.25rem; }
+  html:not(.kivo-desktop) .kivo-overview-tray-title > * {
+    width: 100%; max-width: 100%; font-size: 0.9375rem; color: var(--app-fg);
+  }
+  html:not(.kivo-desktop) .kivo-overview-tray-title input { font-size: 1rem; }
+  html:not(.kivo-desktop) .kivo-overview-tray-actions {
+    grid-column: 1 / -1; width: 100%; justify-content: space-between; gap: 0.75rem;
+  }
+  html:not(.kivo-desktop) .kivo-overview-tray-tabs {
+    flex: 1; min-width: 0; padding: 3px; gap: 2px; border-radius: 0.9rem; background: var(--app-surface);
+  }
+  html:not(.kivo-desktop) .kivo-overview-tray-row { min-height: 2.75rem; padding-inline: 0.75rem; justify-content: center; gap: 0.4rem; border-radius: 0.7rem; }
+  html:not(.kivo-desktop) .kivo-overview-tray-tabs .kivo-overview-tray-row { flex: 1; min-width: 0; }
+  html:not(.kivo-desktop) .kivo-overview-tray-row .kivo-rail-label {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: nowrap; font-size: 0.8125rem;
+  }
+  html:not(.kivo-desktop) .kivo-overview-tray-tabs .is-active { background: var(--app-workspace); box-shadow: 0 1px 3px var(--app-shadow); }
+  html:not(.kivo-desktop) .kivo-overview-tray-tabs .kivo-rail-icon { display: none; }
+  html:not(.kivo-desktop) .kivo-overview-tray-row.is-primary { flex-shrink: 0; }
+
+  .kivo-mobile-nav {
+    height: 100dvh; padding-bottom: 0; border-radius: 0 1.5rem 1.5rem 0;
+    box-shadow: inset -1px 0 0 var(--app-border-subtle), 12px 0 40px var(--app-shadow);
+  }
+  .kivo-mobile-nav-heading {
+    min-height: calc(4.5rem + env(safe-area-inset-top, 0px));
+    padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 1.15rem 0.65rem max(1.25rem, env(safe-area-inset-left));
+  }
+  .kivo-mobile-nav-heading .kivo-wordmark { font-size: 1.75rem; }
+  .kivo-mobile-nav-heading button { min-height: 2.75rem; min-width: 2.75rem; }
+  .kivo-mobile-nav .kivo-workspace-navigation { padding: 0 0.9rem; }
+  .kivo-mobile-nav .kivo-rail-row { min-height: 2.875rem; border-radius: 0.8rem; font-size: 0.9375rem; }
+  .kivo-mobile-nav .kivo-nav-lists { margin-top: 1.25rem; padding: 0 0.1rem 1rem; scrollbar-width: thin; }
+  .kivo-mobile-nav .kivo-rail-detail-row { min-height: 2.75rem; font-size: 0.875rem; }
+  .kivo-mobile-nav .kivo-rail-section-label { font-size: 0.625rem; letter-spacing: 0.12em; }
+  .kivo-mobile-nav .kivo-profile-footer {
+    flex: none; margin-top: 0.25rem; padding: 0.5rem 0.9rem max(0.75rem, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--app-border-subtle); background: var(--app-menu);
+  }
+  .kivo-mobile-nav .kivo-profile-footer > button { min-height: 3.5rem; }
+  .kivo-mobile-nav .kivo-education-help { padding-inline: 0.65rem; }
+
+  html:not(.kivo-desktop) .kivo-overview-pane-scroll { padding: 1.5rem max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
+  html:not(.kivo-desktop) .kivo-summary-lead > p { font-size: 1.1875rem; line-height: 1.5; }
+  html:not(.kivo-desktop) .kivo-summary-lead { padding-bottom: 1.75rem; }
+  html:not(.kivo-desktop) .kivo-summary-section h2 { font-size: 0.75rem; }
+  html:not(.kivo-desktop) .kivo-summary-list li { gap: 0.65rem; font-size: 0.9rem; }
+  html:not(.kivo-desktop) .kivo-transcript-copy,
+  html:not(.kivo-desktop) .kivo-summary-list,
+  html:not(.kivo-desktop) .kivo-summary-lead { overflow-wrap: anywhere; }
+  html:not(.kivo-desktop) .kivo-project-hub h1 { overflow-wrap: anywhere; }
+}
+
+@media (max-width: 639px) {
+  html:not(.kivo-desktop) .kivo-home-canvas { padding: 1rem max(1rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left)); }
+  html:not(.kivo-desktop) .kivo-home-hero,
+  html:not(.kivo-desktop) .kivo-home-hero[data-mode="first_use"] { height: auto; min-height: 15rem; border-radius: 1.35rem; }
+  html:not(.kivo-desktop) .kivo-home-hero > .relative { padding: 1.5rem; }
+  html:not(.kivo-desktop) .kivo-home-hero h1 { font-size: clamp(1.85rem, 8vw, 2.2rem); line-height: 1.02; }
+  html:not(.kivo-desktop) .kivo-home-hero h1 + p { font-size: 0.8125rem; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  html:not(.kivo-desktop) .kivo-home-hero-action { margin-top: 1.25rem; min-height: 2.75rem; font-size: 0.8125rem; }
+  html:not(.kivo-desktop) .kivo-home-search { min-height: 3rem; margin-top: 1rem; border-radius: 0.9rem; font-size: 0.875rem; }
+  html:not(.kivo-desktop) .kivo-home-sections { margin-top: 1.75rem; gap: 1.75rem; }
+  html:not(.kivo-desktop) .kivo-home-section h2 { font-size: 1.5rem; }
+  html:not(.kivo-desktop) .kivo-home-section > div:first-child { gap: 0.5rem; align-items: center; }
+  html:not(.kivo-desktop) .kivo-home-section > div:first-child > button { min-height: 2.75rem; padding-inline: 0.4rem; }
+  html:not(.kivo-desktop) .kivo-home-session-row { gap: 0.65rem; padding: 0.85rem 0; }
+  html:not(.kivo-desktop) .kivo-home-session-row > span:first-child { width: 1.5rem; height: 2rem; }
+  html:not(.kivo-desktop) .kivo-home-session-row > svg:last-child { display: none; }
+  html:not(.kivo-desktop) .kivo-home-session-row > span:nth-child(2) > span:first-child { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.45; }
+  html:not(.kivo-desktop) .kivo-home-session-row time { align-self: flex-start; padding-top: 0.15rem; font-size: 0.6875rem; }
+  /* Projects stay at hand without pushing conversation history below a long list. */
+  html:not(.kivo-desktop) .kivo-home-projects { order: 0; padding: 0; }
+  html:not(.kivo-desktop) .kivo-home-projects > div:first-child { align-items: center; }
+  html:not(.kivo-desktop) .kivo-home-projects h2 { font-size: 1.375rem; }
+  html:not(.kivo-desktop) .kivo-home-projects > div:first-child > button { width: 2.75rem; height: 2.75rem; }
+  html:not(.kivo-desktop) .kivo-home-projects ul { display: flex; gap: 0.5rem; margin-top: 0.65rem; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 0.4rem; scrollbar-width: thin; }
+  html:not(.kivo-desktop) .kivo-home-projects li { flex: 0 0 auto; min-width: 9rem; max-width: 12rem; margin: 0; }
+  html:not(.kivo-desktop) .kivo-home-projects li button { min-height: 2.875rem; gap: 0.6rem; padding: 0.65rem 0.85rem; background: var(--app-surface); border: 1px solid var(--app-border-subtle); border-radius: 0.85rem; }
+  html:not(.kivo-desktop) .kivo-home-projects li button > span { font-size: 0.8125rem; }
+  html:not(.kivo-desktop) .kivo-project-hub > div:first-child { padding: 1.5rem max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
+  html:not(.kivo-desktop) .kivo-project-hub h1 { font-size: 2rem; line-height: 1.1; margin-top: 0.5rem; }
+  html:not(.kivo-desktop) .kivo-project-tabs { margin-top: 1.25rem; }
+  html:not(.kivo-desktop) .kivo-project-tabs button { min-height: 2.75rem; padding-inline: 0.7rem; }
+  html:not(.kivo-desktop) .kivo-project-session-row { padding: 0.9rem 0; gap: 0.75rem; align-items: flex-start; }
+  html:not(.kivo-desktop) .kivo-project-session-row > div { flex: 1; align-items: flex-start; }
+  html:not(.kivo-desktop) .kivo-project-session-row > div > svg { margin-top: 0.2rem; }
+  html:not(.kivo-desktop) .kivo-project-session-row > div > span { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+  html:not(.kivo-desktop) .kivo-project-session-row > span { font-size: 0.6875rem; padding-top: 0.2rem; }
+  html:not(.kivo-desktop) .kivo-transcript-line { padding-block: 1rem; gap: 0.4rem; }
+  html:not(.kivo-desktop) .kivo-transcript-speaker button { min-height: 2.75rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kivo-mobile-nav *, .kivo-home-session-row, .kivo-project-session-row { scroll-behavior: auto; transition: none; }
+}
+
+/* Project forms share the speaker menu's quiet, warm surfaces. */
+.kivo-project-editor-overlay {
+  position: fixed; inset: 0; z-index: 280;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem; background: var(--app-overlay);
+}
+.kivo-project-editor {
+  display: flex; flex-direction: column; width: 100%; max-width: 32rem;
+  max-height: min(90dvh, 42rem); overflow: hidden;
+  border: 1px solid var(--app-border-subtle); border-radius: 1.5rem;
+  background: var(--app-menu); color: var(--app-fg);
+  box-shadow: 0 16px 64px var(--app-shadow);
+}
+.kivo-project-editor-header {
+  display: flex; flex: none; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 1.25rem 1.5rem 0.25rem;
+}
+.kivo-project-editor-header h2 { font-family: var(--font-serif); font-size: 1.75rem; font-weight: 400; letter-spacing: -0.035em; }
+.kivo-project-editor-close { display: grid; place-items: center; width: 2.75rem; height: 2.75rem; flex: none; border-radius: 50%; color: var(--app-fg-muted); }
+.kivo-project-editor-close:hover { background: var(--app-surface-hover); color: var(--app-fg); }
+.kivo-project-editor-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 1.5rem 1.25rem; }
+.kivo-project-editor-body > p { margin: 0 0 1.5rem; font-size: 0.875rem; line-height: 1.5; color: var(--app-fg-muted); }
+.kivo-project-editor-body label { display: grid; gap: 0.5rem; margin-top: 1.125rem; font-size: 0.8125rem; font-weight: 500; color: var(--app-fg-secondary); }
+.kivo-project-editor input, .kivo-project-editor textarea {
+  width: 100%; min-width: 0; padding: 0.75rem; border: 1px solid var(--app-border);
+  border-radius: 0.75rem; background: var(--app-surface); color: var(--app-fg);
+  font-size: 1rem; font-weight: 400; line-height: 1.5;
+}
+.kivo-project-editor textarea { resize: vertical; min-height: 7rem; max-height: 20rem; }
+.kivo-project-editor input::placeholder, .kivo-project-editor textarea::placeholder { color: var(--app-fg-subtle); }
+.kivo-project-editor-archive { min-height: 2.75rem; margin-top: 1rem; font-size: 0.8125rem; color: var(--app-danger-fg); }
+.kivo-project-editor-archive:hover { text-decoration: underline; text-underline-offset: 3px; }
+.kivo-project-editor-footer { display: flex; flex: none; justify-content: flex-end; gap: 0.625rem; padding: 1rem 1.5rem; border-top: 1px solid var(--app-border-subtle); }
+.kivo-project-editor-footer button { min-height: 2.75rem; min-width: 5rem; padding: 0.65rem 1.25rem; border-radius: 0.875rem; font-size: 0.875rem; background: var(--app-surface); color: var(--app-fg-secondary); }
+.kivo-project-editor-footer .is-primary { background: var(--app-accent); color: var(--app-accent-fg); }
+.kivo-project-editor button:disabled { opacity: 0.45; cursor: not-allowed; }
+.kivo-project-editor :focus-visible, .kivo-settings-mobile-root :focus-visible { outline: 2px solid var(--app-border-strong); outline-offset: 3px; }
+.kivo-project-editor input:focus-visible, .kivo-project-editor textarea:focus-visible { outline-offset: 1px; }
+
+@media (max-width: 639px) {
+  .kivo-project-editor-overlay {
+    top: var(--overlay-top, 0px); bottom: auto; height: var(--overlay-height, 100dvh);
+    align-items: flex-end; padding: max(0.75rem, env(safe-area-inset-top)) 0 0;
+  }
+  .kivo-project-editor { max-height: 100%; max-width: none; border-radius: 1.5rem 1.5rem 0 0; border-bottom: 0; }
+  .kivo-project-editor-header { padding: 0.875rem max(1.25rem, env(safe-area-inset-right)) 0.25rem max(1.25rem, env(safe-area-inset-left)); }
+  .kivo-project-editor-header h2 { font-size: 1.625rem; }
+  .kivo-project-editor-body { padding: 0 max(1.25rem, env(safe-area-inset-right)) 1rem max(1.25rem, env(safe-area-inset-left)); }
+  .kivo-project-editor-body > p { max-width: 30ch; margin-bottom: 1.125rem; font-size: 0.8125rem; }
+  .kivo-project-editor textarea { resize: none; }
+  .kivo-project-editor-footer { padding: 0.875rem max(1.25rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
+  .kivo-project-editor-footer button { flex: 1; }
+}
+
+@media (max-width: 1023px) {
+  .kivo-settings-mobile-root.kivo-settings-page {
+    top: var(--overlay-top, 0px); bottom: auto; height: var(--overlay-height, 100dvh);
+    background: var(--app-workspace); overflow: hidden;
+  }
+  .kivo-settings-mobile-root .grok-settings-stack-header {
+    min-height: calc(4rem + env(safe-area-inset-top, 0px));
+    padding: calc(0.5rem + env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right)) 0.5rem max(1rem, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--app-border-subtle);
+  }
+  .kivo-settings-mobile-root .grok-settings-stack-title { font-family: var(--font-serif); font-size: 1.5rem; font-weight: 400; line-height: 1.2; }
+  .kivo-settings-mobile-root .grok-settings-stack-pill-btn { width: 2.75rem; height: 2.75rem; border-radius: 0.8rem; }
+  .kivo-settings-mobile-root .grok-settings-mobile-body,
+  .kivo-settings-mobile-root .kivo-settings-page-inner--mobile {
+    width: 100%; max-width: 38rem; margin-inline: auto;
+    padding: 1.5rem max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left));
+  }
+  .kivo-settings-mobile-root .grok-settings-mobile-body,
+  .kivo-settings-mobile-root .kivo-settings-detail-scroll { overscroll-behavior: contain; scrollbar-width: thin; }
+  .kivo-settings-mobile-root .grok-settings-profile-card { margin-bottom: 1.75rem; padding: 1rem; border-radius: 1.125rem; border: 1px solid var(--app-border-subtle); }
+  .kivo-settings-mobile-root .grok-settings-profile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kivo-settings-mobile-root .grok-settings-profile-email { margin-top: 0.2rem; font-size: 0.8125rem; }
+  .kivo-settings-mobile-root .grok-settings-menu-section { margin-bottom: 1.5rem; }
+  .kivo-settings-mobile-root .grok-settings-menu-section-label { margin-bottom: 0.65rem; font-size: 0.625rem; }
+  .kivo-settings-mobile-root .grok-settings-menu-card { border-radius: 1rem; border: 1px solid var(--app-border-subtle); }
+  .kivo-settings-mobile-root .grok-settings-menu-row { min-height: 3.5rem; padding: 0.875rem 1rem; font-size: 0.9375rem; text-align: left; }
+  .kivo-settings-mobile-root .grok-settings-menu-row--divided::after { left: 3.25rem; background: var(--app-border-subtle); }
+  .kivo-settings-mobile-root .grok-settings-menu-icon { width: 1.125rem; height: 1.125rem; }
+  .kivo-settings-mobile-root .grok-settings-menu-row:focus-visible { outline-offset: -3px; border-radius: 0.8rem; }
+  .kivo-settings-mobile-intro { margin-bottom: 1.5rem; font-size: 0.875rem; line-height: 1.6; color: var(--app-fg-muted); }
+  .kivo-settings-mobile-root .kivo-settings-group-label { font-size: 0.625rem; letter-spacing: 0.12em; margin-bottom: 0.625rem; }
+  .kivo-settings-mobile-root .kivo-settings-card { border: 1px solid var(--app-border-subtle); border-radius: 1rem; }
+  .kivo-settings-mobile-root .kivo-settings-card-row { flex-wrap: wrap; gap: 0.75rem; padding: 1rem; }
+  .kivo-settings-mobile-root .kivo-settings-card-row > .min-w-0 { flex-basis: 9rem; }
+  .kivo-settings-mobile-root .kivo-settings-row-action { max-width: 100%; flex-wrap: wrap; gap: 0.5rem; }
+  .kivo-settings-mobile-root .kivo-settings-row-desc { overflow-wrap: anywhere; }
+  .kivo-settings-mobile-root .grok-settings-btn { min-height: 2.75rem; padding-inline: 1rem; }
+  .kivo-settings-mobile-root input,
+  .kivo-settings-mobile-root select,
+  .kivo-settings-mobile-root textarea { font-size: 1rem; max-width: 100%; }
+  .kivo-settings-mobile-root .kivo-settings-delete-overlay { overflow-y: auto; padding: 1rem; }
+  .kivo-settings-mobile-root .grok-settings-delete-dialog { max-height: 100%; overflow-y: auto; border-radius: 1.25rem; }
+  .kivo-settings-mobile-root .grok-settings-delete-title { font-family: var(--font-serif); font-size: 1.5rem; font-weight: 400; }
+}
