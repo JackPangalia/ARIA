@@ -2,12 +2,10 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk, withAuth } from "@/lib/sessions/api-response";
 import {
-  effectiveDefaultTranscriptionMode,
   loadEntitlements,
   setDefaultTranscriptionMode,
   type Entitlements,
 } from "@/lib/plan/repository";
-import { remainingSpeakerSeconds, speakerModeExhausted } from "@/lib/plan/entitlements";
 import { TranscriptionModeSchema } from "@/lib/sessions/types";
 
 export const runtime = "nodejs";
@@ -18,25 +16,16 @@ const UpdateTranscriptionModeSchema = z.object({
 });
 
 function payloadForEntitlements(entitlements: Entitlements) {
-  const { plan, limits, usage } = entitlements;
-  const effectiveTranscriptionMode = effectiveDefaultTranscriptionMode(
-    plan.tier,
-    plan.defaultTranscriptionMode,
-    limits,
-    usage
-  );
-  const exhausted = speakerModeExhausted(limits, usage);
+  const { plan, usage } = entitlements;
   return {
     tier: plan.tier,
-    defaultTranscriptionMode: plan.defaultTranscriptionMode ?? "speaker",
-    effectiveTranscriptionMode,
-    // Locked only when the tier can never use Speaker mode this period.
-    speakerModeLocked: plan.tier === "free" && exhausted,
+    defaultTranscriptionMode: "speaker" as const,
+    effectiveTranscriptionMode: "speaker" as const,
+    speakerModeLocked: false,
     speakerSecondsUsed: usage.speakerSeconds,
-    speakerSecondsCap:
-      limits.speakerMinutesPerMonth === null ? null : limits.speakerMinutesPerMonth * 60,
-    speakerSecondsRemaining: remainingSpeakerSeconds(limits, usage),
-    speakerModeExhausted: exhausted,
+    speakerSecondsCap: null,
+    speakerSecondsRemaining: null,
+    speakerModeExhausted: false,
   };
 }
 
@@ -70,7 +59,7 @@ export async function PATCH(req: NextRequest) {
         error instanceof Error
           ? error.message
           : "Failed to update transcription mode.";
-      return jsonError(msg, msg.includes("Upgrade") ? 403 : 400);
+      return jsonError(msg, 400);
     }
   });
 }

@@ -16,9 +16,9 @@ import { AskBodySchema } from "@/lib/sessions/types";
 import { authErrorResponse, verifyRequestAuth } from "@/lib/firebase/verify-auth";
 import { checkRateLimit } from "@/lib/rate-limit/limiter";
 import { rateLimitedResponse } from "@/lib/sessions/api-response";
-import { assertSessionOwner } from "@/lib/sessions/repository";
+import { assertSessionOwnerCached } from "@/lib/sessions/repository";
 import type { SessionDoc } from "@/lib/sessions/types";
-import { loadEntitlements } from "@/lib/plan/repository";
+import { loadEntitlementsCached } from "@/lib/plan/repository";
 import { askTokensExhausted } from "@/lib/plan/entitlements";
 import { PLANS } from "@/lib/plan/tiers";
 import type { AskModelId } from "@/lib/aria/models";
@@ -83,12 +83,12 @@ export async function POST(req: NextRequest) {
       windowSeconds: 60,
       consume: !speculative,
     }),
-    assertSessionOwner(uid, body.sessionId).then(
-      (session) => ({ session, error: false as const }),
-      () => ({ session: null, error: true as const })
+    assertSessionOwnerCached(uid, body.sessionId).then(
+      ({ session, cached }) => ({ session, cached, error: false as const }),
+      () => ({ session: null, cached: false, error: true as const })
     ),
     // Entitlement read failure must never block answering — fail open (default model).
-    loadEntitlements(uid).catch(() => null),
+    loadEntitlementsCached(uid).catch(() => null),
   ]);
 
   if (!rate.allowed) {
@@ -136,6 +136,9 @@ export async function POST(req: NextRequest) {
   pipeline.stage("session.ok", {
     status: session.status,
     setupMs: Math.round(performance.now() - requestStart),
+    // Which of the pre-ask reads actually hit Firestore. Without this, a
+    // regression in setup latency is indistinguishable from network variance.
+    sessionCache: sessionResult.cached ? "hit" : "miss",
   });
 
   // Native clients (iOS) ask for length-prefixed MP3 segments so they can play

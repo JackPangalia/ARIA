@@ -6,9 +6,14 @@ import type Stripe from "stripe";
 const env: BillingEnv = {
   STRIPE_SECRET_KEY: "sk_test_x",
   STRIPE_WEBHOOK_SECRET: "whsec_x",
-  STRIPE_PRICE_PLUS: "price_plus",
   STRIPE_PRICE_PRO: "price_pro",
-  STRIPE_PRICE_MAX: "price_max",
+  STRIPE_PRICE_PRO_MONTHLY: "price_pro_monthly",
+  STRIPE_PRICE_PRO_ANNUAL: "price_pro_annual",
+  STRIPE_PRICE_POWER: "price_power",
+  STRIPE_PRICE_POWER_MONTHLY: "price_power_monthly",
+  STRIPE_PRICE_POWER_ANNUAL: "price_power_annual",
+  STRIPE_PRICE_TOPUP_5H: "price_topup_5h",
+  STRIPE_PRICE_TOPUP_12H: "price_topup_12h",
   APP_URL: "http://localhost:3000",
 };
 
@@ -28,7 +33,7 @@ function subscription(
         {
           id: "si_test",
           object: "subscription_item",
-          price: { id: "price_pro", object: "price" } as Stripe.Price,
+          price: { id: "price_pro_monthly", object: "price" } as Stripe.Price,
         } as Stripe.SubscriptionItem,
       ],
       has_more: false,
@@ -43,7 +48,7 @@ describe("resolveSubscriptionEntitlement", () => {
   it("maps active pro subscription to pro tier", () => {
     const resolved = resolveSubscriptionEntitlement(subscription({ status: "active" }), env);
     expect(resolved.tier).toBe("pro");
-    expect(resolved.stripePriceId).toBe("price_pro");
+    expect(resolved.stripePriceId).toBe("price_pro_monthly");
     expect(resolved.billingAnchorDay).toBe(15);
   });
 
@@ -66,10 +71,12 @@ describe("resolveSubscriptionEntitlement", () => {
 });
 
 describe("tierFromPriceId", () => {
-  it("maps configured price IDs", async () => {
+  it("maps configured price IDs to pro or power", async () => {
     const { tierFromPriceId } = await import("@/lib/stripe/config");
-    expect(tierFromPriceId("price_plus", env)).toBe("plus");
-    expect(tierFromPriceId("price_max", env)).toBe("max");
+    expect(tierFromPriceId("price_pro_monthly", env)).toBe("pro");
+    expect(tierFromPriceId("price_pro_annual", env)).toBe("pro");
+    expect(tierFromPriceId("price_power_monthly", env)).toBe("power");
+    expect(tierFromPriceId("price_power_annual", env)).toBe("power");
     expect(tierFromPriceId("price_other", env)).toBeNull();
   });
 });

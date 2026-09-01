@@ -51,6 +51,7 @@ import type { SpeakerProfileDoc } from "@/lib/speakers/types";
 import { sendHeartbeat } from "@/lib/plan/client";
 import { HEARTBEAT_INTERVAL_MS } from "@/lib/plan/tiers";
 import {
+  questionExtendsDraft,
   questionsMatchForContext,
   sanitizeQuestionText,
 } from "@/lib/aria/context/question-text";
@@ -379,8 +380,7 @@ export class AriaEngine {
       void silero.init();
       const profileCount = await this.connectStt();
       this.mic = new MicPcmStreamer({
-        voiceIdentification:
-          this.transcriptionMode === "speaker" && profileCount > 0,
+        voiceIdentification: profileCount > 0,
         continuousEchoCancellation: this.voiceEngineV2,
       });
       await this.mic.start((frame) => {
@@ -416,20 +416,17 @@ export class AriaEngine {
   }
 
   private async connectStt(): Promise<number> {
-    const profiles =
-      this.transcriptionMode === "speaker"
-        ? await listSpeakerProfiles().catch((err) => {
-            devLog(
-              "speaker",
-              `Could not load saved speaker profiles: ${
-                err instanceof Error ? err.message : "unknown error"
-              }`
-            );
-            throw new Error(
-              "Could not load saved speaker profiles. Try restarting Kivo."
-            );
-          })
-        : [];
+    const profiles = await listSpeakerProfiles().catch((err) => {
+      devLog(
+        "speaker",
+        `Could not load saved speaker profiles: ${
+          err instanceof Error ? err.message : "unknown error"
+        }`
+      );
+      throw new Error(
+        "Could not load saved speaker profiles. Try restarting Kivo."
+      );
+    });
 
     this.enrolledProfiles = profiles;
     this.stt = new SpeechmaticsLiveClient({
@@ -485,12 +482,8 @@ export class AriaEngine {
     await this.mic?.stop();
     this.mic = null;
     if (this.stt) {
-      if (this.transcriptionMode === "speaker") {
-        const finalSpeakers = await this.stt.finishAndGetSpeakers();
-        this.captureSpeakerResults(finalSpeakers);
-      } else {
-        this.stt.close();
-      }
+      const finalSpeakers = await this.stt.finishAndGetSpeakers();
+      this.captureSpeakerResults(finalSpeakers);
       this.stt = null;
     }
     useAriaStore.getState().setNotice(null);
@@ -696,7 +689,7 @@ export class AriaEngine {
     const question = sanitizeQuestionText(draft);
     if (!question || !isSubstantiveQuestion(question)) return;
     const completeness = assessQuestionCompleteness(question);
-    if (!shouldSpeculateAsk(completeness, this.capturingFollowUp)) return;
+    if (!shouldSpeculateAsk(completeness)) return;
     // A late follow-up that will fail the ask bar at dispatch must not pre-warm
     // an answer nobody will ever hear — that is a full LLM turn per stray
     // sentence.
@@ -705,10 +698,9 @@ export class AriaEngine {
     const spec = this.speculativeAsk;
     if (spec) {
       if (questionsMatchForContext(spec.question, question)) return;
-      const prev = sanitizeQuestionText(spec.question).toLowerCase();
-      const next = question.toLowerCase();
       // STT often flickers a shorter partial; keep the longer in-flight ask.
-      if (prev.startsWith(next)) return;
+      // Compared on words, so the flicker isn't missed over a stray comma.
+      if (questionExtendsDraft(question, spec.question)) return;
       this.abortSpeculativeAsk("draft_grew");
     }
     this.startSpeculativeAsk(question);
@@ -3120,7 +3112,7 @@ export class AriaEngine {
       const persisted = await appendSessionTurn(this.sessionId, {
         role: "speaker",
         text,
-        speaker: this.transcriptionMode === "basic" ? null : u.speaker,
+        speaker: u.speaker,
         speakerName: u.speakerName ?? null,
         providerSpeakerLabel: u.providerSpeakerLabel ?? null,
         sourceUtteranceIds: turn.sourceUtteranceIds,
@@ -3166,7 +3158,6 @@ export class AriaEngine {
    * from sessions that went *right* rather than only from corrections.
    */
   private async reinforceEnrolledProfiles(): Promise<void> {
-    if (this.transcriptionMode !== "speaker") return;
     if (this.enrolledProfiles.length === 0) return;
 
     // Key by the label we actually sent Speechmatics — it normalises whitespace
@@ -3238,7 +3229,7 @@ export class AriaEngine {
   }
 
   private maybeRequestSpeakerSnapshot(): void {
-    if (this.transcriptionMode !== "speaker" || !this.stt?.isConnected) return;
+    if (!this.stt?.isConnected) return;
     const epoch = this.stt.currentStreamEpoch;
     const now = Date.now();
     const last = this.lastSpeakerSnapshotRequestAt.get(epoch) ?? 0;

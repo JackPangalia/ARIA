@@ -7,7 +7,7 @@ const ServerEnvSchema = z.object({
    */
   ANTHROPIC_API_KEY: z.string().min(1),
   CARTESIA_API_KEY: z.string().min(1),
-  CARTESIA_MODEL_ID: z.string().default("sonic-3"),
+  CARTESIA_MODEL_ID: z.string().default("sonic-3.6"),
   CARTESIA_VOICE_ID: z.string().min(1),
   SPEECHMATICS_API_KEY: z.string().min(1),
   /**

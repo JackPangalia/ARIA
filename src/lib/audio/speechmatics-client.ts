@@ -447,7 +447,6 @@ export class SpeechmaticsLiveClient {
       (total, profile) => total + profile.speakerIdentifiers.length,
       0
     );
-    const basicMode = this.transcriptionMode === "basic";
     const preferCurrentSpeaker = preferCurrentSpeakerForProfiles();
     const speakerSensitivity = speakerSensitivityForProfiles(
       this.profiles.map((profile) => profile.speakerIdentifiers.length)
@@ -518,33 +517,23 @@ export class SpeechmaticsLiveClient {
     // commit); a typo here takes the mic down for every user at once.
     const transcriptionConfig: Record<string, unknown> = {
       language: "en",
-      // `model` and `operating_point` are aliases accepting the same enum:
-      // "standard" | "enhanced" | "melia-1". melia-1 is the newest and most
-      // accurate model, but in realtime it only permits diarization "none" or
-      // "channel" — no speaker diarization, no speaker identification, no
-      // additional_vocab, no max_delay (probed 2026-08-24). It is therefore
-      // unusable for the in-person product; "enhanced" is the accuracy ceiling
-      // for anything that needs to know who is talking.
-      model: basicMode ? "standard" : "enhanced",
-      diarization: basicMode ? "none" : "speaker",
+      model: "enhanced",
+      diarization: "speaker",
       enable_partials: true,
-      // How long Speechmatics may hold audio before committing to a final.
-      // Range is 0.7–4.0 and the API default is 4; more delay means more
-      // right-hand context per word, which their docs say is a direct accuracy
-      // win ("lowering this value can reduce latency but may also decrease
-      // accuracy"). Parked at the ceiling deliberately to see the accuracy
-      // headroom — our semantic ForceEndOfUtterance path still short-circuits
-      // this for confident asks, so it costs less response time than the raw
-      // number suggests. Dial toward 2 (their "balanced" example) if answers
-      // feel slow.
-      max_delay: 4,
+      // How long the provider may hold a final (`AddTranscript`) to buy accuracy.
+      // Valid range 0.7–4; 4 is the API default, which is what this was sitting
+      // at. That matters more than it looks: finals are the only messages that
+      // carry terminal punctuation, punctuation is what grades a draft
+      // `clear-ask`, and `clear-ask` is the sole trigger for
+      // ForceEndOfUtterance — so a maximal `max_delay` starves the one fast
+      // path out of end-of-turn and leaves every turn waiting on the acoustic
+      // silence trigger.
+      //
+      // 1.5 rather than the 1.0 floor: this is a straight speed/accuracy trade
+      // (Speechmatics documents it as such) and the words still have to be right.
+      // Must stay above `end_of_utterance_silence_trigger` (0.8).
+      max_delay: 1.5,
       max_delay_mode: "flexible",
-      // Custom dictionary. The recognizer maps anything outside its vocabulary
-      // to the nearest real word, so the entries that earn their place are
-      // words a *speaker in the room* actually says that aren't standard
-      // English: the wake word, product names, and the tools people discuss.
-      // Vendor names we only use in code don't belong here. Cap is 1000; a
-      // large list costs a one-off init delay, then caches for 24h.
       additional_vocab: [
         // Wake word — must be right or Kivo never triggers.
         {
@@ -616,16 +605,13 @@ export class SpeechmaticsLiveClient {
       conversation_config: {
         // Silence gap (s) before EndOfUtterance fires — the main knob for how
         // quickly Kivo reacts when a speaker stops. Speechmatics requires this
-        // to be LESS than max_delay (1.0 above) or end-of-turn turns unreliable.
+        // to be LESS than max_delay (1.5 above) or end-of-turn goes unreliable.
         end_of_utterance_silence_trigger: this.options.voiceEngineV2
           ? VOICE_ENGINE_V2_TIMING.endOfUtteranceSilenceSeconds
           : 0.6,
       },
+      speaker_diarization_config: speakerDiarizationConfig,
     };
-
-    if (!basicMode) {
-      transcriptionConfig.speaker_diarization_config = speakerDiarizationConfig;
-    }
 
     return {
       message: "StartRecognition",
@@ -744,23 +730,15 @@ export class SpeechmaticsLiveClient {
   ) {
     if (results.length === 0) return;
 
-    const groups =
-      this.transcriptionMode === "basic"
-        ? groupSpeechmaticsResultsAsConversation(results)
-        : groupSpeechmaticsResultsBySpeaker(results, opts.isEcho);
+    const groups = groupSpeechmaticsResultsBySpeaker(results, opts.isEcho);
 
     groups.forEach((group, index) => {
-      const basicMode = this.transcriptionMode === "basic";
-      const speaker = basicMode
-        ? 0
-        : this.speakerIndexForLabel(group.providerSpeakerLabel);
+      const speaker = this.speakerIndexForLabel(group.providerSpeakerLabel);
       const speakerName =
-        basicMode
-          ? BASIC_SPEAKER_NAME
-          : this.speakerLabelToName.get(group.providerSpeakerLabel) ??
-            (/^s\d+$/i.test(group.providerSpeakerLabel)
-              ? null
-              : safeSpeakerLabel(group.providerSpeakerLabel));
+        this.speakerLabelToName.get(group.providerSpeakerLabel) ??
+        (/^s\d+$/i.test(group.providerSpeakerLabel)
+          ? null
+          : safeSpeakerLabel(group.providerSpeakerLabel));
 
       if (opts.isFinal) {
         devLog("speaker", "Speechmatics speaker label mapped.", {

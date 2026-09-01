@@ -7,6 +7,7 @@ import {
 } from "@/components/sessions/icons";
 import type { OverviewContentMode } from "@/components/sessions/OverviewView";
 import { useEducationAnchor } from "@/components/education/EducationProvider";
+import "./overview-header.css";
 
 function ResumeArrowIcon() {
   return (

@@ -10,8 +10,14 @@ const CONNECT_RETRIES = 1;
 const CONNECT_RETRY_DELAY_MS = 150;
 /** How long Cartesia may wait for more transcript before starting to speak.
  * The first fragment uses a shorter delay so first-audio is prompt; later
- * fragments keep this join window so continuation still sounds like one phrase. */
-const FIRST_BUFFER_DELAY_MS = 80;
+ * fragments keep this join window so continuation still sounds like one phrase.
+ *
+ * This is a straight wait in front of the answer's first audible sample, so it
+ * costs its full value on every turn. 70ms still gives Sonic a beat of clause
+ * context; the sentence-level prosody people actually notice comes from riding
+ * one context across fragments, not from this buffer. Raise it if the opening
+ * word sounds clipped in a real room. */
+const FIRST_BUFFER_DELAY_MS = 70;
 const MAX_BUFFER_DELAY_MS = 250;
 
 export const CARTESIA_PCM_SAMPLE_RATE = 24000;

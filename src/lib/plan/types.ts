@@ -11,7 +11,7 @@ import type { AskModelId } from "@/lib/aria/models";
  */
 export interface UserPlanDoc {
   tier: Tier;
-  /** Day-of-month (1–28) the billing period rolls over. Defaults to signup day. */
+  /** Day-of-month (1–28) the monthly billing period rolls over. Defaults to signup day. */
   billingAnchorDay: number;
   createdAt: string;
   updatedAt: string;
@@ -23,7 +23,9 @@ export interface UserPlanDoc {
   cancelAtPeriodEnd?: boolean;
   /** ISO timestamp when the current Stripe billing period ends. */
   currentPeriodEnd?: string | null;
-  /** Preferred mode for new sessions. Free tier resolves to basic regardless. */
+  /** Pre-paid additional listening seconds purchased via Top-Up packs (never expire). */
+  topUpListeningSeconds?: number | null;
+  /** Preferred mode for new sessions (canonical mode is "speaker"). */
   defaultTranscriptionMode?: TranscriptionMode | null;
   /** Preferred LLM for Kivo's live spoken answers. `null`/unset falls back to the default. */
   answerModel?: AskModelId | null;
@@ -43,8 +45,7 @@ export interface UsageDoc {
   listeningSeconds: number;
   /**
    * Subset of `listeningSeconds` accrued while a session was in `speaker`
-   * transcription mode. Free tier's Speaker recognition minutes are capped
-   * against this counter; other tiers track it for display only.
+   * transcription mode. Diarization is now standard across all tiers.
    */
   speakerSeconds: number;
   askTokens: number;
@@ -73,6 +74,9 @@ export function emptyUsage(periodKey: string): UsageDoc {
 export interface UsageSummary {
   tier: Tier;
   periodKey: string;
+  periodUnit: "week" | "month";
+  resetsAt: string;
+  topUpRemainingSeconds: number;
   listening: {
     usedSeconds: number;
     capSeconds: number;

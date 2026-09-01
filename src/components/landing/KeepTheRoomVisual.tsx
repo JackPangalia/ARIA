@@ -100,8 +100,8 @@ export function KeepTheRoomVisual() {
   return (
     <figure className="lp-scene-visual lp-scene-photo lp-scene-keep">
       <Image
-        src="/landing/kivo-landscape-mountain-beach-motion-v1.png"
-        alt="A turquoise mountain beach softened by painterly motion blur"
+        src="/landing/kivo-lifestyle-golf-pair-motion-v3.png"
+        alt="Two friends playing golf on a sunlit green, softened by sweeping motion blur"
         fill
         sizes="(max-width: 820px) 100vw, 62vw"
       />
@@ -120,15 +120,6 @@ export function KeepTheRoomVisual() {
               </li>
             ))}
           </ul>
-        </div>
-        <div className="lp-hear-wave lp-keep-wave">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
         </div>
       </div>
     </figure>

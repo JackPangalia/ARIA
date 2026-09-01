@@ -4,7 +4,8 @@
  */
 
 import type { PlanLimits, Tier } from "@/lib/plan/tiers";
-import type { UsageDoc, UsageSummary } from "@/lib/plan/types";
+import type { UsageDoc, UsageSummary, UserPlanDoc } from "@/lib/plan/types";
+import { periodEnd, weekEnd } from "@/lib/plan/period";
 
 function clampPct(used: number, cap: number): number {
   if (cap <= 0) return used > 0 ? 100 : 0;
@@ -17,13 +18,20 @@ export function listeningCapSeconds(limits: PlanLimits): number {
 
 export function remainingListeningSeconds(
   limits: PlanLimits,
-  usage: UsageDoc
+  usage: UsageDoc,
+  plan?: UserPlanDoc | null
 ): number {
-  return Math.max(0, listeningCapSeconds(limits) - usage.listeningSeconds);
+  const baseRemaining = Math.max(0, listeningCapSeconds(limits) - usage.listeningSeconds);
+  const topUpRemaining = Math.max(0, Number(plan?.topUpListeningSeconds ?? 0));
+  return baseRemaining + topUpRemaining;
 }
 
-export function listeningExhausted(limits: PlanLimits, usage: UsageDoc): boolean {
-  return remainingListeningSeconds(limits, usage) <= 0;
+export function listeningExhausted(
+  limits: PlanLimits,
+  usage: UsageDoc,
+  plan?: UserPlanDoc | null
+): boolean {
+  return remainingListeningSeconds(limits, usage, plan) <= 0;
 }
 
 /** `null` = unlimited Speaker recognition minutes for this tier. */
@@ -82,13 +90,25 @@ export function historyCutoffIso(limits: PlanLimits, now: Date): string | null {
 export function usageSummary(
   tier: Tier,
   limits: PlanLimits,
-  usage: UsageDoc
+  usage: UsageDoc,
+  plan?: UserPlanDoc | null,
+  now: Date = new Date()
 ): UsageSummary {
   const capSeconds = listeningCapSeconds(limits);
-  const remaining = remainingListeningSeconds(limits, usage);
+  const remaining = remainingListeningSeconds(limits, usage, plan);
+  const topUpRemaining = Math.max(0, Number(plan?.topUpListeningSeconds ?? 0));
+  const periodUnit = limits.periodUnit ?? (tier === "free" ? "week" : "month");
+  const resetsAt =
+    periodUnit === "week"
+      ? weekEnd(now).toISOString()
+      : periodEnd(plan?.billingAnchorDay ?? 1, now).toISOString();
+
   return {
     tier,
     periodKey: usage.periodKey,
+    periodUnit,
+    resetsAt,
+    topUpRemainingSeconds: topUpRemaining,
     listening: {
       usedSeconds: usage.listeningSeconds,
       capSeconds,

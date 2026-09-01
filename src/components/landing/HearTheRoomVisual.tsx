@@ -165,15 +165,6 @@ export function HearTheRoomVisual() {
             />
           </text>
         </svg>
-        <div className="lp-hear-wave">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
       </div>
     </figure>
   );

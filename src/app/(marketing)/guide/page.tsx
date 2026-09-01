@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { KivoLogo } from "@/components/brand/KivoLogo";
 import "./guide.css";
 
 export const metadata: Metadata = {
@@ -48,7 +49,7 @@ export default function GuidePage() {
       <a className="lp-skip" href="#guide-content">Skip to guide</a>
       <header className="lp-nav kg-nav">
         <div className="lp-wrap kg-nav-inner">
-          <Link href="/" className="lp-wordmark" aria-label="Kivo home">Kivo</Link>
+          <Link href="/" aria-label="Kivo home"><KivoLogo className="lp-wordmark" /></Link>
           <nav aria-label="Guide navigation">
             <Link href="/guide" className="lp-link" aria-current="page">Guide</Link>
             <Link href="/#pricing" className="lp-link">Pricing</Link>
@@ -132,7 +133,7 @@ export default function GuidePage() {
             </section>
 
             <footer className="kg-article-end">
-              <span aria-hidden="true">K</span><p>You don’t need to memorize any of this. New users get small, optional tips as they use Kivo.</p>
+              <KivoLogo variant="mark" className="kg-end-mark" title="Kivo" /><p>You don’t need to memorize any of this. New users get small, optional tips as they use Kivo.</p>
             </footer>
           </article>
         </div>
@@ -143,7 +144,7 @@ export default function GuidePage() {
           <Link href="/app" className="lp-btn lp-btn-primary">Start a conversation <span aria-hidden="true">↗</span></Link>
         </section>
       </main>
-      <footer className="lp-wrap kg-footer"><Link href="/" className="lp-wordmark">Kivo</Link><p>In the room with you.</p><nav aria-label="Footer"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="#top">Back to top ↑</a></nav></footer>
+      <footer className="lp-wrap kg-footer"><Link href="/" aria-label="Kivo home"><KivoLogo className="lp-wordmark" /></Link><p>In the room with you.</p><nav aria-label="Footer"><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><a href="#top">Back to top ↑</a></nav></footer>
     </div>
   );
 }

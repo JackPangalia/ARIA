@@ -41,7 +41,7 @@ export const SETTINGS_TAB_META: Record<
   appearance: {
     label: "Appearance",
     title: "Appearance",
-    description: "Theme and the floating desktop widget.",
+    description: "Theme, the session orb, and the floating desktop widget.",
   },
   model: {
     label: "Model & voice",

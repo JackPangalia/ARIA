@@ -4,6 +4,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { ProjectDoc } from "@/lib/projects/types";
 import type { SessionDoc } from "@/lib/sessions/types";
+import { KivoLogo } from "@/components/brand/KivoLogo";
 import { SidebarProfileFooter } from "@/components/sessions/SidebarProfileFooter";
 import { DesktopSidebar, Sidebar } from "@/components/ui/sidebar";
 import {
@@ -299,11 +300,11 @@ export function WorkspaceRail(
             onClick={props.onHome}
             aria-label="Home"
             aria-current={props.surface === "home" ? "page" : undefined}
-            className={`kivo-rail-wordmark kivo-wordmark select-none text-app ${
+            className={`kivo-rail-wordmark select-none text-app ${
               props.expanded ? "is-expanded" : "is-collapsed"
             }`}
           >
-            {props.expanded ? "Kivo" : "K"}
+            {props.expanded ? <KivoLogo /> : <KivoLogo variant="mark" />}
           </button>
           {props.expanded ? (
             <button
@@ -413,9 +414,9 @@ export function WorkspaceNavSheet(
                 type="button"
                 onClick={closeThen(props.onHome)}
                 aria-label="Home"
-                className="kivo-rail-wordmark kivo-wordmark text-app"
+                className="kivo-rail-wordmark text-app"
               >
-                Kivo
+                <KivoLogo />
               </button>
               <button
                 type="button"

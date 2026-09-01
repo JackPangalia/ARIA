@@ -20,7 +20,7 @@ import {
 import {
   anchorDayFromDate,
   clampAnchorDay,
-  currentPeriodKey,
+  periodKeyForTier,
 } from "@/lib/plan/period";
 import { emptyUsage, type UsageDoc, type UserPlanDoc } from "@/lib/plan/types";
 import type { TranscriptionMode } from "@/lib/sessions/types";
@@ -31,9 +31,55 @@ import { isKivoVoiceId } from "@/lib/audio/voices";
 function planRef(db: Firestore, uid: string) {
   return db.collection("users").doc(uid).collection("private").doc("plan");
 }
+
+/**
+ * Short-lived entitlement cache for the ask path.
+ *
+ * `loadEntitlements` is two *serial* Firestore reads — `getOrCreatePlan`, then
+ * `readUsage` against a period key derived from the plan's tier and billing
+ * anchor. In `/api/ask` it runs alongside the rate-limit and session reads, so
+ * once those are fast it becomes the slowest leg of the pre-LLM fan-out and
+ * sets the floor on time-to-first-token.
+ *
+ * What goes stale, and why it is acceptable:
+ * - **Usage counters** drift for up to the TTL, so a user at their ceiling may
+ *   get a few extra asks. The route already treats this as "a soft backstop:
+ *   only blocked once fully over the generous budget" and fails open on a read
+ *   error; the hard 20/min rate limit is what actually bounds a runaway client.
+ * - **Preferences** (answer model, voice) would otherwise take up to the TTL to
+ *   apply, which *is* user-visible — so every plan-doc write goes through
+ *   {@link writePlanDoc}, which invalidates.
+ */
+const ENTITLEMENTS_TTL_MS = 30_000;
+
+const entitlementsCache = new Map<
+  string,
+  { value: Entitlements; expiresAt: number }
+>();
+
+/**
+ * Every plan-doc write in this file funnels through here so cache invalidation
+ * cannot be forgotten when a new setter is added. Writing to `planRef` directly
+ * would leave a stale preference served to the ask path.
+ */
+async function writePlanDoc(
+  db: Firestore,
+  uid: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  await planRef(db, uid).set(data, { merge: true });
+  entitlementsCache.delete(uid);
+}
+
+/** For tests only. */
+export function resetEntitlementsCacheForTests(): void {
+  entitlementsCache.clear();
+}
+
 function usageCol(db: Firestore, uid: string) {
   return db.collection("users").doc(uid).collection("usage");
 }
+
 function usageRef(db: Firestore, uid: string, periodKey: string) {
   return usageCol(db, uid).doc(periodKey);
 }
@@ -64,6 +110,7 @@ function mapPlan(data: DocumentData): UserPlanDoc {
     stripeStatus: data.stripeStatus ? String(data.stripeStatus) : null,
     cancelAtPeriodEnd: Boolean(data.cancelAtPeriodEnd),
     currentPeriodEnd: data.currentPeriodEnd ? toIso(data.currentPeriodEnd) : null,
+    topUpListeningSeconds: Number(data.topUpListeningSeconds ?? 0),
     defaultTranscriptionMode,
     answerModel: isAskModelId(data.answerModel) ? data.answerModel : null,
     voiceId: isKivoVoiceId(data.voiceId) ? data.voiceId : null,
@@ -116,22 +163,14 @@ export async function getUserTier(uid: string): Promise<Tier> {
 }
 
 /**
- * Free tier gets a limited monthly allotment of Speaker recognition minutes
- * (see `PlanLimits.speakerMinutesPerMonth`); once exhausted, new sessions fall
- * back to Basic until the allotment resets next period. Active sessions keep
- * the mode they started with — diarization can't change mid-connection.
+ * Standard transcription mode across all tiers is speaker diarization.
  */
 export function effectiveDefaultTranscriptionMode(
   tier: Tier,
   preferred: TranscriptionMode | null | undefined,
-  limits?: PlanLimits,
-  usage?: UsageDoc
+  _limits?: PlanLimits,
+  _usage?: UsageDoc
 ): TranscriptionMode {
-  if (tier === "free") {
-    if (preferred !== "speaker") return "basic";
-    if (limits && usage && speakerModeExhausted(limits, usage)) return "basic";
-    return "speaker";
-  }
   return preferred ?? "speaker";
 }
 
@@ -139,26 +178,11 @@ export async function setDefaultTranscriptionMode(
   uid: string,
   mode: TranscriptionMode
 ): Promise<UserPlanDoc> {
-  const entitlements = await loadEntitlements(uid);
-  const { plan } = entitlements;
-  if (
-    plan.tier === "free" &&
-    mode === "speaker" &&
-    speakerModeExhausted(entitlements.limits, entitlements.usage)
-  ) {
-    throw new Error(
-      "You've used your 2 hours of Speaker recognition for this month. Upgrade for unlimited access."
-    );
-  }
-
   const db = getAdminDb();
-  await planRef(db, uid).set(
-    {
-      defaultTranscriptionMode: mode,
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
+  await writePlanDoc(db, uid, {
+    defaultTranscriptionMode: mode,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return getOrCreatePlan(uid);
 }
 
@@ -168,13 +192,10 @@ export async function setAnswerModel(
   model: AskModelId
 ): Promise<UserPlanDoc> {
   const db = getAdminDb();
-  await planRef(db, uid).set(
-    {
-      answerModel: model,
-      updatedAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
+  await writePlanDoc(db, uid, {
+    answerModel: model,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return getOrCreatePlan(uid);
 }
 
@@ -188,19 +209,27 @@ export async function setVoiceSettings(
     updatedAt: FieldValue.serverTimestamp(),
   };
   if (settings.voiceId !== undefined) update.voiceId = settings.voiceId;
-  await planRef(db, uid).set(update, { merge: true });
+  await writePlanDoc(db, uid, update);
   return getOrCreatePlan(uid);
 }
 
 /** Admin/dev only (set-tier script). Never called from client routes. */
 export async function setUserTier(uid: string, tier: Tier): Promise<void> {
   const db = getAdminDb();
-  await planRef(db, uid).set(
-    { tier, updatedAt: FieldValue.serverTimestamp() },
-    { merge: true }
-  );
+  await writePlanDoc(db, uid, { tier, updatedAt: FieldValue.serverTimestamp() });
   // Ensure a plan doc with an anchor exists even if set before first login.
   await getOrCreatePlan(uid);
+}
+
+/** Adds pre-paid top-up listening seconds to the user's plan. */
+export async function addTopUpSeconds(uid: string, seconds: number): Promise<UserPlanDoc> {
+  if (!Number.isFinite(seconds) || seconds <= 0) return getOrCreatePlan(uid);
+  const db = getAdminDb();
+  await writePlanDoc(db, uid, {
+    topUpListeningSeconds: FieldValue.increment(Math.round(seconds)),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return getOrCreatePlan(uid);
 }
 
 export interface StripePlanPatch {
@@ -218,10 +247,7 @@ export async function updatePlanStripeFields(
   patch: StripePlanPatch
 ): Promise<void> {
   const db = getAdminDb();
-  await planRef(db, uid).set(
-    { ...patch, updatedAt: FieldValue.serverTimestamp() },
-    { merge: true }
-  );
+  await writePlanDoc(db, uid, { ...patch, updatedAt: FieldValue.serverTimestamp() });
 }
 
 export interface StripePlanSync extends StripePlanPatch {
@@ -281,16 +307,20 @@ export async function updatePlanFromStripe(
   } else {
     await ref.set(fields, { merge: true });
   }
+  // Writes the plan doc directly (transaction + stale-event guard), so it can't
+  // route through writePlanDoc — invalidate here or a tier change waits out the
+  // entitlement TTL before the new limits apply.
+  entitlementsCache.delete(uid);
   await getOrCreatePlan(uid);
 }
 
 /** Dunning flag: set when Stripe reports a failed payment; cleared on recovery. */
 export async function markPaymentFailed(uid: string): Promise<void> {
   const db = getAdminDb();
-  await planRef(db, uid).set(
-    { paymentFailedAt: new Date().toISOString(), updatedAt: FieldValue.serverTimestamp() },
-    { merge: true }
-  );
+  await writePlanDoc(db, uid, {
+    paymentFailedAt: new Date().toISOString(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
 }
 
 /**
@@ -334,9 +364,28 @@ export interface Entitlements {
 export async function loadEntitlements(uid: string): Promise<Entitlements> {
   const db = getAdminDb();
   const plan = await getOrCreatePlan(uid);
-  const periodKey = currentPeriodKey(plan.billingAnchorDay, new Date());
+  const periodKey = periodKeyForTier(plan.tier, plan.billingAnchorDay, new Date());
   const usage = await readUsage(db, uid, periodKey);
   return { plan, tier: plan.tier, limits: planLimits(plan.tier), usage, periodKey };
+}
+
+/**
+ * Entitlements for the ask path, served from a short-lived cache — see the
+ * note on {@link ENTITLEMENTS_TTL_MS} for what may go stale and why that is
+ * acceptable *here specifically*.
+ *
+ * Deliberately not the default: the billing panel and usage meter exist to show
+ * the user their current numbers, and must keep reading through.
+ */
+export async function loadEntitlementsCached(uid: string): Promise<Entitlements> {
+  const cached = entitlementsCache.get(uid);
+  if (cached && cached.expiresAt >= Date.now()) return cached.value;
+  const value = await loadEntitlements(uid);
+  entitlementsCache.set(uid, {
+    value,
+    expiresAt: Date.now() + ENTITLEMENTS_TTL_MS,
+  });
+  return value;
 }
 
 export interface HeartbeatResult {
@@ -356,12 +405,16 @@ export async function accrueListeningHeartbeat(
   transcriptionMode?: TranscriptionMode
 ): Promise<HeartbeatResult> {
   const db = getAdminDb();
-  const plan = await getOrCreatePlan(uid);
-  const limits = planLimits(plan.tier);
-  const periodKey = currentPeriodKey(plan.billingAnchorDay, new Date());
-  const ref = usageRef(db, uid, periodKey);
+  const pRef = planRef(db, uid);
+  const now = new Date();
 
   return db.runTransaction(async (tx) => {
+    const planSnap = await tx.get(pRef);
+    const plan = planSnap.exists ? mapPlan(planSnap.data() ?? {}) : await getOrCreatePlan(uid);
+    const limits = planLimits(plan.tier);
+    const periodKey = periodKeyForTier(plan.tier, plan.billingAnchorDay, now);
+    const ref = usageRef(db, uid, periodKey);
+
     const snap = await tx.get(ref);
     const current = snap.exists
       ? mapUsage(periodKey, snap.data() ?? {})
@@ -378,7 +431,27 @@ export async function accrueListeningHeartbeat(
     }
     // First heartbeat of a (re)started session establishes the baseline only.
 
+    const baseCap = limits.listeningMinutesPerMonth * 60;
+    let topUpDeduction = 0;
     const nextSeconds = current.listeningSeconds + deltaSeconds;
+
+    if (nextSeconds > baseCap && (plan.topUpListeningSeconds ?? 0) > 0 && deltaSeconds > 0) {
+      const previousExcess = Math.max(0, current.listeningSeconds - baseCap);
+      const newExcess = nextSeconds - baseCap;
+      const incrementalExcess = newExcess - previousExcess;
+      topUpDeduction = Math.min(plan.topUpListeningSeconds ?? 0, incrementalExcess);
+      if (topUpDeduction > 0) {
+        tx.set(
+          pRef,
+          {
+            topUpListeningSeconds: FieldValue.increment(-topUpDeduction),
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    }
+
     tx.set(
       ref,
       {
@@ -394,7 +467,9 @@ export async function accrueListeningHeartbeat(
       { merge: true }
     );
 
-    const remaining = Math.max(0, limits.listeningMinutesPerMonth * 60 - nextSeconds);
+    const remainingBase = Math.max(0, baseCap - nextSeconds);
+    const remainingTopUp = Math.max(0, (plan.topUpListeningSeconds ?? 0) - topUpDeduction);
+    const remaining = remainingBase + remainingTopUp;
     return { remainingSeconds: remaining, stop: remaining <= 0 };
   });
 }
@@ -404,7 +479,7 @@ export async function recordAsk(uid: string, tokens: number): Promise<void> {
   if (!Number.isFinite(tokens) || tokens <= 0) return;
   const db = getAdminDb();
   const plan = await getOrCreatePlan(uid);
-  const periodKey = currentPeriodKey(plan.billingAnchorDay, new Date());
+  const periodKey = periodKeyForTier(plan.tier, plan.billingAnchorDay, new Date());
   await usageRef(db, uid, periodKey).set(
     {
       periodKey,

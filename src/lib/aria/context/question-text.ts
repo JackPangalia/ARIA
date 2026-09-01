@@ -90,9 +90,40 @@ export function extractSearchTerms(question: string): string[] {
   return [...terms];
 }
 
+/**
+ * Comparison key for "are these two renderings of the same spoken question".
+ *
+ * Words only. Speculation fires against a live *partial* and is adopted against
+ * the settled *final*, and Speechmatics adds terminal punctuation only on the
+ * final — so comparing raw text meant "what is this meeting about" never
+ * matched "What is this meeting about?", and every question the provider
+ * punctuated threw away the pre-warm that had been running through the whole
+ * endpoint wait. Nothing an answer would turn on lives in the punctuation,
+ * casing, or spacing, so none of it belongs in the key.
+ */
+function questionMatchKey(text: string): string {
+  return sanitizeQuestionText(text)
+    .toLowerCase()
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z0-9'\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function questionsMatchForContext(a: string, b: string): boolean {
-  const left = sanitizeQuestionText(a).toLowerCase();
-  const right = sanitizeQuestionText(b).toLowerCase();
+  const left = questionMatchKey(a);
+  const right = questionMatchKey(b);
   if (!left || !right) return false;
   return left === right;
+}
+
+/**
+ * True when `draft` is a strict prefix of `candidate` in words — used to keep a
+ * longer in-flight speculation when STT flickers a shorter partial behind it.
+ */
+export function questionExtendsDraft(draft: string, candidate: string): boolean {
+  const shorter = questionMatchKey(draft);
+  const longer = questionMatchKey(candidate);
+  if (!shorter || !longer) return false;
+  return longer === shorter || longer.startsWith(`${shorter} `);
 }

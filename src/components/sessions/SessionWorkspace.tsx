@@ -8,13 +8,13 @@ import { SessionViewTabs } from "@/components/aria/SessionViewTabs";
 import { useAriaRecording } from "@/lib/audio/use-aria-recording";
 import { SessionSearchModal } from "@/components/sessions/SessionSearchModal";
 import { SessionHub } from "@/components/sessions/SessionHub";
+import { LiveSessionHeader } from "@/components/sessions/LiveSessionHeader";
 import {
   WorkspaceNavSheet,
   WorkspaceRail,
 } from "@/components/sessions/WorkspaceRail";
 import {
   BreadcrumbCrumb,
-  FolderIcon,
   HeaderIconButton,
   HeaderPrimaryButton,
   WorkspaceHeader,
@@ -48,7 +48,7 @@ import {
   DEFAULT_SETTINGS_TAB,
   type SettingsTab,
 } from "@/components/settings/settings-nav";
-import { SessionIcon, StopIcon } from "@/components/sessions/icons";
+import { SessionIcon } from "@/components/sessions/icons";
 import { OverviewTray } from "@/components/sessions/OverviewTray";
 import { SidebarProfileFooter } from "@/components/sessions/SidebarProfileFooter";
 import {
@@ -893,13 +893,12 @@ function SessionWorkspaceContent() {
     [sessions, activeProject],
   );
 
-  // The header names the current surface. Recording replaces it with Stop.
-  const crumb = recording.isRunning ? null : showHub ? (
-    <BreadcrumbCrumb>Home</BreadcrumbCrumb>
-  ) : showProjectHub && activeProject ? (
-    <BreadcrumbCrumb icon={<FolderIcon />}>
-      {activeProject.name}
-    </BreadcrumbCrumb>
+  // Home needs no label; recording has its controls inside the live panel.
+  const crumb = recording.isRunning || showHub ? null : showProjectHub && activeProject ? (
+    <div className="kivo-project-heading">
+      <h1>{activeProject.name}</h1>
+      <p>{activeProject.instructions || "Conversations and source material, together in one place."}</p>
+    </div>
   ) : opening ? (
     <BreadcrumbCrumb icon={<SessionIcon />}>
       {openingTitle ?? "Conversation"}
@@ -1055,10 +1054,10 @@ function SessionWorkspaceContent() {
           onOpenSettings={openSettings}
         />
 
-        <section className="kivo-desktop-main relative flex min-h-0 min-w-0 flex-1 flex-col bg-transparent">
-          {/* One header for every surface. It carries the desktop titlebar inset,
-            the window drag region, and the offset the orb centres against, so
-            no surface may opt out of it. */}
+        <section className={`kivo-desktop-main ${recording.isRunning ? "kivo-desktop-main--live" : showOverviewPanel ? "kivo-desktop-main--overview" : showHub ? "kivo-desktop-main--home" : showProjectHub ? "kivo-desktop-main--project" : ""} relative flex min-h-0 min-w-0 flex-1 flex-col bg-transparent`}>
+          {/* Keep mobile navigation and native window dragging available. On
+            desktop, Home and live mode reduce the empty header to a slim drag
+            strip. Live controls sit inside the white surface. */}
           <WorkspaceHeader
             navigation={
               <span className="kivo-mobile-nav-trigger lg:hidden">
@@ -1086,29 +1085,6 @@ function SessionWorkspaceContent() {
                     recording.busy || detail.session.status === "archived"
                   }
                 />
-              ) : recording.isRunning ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void recording.stop()}
-                    disabled={recording.busy}
-                    aria-label="Stop recording"
-                    className="kivo-session-stop"
-                  >
-                    <StopIcon size={16} />
-                    <span>Stop</span>
-                  </button>
-                  {canSilence ? (
-                    <button
-                      type="button"
-                      onClick={() => recording.stopSpeaking()}
-                      aria-label="Stop Kivo speaking"
-                      className="kivo-session-silence"
-                    >
-                      Silence
-                    </button>
-                  ) : null}
-                </div>
               ) : (
                 crumb
               )
@@ -1163,6 +1139,18 @@ function SessionWorkspaceContent() {
           />
 
           <div className="kivo-desktop-surface relative flex min-h-0 min-w-0 flex-1 flex-col">
+            {recording.isRunning ? (
+              <LiveSessionHeader
+                title={detail?.session.title ?? "Conversation"}
+                onRenameTitle={(title) => {
+                  if (selectedSessionId) void handleRename(selectedSessionId, title);
+                }}
+                onStop={() => void recording.stop()}
+                busy={recording.busy}
+                canSilence={canSilence}
+                onSilence={() => recording.stopSpeaking()}
+              />
+            ) : null}
             {error ? (
               <div className="mx-3 mb-2 shrink-0 rounded-lg bg-danger px-4 py-2 text-sm font-medium text-danger sm:mx-4">
                 {error}
@@ -1179,7 +1167,7 @@ function SessionWorkspaceContent() {
                   sessions={filteredSessions}
                   activeSession={activeHomeSession}
                   onPrimaryAction={() => void handleHomePrimaryAction()}
-                primaryBusy={actionBusy}
+                  primaryBusy={actionBusy}
                   onOpenSearch={openSearch}
                   onSelectProject={selectProject}
                   onCreateProject={() => setProjectEditor({ mode: "create" })}

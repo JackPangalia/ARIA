@@ -19,6 +19,7 @@ import {
 } from "@/lib/sessions/detail-cache";
 import { Spinner } from "./Loaders";
 import { useEducationAnchor } from "@/components/education/EducationProvider";
+import "./session-hub.css";
 
 function formatDate(value: string | number) {
   return new Date(value).toLocaleDateString(undefined, {
@@ -47,6 +48,7 @@ export function SessionHub(props: {
   onCreateProject: () => void;
   onSelectSession: (sessionId: string) => void;
 }) {
+  const [showAllProjects, setShowAllProjects] = useState(false);
   const [hour] = useState(() => new Date().getHours());
   const educationAnchor = useEducationAnchor<HTMLButtonElement>("start");
 
@@ -58,17 +60,17 @@ export function SessionHub(props: {
       ),
     [props.sessions],
   );
-  const recentSessions = sortedSessions.slice(0, 9);
+  const recentSessions = sortedSessions.slice(0, 5);
   const heroMode = homeHeroMode(props.sessions);
 
   const projectSessionCount = (projectId: string) =>
     props.sessions.filter((session) => session.projectId === projectId).length;
 
   return (
-    <main className="pointer-events-auto h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain" id="main-content">
-      <div className="kivo-home-canvas mx-auto w-full max-w-[70rem] px-5 pb-24 pt-4 sm:px-8 sm:pb-28 sm:pt-7 xl:px-10">
+    <main className="kivo-home-scroll pointer-events-auto h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain" id="main-content">
+      <div className="kivo-home-canvas mx-auto w-full">
         <section
-          className="kivo-home-hero group relative isolate overflow-hidden rounded-[1.75rem]"
+          className="kivo-home-hero group relative isolate overflow-hidden rounded-2xl"
           data-mode={heroMode}
           aria-labelledby="home-hero-title"
         >
@@ -76,21 +78,21 @@ export function SessionHub(props: {
             src="/landing/kivo-session-afterglow-motion-v1.png"
             alt="A warmly lit meeting room after a conversation"
             fill
-            priority
-            sizes="(max-width: 1024px) 100vw, 1120px"
+            preload
+            sizes="(max-width: 1023px) 100vw, (max-width: 1800px) 90vw, 1600px"
             className="kivo-home-hero-image object-cover"
           />
           <div className="kivo-home-hero-scrim absolute inset-0" />
-          <div className="relative z-10 flex h-full max-w-[38rem] flex-col items-start justify-end px-6 py-7 text-[#fbf8f0] sm:px-9 sm:py-9 lg:px-11 lg:py-10">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/62">
+          <div className="kivo-home-hero-copy relative z-10 flex flex-col items-start justify-center text-[#fbf8f0]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
               {homeGreeting(hour, props.displayName)}
             </p>
-            <h1 id="home-hero-title" className="mt-3 max-w-[11em] font-serif text-[1.85rem] font-normal leading-[0.98] tracking-[-0.045em] text-balance sm:text-[3.15rem]">
+            <h1 id="home-hero-title" className="kivo-home-hero-title mt-3 max-w-[11em] font-serif font-normal leading-[1.02] tracking-[-0.04em] text-balance">
               {heroMode === "first_use"
                 ? "Bring Kivo into the next conversation."
                 : "The room is ready when you are."}
             </h1>
-            <p className="mt-4 max-w-[34rem] text-sm leading-relaxed text-white/72 sm:text-[15px]">
+            <p className="mt-4 max-w-[28rem] text-sm leading-relaxed text-white/85 sm:text-[15px]">
               {props.activeSession
                 ? `Pick up “${props.activeSession.title}” with the context still intact.`
                 : "Start listening, ask out loud, and leave with the conversation intact."}
@@ -117,42 +119,44 @@ export function SessionHub(props: {
         <button
           type="button"
           onClick={props.onOpenSearch}
-          className="kivo-home-search group mt-5 flex w-full items-center gap-3 rounded-2xl border border-app-subtle bg-[color-mix(in_srgb,var(--app-surface)_55%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] duration-200 hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+          className="kivo-home-search group mt-4 flex min-h-14 w-full items-center gap-3 rounded-xl bg-[color-mix(in_srgb,var(--app-surface)_35%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] duration-200 hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary active:translate-y-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
         >
           <SearchIcon className="shrink-0 transition-colors group-hover:text-app" />
           <span className="min-w-0 flex-1 truncate">Search conversations</span>
-          <kbd className="hidden rounded-md border border-app-subtle bg-[color-mix(in_srgb,var(--app-bg)_60%,transparent)] px-2 py-0.5 font-mono text-[10px] text-app-subtle sm:inline">⌘K</kbd>
+          <kbd className="hidden rounded-md bg-[color-mix(in_srgb,var(--app-bg)_60%,transparent)] px-2 py-0.5 font-mono text-[10px] text-app-subtle sm:inline">⌘K</kbd>
         </button>
 
-        <div className="kivo-home-sections mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.8fr)] lg:gap-10">
-          <section aria-labelledby="home-recent-heading" className="kivo-home-section min-w-0 order-1">
-            <div className="flex items-end justify-between gap-4 border-b border-app-subtle pb-3">
-              <div className="min-w-0">
-                <p className="kivo-kicker">Your history</p>
-                <h2 id="home-recent-heading" className="mt-1 font-serif text-[1.75rem] leading-tight tracking-[-0.035em] text-app">Recent conversations</h2>
-              </div>
-              {sortedSessions.length > recentSessions.length ? (
-                <button type="button" onClick={props.onOpenSearch} className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-app-muted transition-colors hover:bg-surface-hover hover:text-app">View all</button>
+        <div className="kivo-home-sections mt-4 grid items-start gap-4">
+          <section aria-labelledby="home-recent-heading" className="kivo-home-section kivo-home-panel min-w-0">
+            <div className="kivo-home-panel-heading">
+              <h2 id="home-recent-heading" className="kivo-home-panel-title">
+                Recent conversations
+              </h2>
+              {sortedSessions.length > 3 ? (
+                <button type="button" onClick={props.onOpenSearch} className="kivo-home-view-all">View all <ArrowIcon /></button>
               ) : null}
             </div>
 
             {recentSessions.length ? (
-              <ul className="kivo-stagger mt-2 divide-y divide-[var(--app-border-subtle)]">
+              <ul className="kivo-home-session-list kivo-stagger mt-3 divide-y divide-[color-mix(in_srgb,var(--app-border-subtle)_65%,transparent)]">
                 {recentSessions.map((session) => (
                   <li key={session.id}>
                     <button
                       type="button"
                       onClick={() => props.onSelectSession(session.id)}
                       {...sessionPrefetchProps(session.id)}
-                      className="kivo-home-session-row group flex w-full items-center gap-3 rounded-xl px-2 py-3.5 text-left transition-[background-color,transform] duration-200 hover:translate-x-1 hover:bg-[color-mix(in_srgb,var(--app-surface-hover)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
+                      className="kivo-home-session-row group flex w-full items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-[background-color,transform] duration-200 hover:bg-[color-mix(in_srgb,var(--app-surface-hover)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app"
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center text-app-muted transition-colors group-hover:text-app"><SessionIcon size={17} /></span>
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-app-muted transition-colors group-hover:bg-surface group-hover:text-app"><SessionIcon size={17} /></span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-app">{session.title}</span>
-                        <span className="mt-0.5 block text-xs text-app-subtle">
-                          {session.status === "active" && session.turnCount > 0
-                            ? "In progress"
-                            : props.projects.find((project) => project.id === session.projectId)?.name ?? "Conversation"}
+                        <span className="mt-1 flex items-center gap-1.5 text-xs text-app-muted">
+                          {session.status === "active" && session.turnCount > 0 ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#aa956c]" aria-hidden /> : null}
+                          <span className="truncate">
+                            {session.status === "active" && session.turnCount > 0
+                              ? "In progress"
+                              : props.projects.find((project) => project.id === session.projectId)?.name ?? "Conversation"}
+                          </span>
                         </span>
                       </span>
                       <time className="shrink-0 text-xs tabular-nums text-app-subtle" dateTime={new Date(session.updatedAt).toISOString()}>{formatDate(session.updatedAt)}</time>
@@ -166,42 +170,57 @@ export function SessionHub(props: {
                 icon={<SessionIcon size={20} />}
                 title="Your first conversation starts here"
                 description="Kivo will keep the summary and transcript ready for when the room clears."
-                action={<button type="button" onClick={props.onPrimaryAction} className="text-sm font-medium text-app underline decoration-[var(--app-border-strong)] underline-offset-4 hover:decoration-[var(--app-fg)]">Start listening</button>}
+                action={<button type="button" onClick={props.onPrimaryAction} disabled={props.primaryBusy} className="disabled:opacity-50 text-sm font-medium text-app underline decoration-[var(--app-border-strong)] underline-offset-4 hover:decoration-[var(--app-fg)]">Start listening</button>}
               />
             )}
           </section>
 
-          <section aria-labelledby="home-projects-heading" className="kivo-home-projects min-w-0 order-2 p-5 sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <h2 id="home-projects-heading" className="font-serif text-[1.65rem] leading-tight tracking-[-0.035em] text-app">
-                Projects
-              </h2>
-              <button type="button" onClick={props.onCreateProject} className="flex h-9 w-9 items-center justify-center rounded-xl bg-app text-app-muted transition-[background-color,transform,color] hover:-translate-y-0.5 hover:bg-surface-strong hover:text-app active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app" aria-label="New project"><PlusIcon size={17} /></button>
-            </div>
-
-            {props.projects.length ? (
-              <ul className="mt-5 space-y-1">
-                {props.projects.slice(0, 7).map((project) => {
-                  const count = projectSessionCount(project.id);
-                  return (
-                    <li key={project.id}>
-                      <button type="button" onClick={() => props.onSelectProject(project.id)} className="group flex w-full items-center gap-3 rounded-xl px-2.5 py-3 text-left transition-[background-color,transform] hover:translate-x-0.5 hover:bg-[color-mix(in_srgb,var(--app-bg)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app">
-                        <FolderIcon size={17} className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
-                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-app">{project.name}</span>
-                        <span className="text-xs tabular-nums text-app-subtle">{count}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <div className="mt-8 pb-2">
-                <p className="font-serif text-xl tracking-[-0.025em] text-app">Give recurring conversations a home.</p>
-                <p className="mt-2 text-sm leading-relaxed text-app-muted">Projects add instructions and source material whenever Kivo answers.</p>
-                <button type="button" onClick={props.onCreateProject} className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-app transition-opacity hover:opacity-55"><PlusIcon size={16} />Create a project</button>
+          <div className="kivo-home-secondary grid min-w-0">
+            <section aria-labelledby="home-projects-heading" className="kivo-home-projects kivo-home-panel min-w-0">
+              <div className="kivo-home-panel-heading">
+                <h2 id="home-projects-heading" className="kivo-home-panel-title">
+                  Projects
+                </h2>
+                <button type="button" onClick={props.onCreateProject} className="flex h-9 w-9 items-center justify-center rounded-lg text-app-muted transition-[background-color,transform,color] hover:-translate-y-0.5 hover:bg-surface-strong hover:text-app active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app" aria-label="New project"><PlusIcon size={17} /></button>
               </div>
-            )}
-          </section>
+
+              {props.projects.length ? (
+                <ul id="home-project-list" className="mt-3">
+                  {props.projects.slice(0, showAllProjects ? undefined : 4).map((project) => {
+                    const count = projectSessionCount(project.id);
+                    return (
+                      <li key={project.id}>
+                        <button type="button" onClick={() => props.onSelectProject(project.id)} className="group flex w-full items-center gap-3 rounded-lg px-1 py-2.5 text-left transition-[background-color,transform] hover:translate-x-0.5 hover:bg-[color-mix(in_srgb,var(--app-bg)_70%,transparent)] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-app">
+                          <FolderIcon size={17} className="shrink-0 text-app-muted transition-colors group-hover:text-app" />
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-app">{project.name}</span>
+                          <span className="text-xs tabular-nums text-app-muted">{count}<span className="sr-only"> {count === 1 ? "conversation" : "conversations"}</span></span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="kivo-home-project-empty mt-8 pb-2">
+                  <p className="font-serif text-xl tracking-[-0.025em] text-app">Give recurring conversations a home.</p>
+                  <p className="mt-2 text-sm leading-relaxed text-app-muted">Projects add instructions and source material whenever Kivo answers.</p>
+                  <button type="button" onClick={props.onCreateProject} className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-app transition-opacity hover:opacity-55"><PlusIcon size={16} />Create a project</button>
+                </div>
+              )}
+              {props.projects.length > 4 ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllProjects((value) => !value)}
+                  aria-expanded={showAllProjects}
+                  aria-controls="home-project-list"
+                  className="kivo-home-project-toggle mt-3 flex w-full items-center gap-2 border-t border-app-subtle pt-3 text-left text-xs font-medium text-app-secondary transition-colors hover:text-app focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-app"
+                >
+                  {showAllProjects ? "Show fewer projects" : `View all ${props.projects.length} projects`}
+                  <ArrowIcon />
+                </button>
+              ) : null}
+            </section>
+
+          </div>
         </div>
       </div>
     </main>

@@ -82,6 +82,21 @@ export function UsageMeter() {
     );
   }
 
+  const periodUnit = usage.periodUnit ?? (usage.tier === "free" ? "week" : "month");
+  const periodNoun = periodUnit === "week" ? "week" : "month";
+  const topUpText =
+    usage.topUpRemainingSeconds > 0
+      ? ` (+${formatHm(usage.topUpRemainingSeconds)} top-up)`
+      : "";
+
+  const listeningSub = usage.listening.exhausted
+    ? "Used up — upgrade or buy top-up hours"
+    : `${formatHm(usage.listening.remainingSeconds)} left this ${periodNoun}${topUpText}`;
+
+  const asksSub = usage.asks.exhausted
+    ? "Used up — upgrade for more asks"
+    : `of this ${periodNoun}'s allowance used`;
+
   return (
     <div className="grok-stat-grid">
       <StatCard
@@ -96,22 +111,14 @@ export function UsageMeter() {
         }
         pct={usage.listening.pct}
         danger={usage.listening.pct >= 90}
-        sub={
-          usage.listening.exhausted
-            ? "Used up — upgrade for more hours"
-            : `${formatHm(usage.listening.remainingSeconds)} left this month`
-        }
+        sub={listeningSub}
       />
       <StatCard
         label="Kivo asks"
         value={`${usage.asks.pct}%`}
         pct={usage.asks.pct}
         danger={usage.asks.pct >= 90}
-        sub={
-          usage.asks.exhausted
-            ? "Used up — upgrade for more asks"
-            : "of this month's allowance used"
-        }
+        sub={asksSub}
       />
     </div>
   );

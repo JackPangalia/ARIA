@@ -16,6 +16,10 @@ export const EVENT_NAMES = [
   "ask_success",
   /** User clicked through to Stripe checkout. */
   "checkout_started",
+  /** User clicked through to Top-Up pack checkout. */
+  "topup_checkout_started",
+  /** Top-Up hours purchased. */
+  "topup_purchased",
   /** Paid plan activated (written server-side by the Stripe webhook). */
   "plan_activated",
 ] as const;

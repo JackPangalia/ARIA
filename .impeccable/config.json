@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-19T05:07:30.816Z",
+        "reason": "User asked to match landing typography; the landing page uses Inter as the product sans."
+      }
+    ]
+  }
+}

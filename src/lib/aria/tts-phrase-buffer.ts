@@ -29,36 +29,41 @@ export function stripMarkdownForSpeech(text: string): string {
 }
 
 const SENTENCE_BOUNDARY = /[.!?]+["')\]]*\s+|\n+/;
+/** First-flush cut: a comma/colon/semicolon with following space, or a sentence
+ * end. Requires whitespace after the mark so "1,234" is not treated as a clause. */
+const CLAUSE_BOUNDARY = /[,:;]["')\]]*\s+|[.!?]+["')\]]*\s+|\n+/;
 
 /**
  * Word-level streaming buffer for the single-context Cartesia WebSocket path.
  * Unlike VoicePhraseBuffer (which holds text until a full sentence — adding
  * most of a sentence's worth of latency before the first audio), this flushes
- * small word-aligned fragments as the LLM streams. The first flush is shorter
- * so first-audio is one short clause; later flushes stay a bit larger so
- * Cartesia's continuation mode can join them. Never splits mid-word.
+ * small word-aligned fragments as the LLM streams. The first flush waits for a
+ * short clause (punctuation, or ~40 characters) so Sonic is not asked to start
+ * speaking an unpunctuated stub; later flushes stay small so continuation can
+ * join them. Never splits mid-word.
  */
 export class WordStreamBuffer {
   private buffer = "";
   private emitted = 0;
 
   constructor(
-    private readonly firstMinChars = 20,
-    private readonly nextMinChars = 12
+    private readonly firstMinChars = 24,
+    private readonly nextMinChars = 12,
+    /**
+     * Ceiling on how far the *first* flush will chase a clause boundary. Without
+     * it, `cutIndex` returned a clause end wherever it sat — a comma 72
+     * characters in meant the answer's first audio waited on 72 characters of
+     * generation, which measured ~250ms of dead air after the first token.
+     */
+    private readonly firstMaxChars = 48
   ) {}
 
   push(token: string): string[] {
     this.buffer += token;
-    const minimum = this.emitted === 0 ? this.firstMinChars : this.nextMinChars;
-    if (this.buffer.length < minimum) return [];
-    // Flush up to the last whitespace so words stay intact; keep the tail.
-    const cut = Math.max(
-      this.buffer.lastIndexOf(" "),
-      this.buffer.lastIndexOf("\n")
-    );
+    const cut = this.cutIndex();
     if (cut <= 0) return [];
-    const out = this.buffer.slice(0, cut + 1);
-    this.buffer = this.buffer.slice(cut + 1);
+    const out = this.buffer.slice(0, cut);
+    this.buffer = this.buffer.slice(cut);
     if (!out.trim()) return [];
     this.emitted += 1;
     return [out];
@@ -68,6 +73,38 @@ export class WordStreamBuffer {
     const out = this.buffer;
     this.buffer = "";
     return out.trim() ? [out] : [];
+  }
+
+  private cutIndex(): number {
+    if (this.emitted === 0) {
+      // A near clause boundary is the nicest place to start speaking, but only
+      // if it is actually near — past the ceiling, cut at the last word
+      // boundary within it instead and let the clause land in the next
+      // fragment. Continuation rides the same Cartesia context either way, so
+      // the seam is inaudible.
+      const clauseEnd = this.clauseEnd();
+      if (clauseEnd > 0 && clauseEnd <= this.firstMaxChars) return clauseEnd;
+      if (this.buffer.length < this.firstMinChars) return -1;
+      return this.whitespaceCutBefore(this.firstMaxChars);
+    }
+    if (this.buffer.length < this.nextMinChars) return -1;
+    return this.whitespaceCutBefore(this.buffer.length);
+  }
+
+  private clauseEnd(): number {
+    const match = CLAUSE_BOUNDARY.exec(this.buffer);
+    if (!match) return -1;
+    return match.index + match[0].length;
+  }
+
+  /** Last word boundary at or before `limit`; -1 when the span has none
+   * (a single long token still in flight — never split mid-word). */
+  private whitespaceCutBefore(limit: number): number {
+    const cut = Math.max(
+      this.buffer.lastIndexOf(" ", limit),
+      this.buffer.lastIndexOf("\n", limit)
+    );
+    return cut <= 0 ? -1 : cut + 1;
   }
 }
 

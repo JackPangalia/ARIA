@@ -961,7 +961,12 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
   });
 
-  it("does not force the endpoint on a first-wake rambling statement", () => {
+  it("pre-warms a first-wake rambling statement without forcing the endpoint", () => {
+    // The two decisions are independent, and only one of them is committal.
+    // Forcing would end the speaker's turn mid-briefing, so it stays off.
+    // Speculating only warms a held response — never played unless the
+    // confirmed question matches, and the server defers persistence — so a
+    // statement gets the pre-warm its long settle leaves room for.
     const engine = new AriaEngine({
       sessionId: "session-1",
       transcriptionMode: "basic",
@@ -975,7 +980,10 @@ describe("AriaEngine semantic fast-path endpointing", () => {
     forceEndpoint(engine);
 
     expect(stt.forceEndOfUtterance).not.toHaveBeenCalled();
-    expect(askSessionQuestion).not.toHaveBeenCalled();
+    expect(askSessionQuestion).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(askSessionQuestion).mock.calls[0]?.[6]).toMatchObject({
+      speculative: true,
+    });
   });
 
   it("does not force a follow-up complete thought — waits for acoustic EOU", () => {

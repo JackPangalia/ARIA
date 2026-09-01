@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { KivoLogo } from "@/components/brand/KivoLogo";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Kivo",
@@ -11,6 +12,9 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <main className="mx-auto w-full max-w-3xl px-6 py-20 text-[15px] leading-relaxed">
+      <Link href="/" aria-label="Kivo home" className="mb-10 inline-block text-inherit">
+        <KivoLogo className="lp-wordmark" />
+      </Link>
       <h1 className="mb-2 text-3xl font-bold">Privacy Policy</h1>
       <p className="mb-10 text-sm opacity-70">Effective: July 2, 2026</p>
 

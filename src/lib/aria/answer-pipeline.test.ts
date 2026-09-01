@@ -157,7 +157,7 @@ const session: SessionDoc = {
 const env = {
   ANTHROPIC_API_KEY: "test",
   CARTESIA_API_KEY: "test",
-  CARTESIA_MODEL_ID: "sonic-3",
+  CARTESIA_MODEL_ID: "sonic-3.6",
   CARTESIA_VOICE_ID: "voice",
   SPEECHMATICS_API_KEY: "test",
   SPEECHMATICS_RT_REGION: "us",

@@ -56,7 +56,7 @@
     min-height: calc(4.5rem + env(safe-area-inset-top, 0px));
     padding: calc(0.65rem + env(safe-area-inset-top, 0px)) 1.15rem 0.65rem max(1.25rem, env(safe-area-inset-left));
   }
-  .kivo-mobile-nav-heading .kivo-wordmark { font-size: 1.75rem; }
+  .kivo-mobile-nav-heading .kivo-lockup-img { height: 1.45rem; }
   .kivo-mobile-nav-heading button { min-height: 2.75rem; min-width: 2.75rem; }
   .kivo-mobile-nav .kivo-workspace-navigation { padding: 0 0.9rem; }
   .kivo-mobile-nav .kivo-rail-row { min-height: 2.875rem; border-radius: 0.8rem; font-size: 0.9375rem; }
@@ -90,24 +90,18 @@
   html:not(.kivo-desktop) .kivo-home-hero h1 + p { font-size: 0.8125rem; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   html:not(.kivo-desktop) .kivo-home-hero-action { margin-top: 1.25rem; min-height: 2.75rem; font-size: 0.8125rem; }
   html:not(.kivo-desktop) .kivo-home-search { min-height: 3rem; margin-top: 1rem; border-radius: 0.9rem; font-size: 0.875rem; }
-  html:not(.kivo-desktop) .kivo-home-sections { margin-top: 1.75rem; gap: 1.75rem; }
-  html:not(.kivo-desktop) .kivo-home-section h2 { font-size: 1.5rem; }
+  html:not(.kivo-desktop) .kivo-home-sections { margin-top: 1rem; gap: 1rem; }
+  html:not(.kivo-desktop) .kivo-home-panel { padding: 1rem; }
+  html:not(.kivo-desktop) .kivo-home-panel-title { font-size: 1rem; }
   html:not(.kivo-desktop) .kivo-home-section > div:first-child { gap: 0.5rem; align-items: center; }
   html:not(.kivo-desktop) .kivo-home-section > div:first-child > button { min-height: 2.75rem; padding-inline: 0.4rem; }
   html:not(.kivo-desktop) .kivo-home-session-row { gap: 0.65rem; padding: 0.85rem 0; }
-  html:not(.kivo-desktop) .kivo-home-session-row > span:first-child { width: 1.5rem; height: 2rem; }
+  html:not(.kivo-desktop) .kivo-home-session-row > span:first-child { width: 2rem; height: 2.5rem; border-radius: 0.65rem; }
   html:not(.kivo-desktop) .kivo-home-session-row > svg:last-child { display: none; }
   html:not(.kivo-desktop) .kivo-home-session-row > span:nth-child(2) > span:first-child { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.45; }
   html:not(.kivo-desktop) .kivo-home-session-row time { align-self: flex-start; padding-top: 0.15rem; font-size: 0.6875rem; }
-  /* Projects stay at hand without pushing conversation history below a long list. */
-  html:not(.kivo-desktop) .kivo-home-projects { order: 0; padding: 0; }
-  html:not(.kivo-desktop) .kivo-home-projects > div:first-child { align-items: center; }
-  html:not(.kivo-desktop) .kivo-home-projects h2 { font-size: 1.375rem; }
   html:not(.kivo-desktop) .kivo-home-projects > div:first-child > button { width: 2.75rem; height: 2.75rem; }
-  html:not(.kivo-desktop) .kivo-home-projects ul { display: flex; gap: 0.5rem; margin-top: 0.65rem; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 0.4rem; scrollbar-width: thin; }
-  html:not(.kivo-desktop) .kivo-home-projects li { flex: 0 0 auto; min-width: 9rem; max-width: 12rem; margin: 0; }
-  html:not(.kivo-desktop) .kivo-home-projects li button { min-height: 2.875rem; gap: 0.6rem; padding: 0.65rem 0.85rem; background: var(--app-surface); border: 1px solid var(--app-border-subtle); border-radius: 0.85rem; }
-  html:not(.kivo-desktop) .kivo-home-projects li button > span { font-size: 0.8125rem; }
+  html:not(.kivo-desktop) .kivo-home-projects li button { min-height: 2.75rem; }
   html:not(.kivo-desktop) .kivo-project-hub > div:first-child { padding: 1.5rem max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
   html:not(.kivo-desktop) .kivo-project-hub h1 { font-size: 2rem; line-height: 1.1; margin-top: 0.5rem; }
   html:not(.kivo-desktop) .kivo-project-tabs { margin-top: 1.25rem; }

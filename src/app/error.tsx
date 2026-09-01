@@ -1,5 +1,7 @@
 "use client";
 
+import { KivoLogo } from "@/components/brand/KivoLogo";
+
 export default function GlobalError({
   reset,
 }: {
@@ -8,6 +10,7 @@ export default function GlobalError({
 }) {
   return (
     <main className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-6 text-center">
+      <KivoLogo className="mb-2 text-app" />
       <h1 className="text-2xl font-semibold">Something went wrong</h1>
       <p className="max-w-md text-sm opacity-70">
         Kivo hit an unexpected error. Try again — if it keeps happening, email{" "}

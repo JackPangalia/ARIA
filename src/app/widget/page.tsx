@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { KivoLogo } from "@/components/brand/KivoLogo";
 import { OrbParticles } from "@/components/aria/OrbParticles";
 import { accentFor, energyFor, modeFor } from "@/components/aria/visual-state";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -74,14 +75,16 @@ function MiniWidget(props: {
         />
         {/* Same Newsreader mark as the landing / app wordmark. */}
         <span
-          className="kivo-wordmark select-none text-[1.05rem] leading-none"
           style={{
             color: props.isLight
               ? "rgba(24,24,27,0.72)"
               : "rgba(161,161,170,1)",
           }}
         >
-          Kivo
+          <KivoLogo
+            variant="wordmark"
+            className="select-none text-[1.05rem] leading-none"
+          />
         </span>
       </div>
     </div>

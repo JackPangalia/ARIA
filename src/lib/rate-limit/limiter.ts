@@ -58,14 +58,23 @@ export async function checkRateLimit(
       .collection("ratelimits")
       .doc(`${safeKey}:${config.name}:${windowStart}`);
 
+    // A non-consuming check only reads the counter, so it needs no transaction —
+    // and a transaction is several round trips where a plain get is one. This
+    // is the speculative-ask path, which sits directly on the spoken-latency
+    // critical path, so the difference is audible. Nothing is lost by dropping
+    // atomicity here: the read was already a point-in-time observation of a
+    // counter other requests mutate concurrently.
+    if (config.consume === false) {
+      const snap = await ref.get();
+      const count = snap.exists ? Number(snap.data()?.count ?? 0) : 0;
+      return { allowed: count < config.limit, retryAfterSeconds };
+    }
+
     return await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       const count = snap.exists ? Number(snap.data()?.count ?? 0) : 0;
       if (count >= config.limit) {
         return { allowed: false, retryAfterSeconds };
-      }
-      if (config.consume === false) {
-        return { allowed: true, retryAfterSeconds };
       }
       tx.set(
         ref,

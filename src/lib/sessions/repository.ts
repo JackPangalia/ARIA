@@ -15,6 +15,11 @@ import {
 } from "@/lib/sessions/constants";
 import { applyCleanedTranscript } from "@/lib/sessions/cleaned-transcript";
 import {
+  invalidateCachedSession,
+  readCachedSession,
+  storeCachedSession,
+} from "@/lib/sessions/session-cache";
+import {
   decideQuestionFold,
   type QuestionFold,
 } from "@/lib/sessions/question-fold";
@@ -354,6 +359,25 @@ export async function assertSessionOwner(uid: string, sessionId: string) {
   return session;
 }
 
+/**
+ * Ownership check for the latency-critical ask path, served from a short-lived
+ * per-instance cache. Identical contract to {@link assertSessionOwner} —
+ * including throwing for a session this uid does not own, since a cache entry
+ * only ever exists under the owning uid's key.
+ *
+ * See `session-cache.ts` for the staleness invariant this relies on.
+ */
+export async function assertSessionOwnerCached(
+  uid: string,
+  sessionId: string
+): Promise<{ session: SessionDoc; cached: boolean }> {
+  const cached = readCachedSession(uid, sessionId);
+  if (cached) return { session: cached, cached: true };
+  const session = await assertSessionOwner(uid, sessionId);
+  storeCachedSession(uid, session);
+  return { session, cached: false };
+}
+
 export async function patchSession(
   uid: string,
   sessionId: string,
@@ -410,6 +434,7 @@ export async function patchSession(
   }
 
   await ref.update(updates);
+  invalidateCachedSession(uid, sessionId);
   const next = await ref.get();
   return mapSession(sessionId, next.data() ?? {});
 }
@@ -442,6 +467,7 @@ export async function setSessionBotState(
   if (patch.botStatus !== undefined) updates.botStatus = patch.botStatus;
 
   await ref.update(updates);
+  invalidateCachedSession(uid, sessionId);
   const next = await ref.get();
   return mapSession(sessionId, next.data() ?? {});
 }
@@ -456,6 +482,7 @@ export async function deleteSession(
   if (!snap.exists) {
     throw new Error("Conversation not found.");
   }
+  invalidateCachedSession(uid, sessionId);
   await db.recursiveDelete(ref);
 }
 

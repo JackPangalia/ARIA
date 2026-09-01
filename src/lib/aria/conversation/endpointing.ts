@@ -115,12 +115,18 @@ export function shouldForceEndpoint(
  * in flight during the acoustic wait. Playback still waits for endpoint
  * confirm. First-wake statements and unfinished drafts never fire. */
 export function shouldSpeculateAsk(
-  completeness: QuestionCompleteness,
-  followUp: boolean
+  completeness: QuestionCompleteness
 ): boolean {
-  if (completeness === "unfinished") return false;
-  if (completeness === "statement") return followUp;
-  return true;
+  // Only an openly unfinished draft is excluded — a trailing connector or a
+  // two-word fragment is going to change before it is dispatched, so warming
+  // an answer for it is pure waste.
+  //
+  // First-wake statements used to be excluded as "briefing context", but they
+  // are dispatched as turns like anything else, and they carry the *longest*
+  // settle in the table (1400ms) — which is exactly the window speculation
+  // exists to hide. Excluding them meant the turns with the most room to
+  // absorb server latency were the ones that absorbed none of it.
+  return completeness !== "unfinished";
 }
 
 export function draftEndsWithYield(text: string): boolean {

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { KivoLogo } from "@/components/brand/KivoLogo";
 import { AuthScreenLoader } from "@/components/firebase/AuthScreenLoader";
 import { SignInForm } from "@/components/firebase/SignInForm";
 import { useAuth } from "@/components/firebase/AuthProvider";
@@ -101,8 +102,8 @@ function DesktopAuthScreen() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-app px-6 pb-24">
-      <p className="mb-14 flex select-none items-baseline gap-2 text-app-secondary">
-        <span className="kivo-wordmark">Kivo</span>
+      <p className="mb-14 flex select-none items-center gap-2.5 text-app-secondary">
+        <KivoLogo />
         <span className="relative top-[-1px] rounded-full border border-app-subtle/40 px-1.5 py-0.5 text-[8px] font-medium tracking-[0.2em] text-app-subtle">
           DESKTOP
         </span>

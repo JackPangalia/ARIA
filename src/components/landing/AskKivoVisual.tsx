@@ -126,8 +126,8 @@ export function AskKivoVisual() {
   return (
     <figure className="lp-scene-visual lp-scene-photo lp-scene-ask">
       <Image
-        src="/landing/kivo-adventure-waterfall-motion-v1.png"
-        alt="Hikers moving through a misty ravine beneath a waterfall"
+        src="/landing/kivo-cafe-conversation-motion-v1.png"
+        alt="Two friends talking beside a café window, softened by sweeping motion blur"
         fill
         sizes="(max-width: 820px) 100vw, 62vw"
       />
@@ -156,15 +156,6 @@ export function AskKivoVisual() {
             />
           </text>
         </svg>
-        <div className="lp-hear-wave">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
       </div>
     </figure>
   );

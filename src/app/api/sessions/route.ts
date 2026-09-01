@@ -43,17 +43,10 @@ export async function POST(req: NextRequest) {
       return jsonError("Invalid conversation payload.", 400);
     }
 
-    const { plan, limits, usage } = await loadEntitlements(uid);
-    const transcriptionMode = effectiveDefaultTranscriptionMode(
-      plan.tier,
-      plan.defaultTranscriptionMode,
-      limits,
-      usage
-    );
     const session = await createSession(uid, {
       ...parsed.data,
-      speakerCount: transcriptionMode === "basic" ? 1 : parsed.data.speakerCount,
-      transcriptionMode,
+      speakerCount: parsed.data.speakerCount ?? 2,
+      transcriptionMode: "speaker",
     });
     return jsonOk(session, 201);
   }, { rateLimit: { name: "session_write", limit: 60, windowSeconds: 60 } });

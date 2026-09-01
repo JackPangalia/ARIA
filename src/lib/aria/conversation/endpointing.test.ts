@@ -178,18 +178,20 @@ describe("shouldForceEndpoint", () => {
 
 describe("shouldSpeculateAsk", () => {
   it("speculates on asks and completed turns", () => {
-    expect(shouldSpeculateAsk("clear-ask", false)).toBe(true);
-    expect(shouldSpeculateAsk("likely-ask", false)).toBe(true);
-    expect(shouldSpeculateAsk("complete-turn", false)).toBe(true);
+    expect(shouldSpeculateAsk("clear-ask")).toBe(true);
+    expect(shouldSpeculateAsk("likely-ask")).toBe(true);
+    expect(shouldSpeculateAsk("complete-turn")).toBe(true);
   });
 
-  it("speculates on statements only on follow-up", () => {
-    expect(shouldSpeculateAsk("statement", false)).toBe(false);
-    expect(shouldSpeculateAsk("statement", true)).toBe(true);
+  it("speculates on statements, including on the first wake", () => {
+    // They dispatch as turns like anything else, and carry the longest grace
+    // and settle in the table — the most latency there is to hide behind.
+    expect(shouldSpeculateAsk("statement")).toBe(true);
   });
 
   it("never speculates on unfinished drafts", () => {
-    expect(shouldSpeculateAsk("unfinished", false)).toBe(false);
-    expect(shouldSpeculateAsk("unfinished", true)).toBe(false);
+    // The one exclusion: these are going to change before dispatch, so a
+    // warmed answer for them is guaranteed waste.
+    expect(shouldSpeculateAsk("unfinished")).toBe(false);
   });
 });

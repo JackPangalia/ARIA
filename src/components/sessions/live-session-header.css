@@ -1,0 +1,73 @@
+/* Controls sit near the top of the paper. The title shares the orb's viewport
+   center rather than the content column's center as the sidebar changes. */
+.kivo-live-session-header {
+  position: relative;
+  margin: 0.5rem 2rem 1rem;
+  z-index: 20;
+  display: grid;
+  flex-shrink: 0;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr) minmax(10rem, 1fr);
+  align-items: center;
+  gap: 1rem;
+  pointer-events: none;
+}
+
+.kivo-live-session-title {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(40vw, 40rem);
+  grid-column: 2;
+  min-width: 0;
+  pointer-events: auto;
+}
+
+.kivo-live-session-title > * {
+  width: 100%;
+  max-width: 100%;
+  text-align: center;
+}
+
+.kivo-live-session-actions {
+  grid-column: 3;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+
+@media (max-width: 640px) {
+  .kivo-live-session-header {
+    margin: 0.5rem 1rem 1rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+  }
+  .kivo-live-session-title {
+    position: static;
+    transform: none;
+    width: auto;
+    grid-column: 1;
+  }
+  .kivo-live-session-title input { font-size: 1rem; }
+  .kivo-live-session-actions { grid-column: 2; }
+}
+
+/* Live mode has no outer title/actions. Keep only a slim native drag strip
+   above the paper, while preserving the actual navigation bar on mobile. */
+@media (min-width: 1024px) {
+  .kivo-desktop-main.kivo-desktop-main--live > .kivo-session-topbar {
+    height: 0.625rem;
+    min-height: 0.625rem;
+    padding: 0;
+  }
+  .kivo-desktop-main.kivo-desktop-main--live > .kivo-session-topbar > * { display: none; }
+}
+
+html.kivo-desktop .kivo-desktop-main.kivo-desktop-main--live > .kivo-session-topbar {
+  height: 0.625rem;
+  min-height: 0.625rem;
+  padding: 0;
+}
+html.kivo-desktop .kivo-desktop-main.kivo-desktop-main--live > .kivo-session-topbar > * { display: none; }
+

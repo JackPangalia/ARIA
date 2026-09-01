@@ -14,22 +14,74 @@ type Summary = {
 
 const inputPath = process.argv[2];
 if (!inputPath) {
-  console.error("Usage: npm run voice:benchmark -- path/to/electron.log");
+  console.error(
+    "Usage: npm run voice:benchmark -- path/to/electron.log\n" +
+      "                              -- .next/dev/logs/next-development.log"
+  );
   process.exit(2);
 }
 
+/**
+ * Two log formats carry the same lines. The Electron shell prints them raw;
+ * `next dev` wraps every line in a JSON envelope
+ * (`{"timestamp":…,"source":…,"message":"[VOICE_METRIC] {…}"}`), which escapes
+ * the quotes of the payload inside it. Slicing a marker out of the envelope
+ * yields unparseable JSON, so unwrap to the inner message first — without this
+ * the whole Next dev log reads as zero turns.
+ */
+function logMessage(line: string): string {
+  if (!line.startsWith("{")) return line;
+  try {
+    const envelope = JSON.parse(line) as { message?: unknown };
+    return typeof envelope.message === "string" ? envelope.message : line;
+  } catch {
+    return line;
+  }
+}
+
+const messages = readFileSync(inputPath, "utf8").split(/\r?\n/).map(logMessage);
+
 const summaries: Summary[] = [];
-for (const line of readFileSync(inputPath, "utf8").split(/\r?\n/)) {
-  const marker = line.indexOf("[VOICE_METRIC] ");
+for (const message of messages) {
+  const marker = message.indexOf("[VOICE_METRIC] ");
   if (marker < 0) continue;
   try {
-    const value = JSON.parse(line.slice(marker + "[VOICE_METRIC] ".length));
+    const value = JSON.parse(message.slice(marker + "[VOICE_METRIC] ".length));
     if (value.type === "voice-summary" && Array.isArray(value.marks)) {
       summaries.push(value as Summary);
     }
   } catch {
     // Ignore non-JSON terminal decoration.
   }
+}
+
+/**
+ * Server-side half of the same turn, from the `[ARIA] ask` pipeline log. The
+ * client marks say *when* audio arrived; these say which stage spent the time
+ * getting there, so one command covers both halves.
+ *
+ * Shape: `[ARIA] ask │ <session> │ <offset> │ <stage> │ k=v k=v`
+ */
+type ServerStage = { stage: string; detail: Record<string, string> };
+
+const serverStages: ServerStage[] = [];
+for (const message of messages) {
+  if (!message.includes("[ARIA] ask ")) continue;
+  const parts = message.split("│").map((part) => part.trim());
+  if (parts[0] !== "[ARIA] ask" || parts.length < 4) continue;
+  const detail: Record<string, string> = {};
+  for (const pair of (parts[4] ?? "").split(/\s+/)) {
+    const eq = pair.indexOf("=");
+    if (eq > 0) detail[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  serverStages.push({ stage: parts[3]!, detail });
+}
+
+function stageValues(stage: string, key: string): number[] {
+  return serverStages
+    .filter((entry) => entry.stage === stage)
+    .map((entry) => Number(entry.detail[key]))
+    .filter((value) => Number.isFinite(value));
 }
 
 function duration(markers: Mark[], from: string, to: string): number | null {
@@ -100,6 +152,32 @@ console.log({
   playbackUnderruns: underruns,
   cartesiaWsFallbackRate: fallbackRate,
 });
+
+// Server-side breakdown. Diagnostic only — the gates below stay on the
+// client-measured spoken latency, which is what a person in the room feels.
+const cacheReads = stageValues("llm.cache", "cacheRead");
+if (serverStages.length > 0) {
+  console.log({
+    asks: stageValues("session.ok", "setupMs").length,
+    completions: cacheReads.length,
+    setupP50Ms: percentile(stageValues("session.ok", "setupMs"), 0.5),
+    contextBuildP50Ms: percentile(stageValues("context.done", "ms"), 0.5),
+    llmFirstTokenP50Ms: percentile(stageValues("llm.first_token", "ms"), 0.5),
+    ttsEnqueueP50Ms: percentile(stageValues("tts.enqueue", "ms"), 0.5),
+    audioFirstByteP50Ms: percentile(stageValues("audio.first_byte", "ms"), 0.5),
+    promptCacheHitRate:
+      cacheReads.length > 0
+        ? cacheReads.filter((value) => value > 0).length / cacheReads.length
+        : null,
+    inputTokensP50: percentile(stageValues("llm.cache", "inputTokens"), 0.5),
+    speculationsDiscarded: summaries.filter((turn) =>
+      turn.marks.some((mark) => mark.event === "speculation_discarded")
+    ).length,
+    speculationsAdopted: summaries.filter((turn) =>
+      turn.marks.some((mark) => mark.event === "speculation_adopted")
+    ).length,
+  });
+}
 
 const failures = [
   p50 != null && p50 > 1300 ? `p50 ${p50}ms > 1300ms` : null,

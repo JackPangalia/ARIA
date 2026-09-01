@@ -9,7 +9,11 @@ import {
   firebaseUidFromMetadata,
   syncPlanFromSubscription,
 } from "@/lib/stripe/sync";
-import { markPaymentFailed, updatePlanFromStripe } from "@/lib/plan/repository";
+import {
+  addTopUpSeconds,
+  markPaymentFailed,
+  updatePlanFromStripe,
+} from "@/lib/plan/repository";
 import { DEFAULT_TIER } from "@/lib/plan/tiers";
 
 export const runtime = "nodejs";
@@ -45,6 +49,30 @@ async function handleCheckoutCompleted(
 
   if (!uid) {
     console.warn("[stripe-webhook] checkout.session.completed missing uid");
+    return;
+  }
+
+  // Check if this checkout session is a one-time top-up purchase
+  if (session.mode === "payment" && session.metadata?.type === "topup") {
+    const secondsAdded = Number(session.metadata?.secondsAdded ?? 0);
+    if (secondsAdded > 0) {
+      await addTopUpSeconds(uid, secondsAdded);
+      await getAdminDb()
+        .collection("events")
+        .add({
+          name: "topup_purchased",
+          anonId: "server",
+          uid,
+          props: {
+            packId: session.metadata?.packId,
+            secondsAdded,
+          },
+          ts: FieldValue.serverTimestamp(),
+        })
+        .catch((err: unknown) =>
+          console.error("[stripe-webhook] topup_purchased event write failed:", err)
+        );
+    }
     return;
   }
 

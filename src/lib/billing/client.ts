@@ -29,11 +29,23 @@ async function billingFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function startCheckout(tier: PaidTier): Promise<string> {
-  track("checkout_started", { props: { tier } });
+export async function startCheckout(
+  tier: PaidTier,
+  interval: "month" | "year" = "month"
+): Promise<string> {
+  track("checkout_started", { props: { tier, interval } });
   const { url } = await billingFetch<{ url: string }>("/api/billing/checkout", {
     method: "POST",
-    body: JSON.stringify({ tier }),
+    body: JSON.stringify({ tier, interval, type: "subscription" }),
+  });
+  return url;
+}
+
+export async function buyTopUpPack(packId: "starter_5h" | "pro_12h"): Promise<string> {
+  track("topup_checkout_started", { props: { packId } });
+  const { url } = await billingFetch<{ url: string }>("/api/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ type: "topup", packId }),
   });
   return url;
 }

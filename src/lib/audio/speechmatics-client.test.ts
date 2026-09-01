@@ -275,19 +275,19 @@ describe("SpeechmaticsLiveClient start config", () => {
     ]);
   });
 
-  it("uses standard transcription with diarization disabled for basic mode", () => {
+  it("uses enhanced transcription with speaker diarization standard across all sessions", () => {
     const client = new SpeechmaticsLiveClient(callbacks, [], {
-      transcriptionMode: "basic",
+      transcriptionMode: "speaker",
     });
     const message = client.buildStartRecognitionMessage();
     const config = message.transcription_config;
 
     expect(config).toMatchObject({
-      model: "standard",
-      diarization: "none",
+      model: "enhanced",
+      diarization: "speaker",
     });
     expect(config).not.toHaveProperty("operating_point");
-    expect(config).not.toHaveProperty("speaker_diarization_config");
+    expect(config).toHaveProperty("speaker_diarization_config");
   });
 
   it("uses voice-agent turn detection timing", () => {
@@ -300,7 +300,7 @@ describe("SpeechmaticsLiveClient start config", () => {
     expect(config).toMatchObject({
       enable_partials: true,
       transcript_filtering_config: { remove_disfluencies: true },
-      max_delay: 4,
+      max_delay: 1.5,
       max_delay_mode: "flexible",
       conversation_config: {
         // Must stay LESS than max_delay per Speechmatics turn-detection docs.

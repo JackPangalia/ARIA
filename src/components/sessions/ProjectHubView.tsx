@@ -22,6 +22,7 @@ import {
   UploadIcon,
 } from "./icons";
 import { sessionPrefetchProps } from "@/lib/sessions/detail-cache";
+import "./project-hub.css";
 
 function formatSessionDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
@@ -190,23 +191,14 @@ export function ProjectHubView(props: {
     }`;
 
   return (
-    <div className="kivo-project-hub pointer-events-auto mx-auto flex h-full min-h-0 min-w-0 w-full max-w-5xl flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-16 pt-5 sm:px-9 sm:pt-8 lg:px-12">
+    <div className="kivo-project-hub pointer-events-auto flex h-full min-h-0 min-w-0 w-full flex-col">
+      <div className="kivo-project-hub-scroll min-h-0 flex-1 overflow-y-auto">
         <div>
-          <header className="mb-6 max-w-2xl">
-            <p className="kivo-kicker">Project workspace</p>
-            <h1 className="mt-1 font-serif text-[2.15rem] leading-tight tracking-[-0.04em] text-app sm:text-[2.55rem]">
-              {props.project.name}
-            </h1>
-            <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-app-muted">
-              {props.project.instructions || "Keep related conversations and source material together so Kivo answers with the right context."}
-            </p>
-          </header>
           <div>
             <button
               type="button"
               onClick={props.onOpenSearch}
-              className="group flex w-full items-center gap-2.5 rounded-2xl border border-app-subtle bg-[color-mix(in_srgb,var(--app-surface)_55%,transparent)] px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
+              className="kivo-project-search group flex w-full items-center gap-2.5 rounded-xl border border-app-subtle px-4 py-3 text-left text-sm text-app-muted transition-[background-color,border-color,transform] hover:-translate-y-px hover:border-app hover:bg-surface-hover hover:text-app-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-app"
             >
               <SearchIcon className="shrink-0 text-app-muted transition-colors group-hover:text-app-secondary" />
               <span className="min-w-0 flex-1 truncate text-sm font-normal">Search conversations</span>
@@ -217,10 +209,10 @@ export function ProjectHubView(props: {
           </div>
 
           <div className="kivo-project-tabs mt-7 flex items-center gap-1 border-b border-app-subtle pb-1">
-            <button type="button" onClick={() => setTab("sessions")} className={tabClass(tab === "sessions")}>
+            <button type="button" onClick={() => setTab("sessions")} aria-pressed={tab === "sessions"} className={tabClass(tab === "sessions")}>
               Conversations ({sortedSessions.length})
             </button>
-            <button type="button" onClick={() => setTab("sources")} className={tabClass(tab === "sources")}>
+            <button type="button" onClick={() => setTab("sources")} aria-pressed={tab === "sources"} className={tabClass(tab === "sources")}>
               Sources ({sources.length})
             </button>
           </div>
@@ -235,7 +227,7 @@ export function ProjectHubView(props: {
                 />
               ) : (
                 <div className="space-y-3">
-                  <ul className="space-y-0.5">
+                  <ul className="kivo-project-session-list">
                     {paginatedSessions.map((session) => (
                       <li key={session.id}>
                         <button

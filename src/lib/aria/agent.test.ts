@@ -73,7 +73,7 @@ const { WEB_SEARCH_TOOL_NAME } = await import("./tools");
 function env(anthropicKey = "test-anthropic-key"): ServerEnv {
   return {
     CARTESIA_API_KEY: "test",
-    CARTESIA_MODEL_ID: "sonic-3",
+    CARTESIA_MODEL_ID: "sonic-3.6",
     CARTESIA_VOICE_ID: "test",
     SPEECHMATICS_API_KEY: "test",
     SPEECHMATICS_RT_REGION: "us",
@@ -110,6 +110,9 @@ describe("voice agent configuration", () => {
     expect(prompt).toContain("infer the most plausible reading");
     expect(prompt).toContain("not a reason to ask for repetition");
     expect(prompt).toContain("acknowledge uncertainties plainly");
+    expect(prompt).toContain("end with a period, question mark, or exclamation point");
+    expect(prompt).toContain("conventional form");
+    expect(prompt).toContain('"uh" or "hmm"');
     expect(prompt).not.toMatch(/didn['’]t catch that/i);
     expect(prompt).not.toMatch(/are you asking/i);
     expect(prompt).not.toContain("incisive, low-ego");

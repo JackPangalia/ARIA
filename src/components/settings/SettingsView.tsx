@@ -36,6 +36,7 @@ import {
 } from "@/components/settings/SettingsRow";
 import { TrashIcon } from "@/components/sessions/icons";
 import { VoiceSettingsPanel } from "@/components/settings/VoiceSettingsPanel";
+import { OrbBodySettings } from "@/components/settings/OrbBodySettings";
 import { WidgetStyleSettings } from "@/components/settings/WidgetStyleSettings";
 import { useAriaStore } from "@/lib/store";
 import {
@@ -482,108 +483,18 @@ function TrashPanel(props: {
 }
 
 function TranscriptionModeSettings() {
-  const [preference, setPreference] =
-    useState<TranscriptionModePreference | null>(null);
-  const [busyMode, setBusyMode] = useState<TranscriptionMode | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getTranscriptionModePreference()
-      .then((data) => {
-        if (!cancelled) setPreference(data);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Could not load transcription mode."
-          );
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const selectMode = async (mode: TranscriptionMode) => {
-    if (!preference || preference.effectiveTranscriptionMode === mode) return;
-    setBusyMode(mode);
-    setError(null);
-    try {
-      setPreference(await updateTranscriptionModePreference(mode));
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not update transcription mode."
-      );
-    } finally {
-      setBusyMode(null);
-    }
-  };
-
-  const activeMode = preference?.effectiveTranscriptionMode ?? "basic";
-  const speakerLocked = preference?.speakerModeLocked ?? true;
-  const speakerExhausted = preference?.speakerModeExhausted ?? false;
-  const speakerRemaining = preference?.speakerSecondsRemaining ?? null;
-  const speakerCapped = preference != null && preference.speakerSecondsCap !== null;
-
-  let speakerDescription =
-    "Separate voices in the room and remember people you name in the transcript.";
-  if (speakerCapped) {
-    speakerDescription = speakerExhausted
-      ? "You've used this month's Speaker recognition minutes. Upgrade for unlimited access."
-      : `${formatMinutes(speakerRemaining ?? 0)} left this month · speaker-aware transcription.`;
-  }
-
   return (
-    <SettingsGroup label="Transcription mode">
-      {error ? (
-        <p className="grok-settings-delete-error px-4 pt-3 text-xs">{error}</p>
-      ) : null}
-      <SettingsRow
-        title="Basic transcription"
-        description="Lower-cost live transcript and Kivo Q&A. No speaker labels."
-        action={
-          <GrokSettingsButton
-            disabled={!preference || activeMode === "basic" || busyMode !== null}
-            onClick={() => void selectMode("basic")}
-          >
-            {busyMode === "basic"
-              ? "Saving…"
-              : activeMode === "basic"
-                ? "Current"
-                : "Use Basic"}
-          </GrokSettingsButton>
-        }
-      />
+    <SettingsGroup label="Transcription engine">
       <SettingsRow
         last
         title={
           <span>
-            Speaker recognition
-            <BetaBadge />
+            Real-time Speaker Diarization
           </span>
         }
-        description={speakerDescription}
+        description="Enhanced multi-speaker recognition and voice identification is active across all conversations."
         action={
-          <GrokSettingsButton
-            disabled={
-              !preference ||
-              speakerLocked ||
-              activeMode === "speaker" ||
-              busyMode !== null
-            }
-            onClick={() => void selectMode("speaker")}
-          >
-            {speakerLocked
-              ? "Used up"
-              : busyMode === "speaker"
-                ? "Saving…"
-                : activeMode === "speaker"
-                  ? "Current"
-                  : "Use Speaker"}
-          </GrokSettingsButton>
+          <span className="text-xs font-medium text-emerald-500">Active</span>
         }
       />
     </SettingsGroup>
@@ -768,6 +679,7 @@ export function SettingsTabContent(props: {
             <ThemeToggle variant="settings" />
           </div>
         </SettingsGroup>
+        <OrbBodySettings />
         <WidgetStyleSettings />
       </div>
     );

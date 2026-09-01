@@ -32,16 +32,43 @@ describe("VoicePhraseBuffer", () => {
 
 
 describe("WordStreamBuffer", () => {
-  it("holds a tiny opener until it has a short spoken clause", () => {
+  it("holds an unpunctuated opener until a short clause or ~24 characters", () => {
     const buffer = new WordStreamBuffer();
     expect(buffer.push("The free ")).toEqual([]);
     expect(buffer.push("plan ")).toEqual([]);
     expect(buffer.push("gets people ")).toEqual([
       "The free plan gets people ",
     ]);
-    expect(buffer.push("in the ")).toEqual([]);
-    expect(buffer.push("door today ")).toEqual(["in the door today "]);
-    expect(buffer.finish()).toEqual([]);
+    expect(buffer.push("in the door, ")).toEqual(["in the door, "]);
+  });
+
+  it("does not wait on a clause boundary that lands past the first-flush ceiling", () => {
+    const buffer = new WordStreamBuffer();
+    // The comma sits at ~63 chars. Chasing it would hold the answer's first
+    // audio until the model had written all of it.
+    const opener =
+      "There are a couple of ways you could approach that problem, honestly. ";
+    const [first] = buffer.push(opener);
+    expect(first).toBeDefined();
+    expect(first!.length).toBeLessThanOrEqual(48);
+    expect(opener.startsWith(first!)).toBe(true);
+    expect(first!.endsWith(" ")).toBe(true);
+  });
+
+  it("flushes the first fragment at a sentence end even when it is short", () => {
+    const buffer = new WordStreamBuffer();
+    expect(buffer.push("Yes. ")).toEqual(["Yes. "]);
+    expect(buffer.push("That is the right option. ")).toEqual([
+      "That is the right option. ",
+    ]);
+  });
+
+  it("does not treat a thousands comma as a clause boundary", () => {
+    const buffer = new WordStreamBuffer();
+    expect(buffer.push("About 1,234 extra ")).toEqual([]);
+    expect(buffer.push("people showed up today ")).toEqual([
+      "About 1,234 extra people showed up today ",
+    ]);
   });
 
   it("flushes word-aligned fragments once past the minimum size", () => {

@@ -192,7 +192,7 @@ export function ImageStreamHero({
 
   return (
     <div
-      className={cn("relative overflow-hidden", className)}
+      className={cn("relative overflow-clip", className)}
       {...props}
       style={{ containerType: "inline-size", ...props.style }}
     >

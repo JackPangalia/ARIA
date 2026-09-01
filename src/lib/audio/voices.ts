@@ -53,6 +53,21 @@ export const KIVO_VOICES: readonly KivoVoiceOption[] = [
     label: "Archie",
     description: "Relaxed, friendly British male.",
   },
+  {
+    id: "47c38ca4-5f35-497b-b1a3-415245fb35e1",
+    label: "Daniel",
+    description: "Stable, realistic American male — Cartesia's voice-agent pick.",
+  },
+  {
+    id: "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
+    label: "Jacqueline",
+    description: "Clear, pleasant American female — Cartesia's voice-agent pick.",
+  },
+  {
+    id: "cbaf8084-f009-4838-a096-07ee2e6612b1",
+    label: "Maya",
+    description: "Expressive American female — more emotional range than the agent set.",
+  },
 ] as const;
 
 export function isKivoVoiceId(value: unknown): value is string {
