@@ -15,9 +15,9 @@ export const MEETING_BOT_ENABLED = false;
 export const CONNECTORS_ENABLED = false;
 
 /**
- * Post-session text chat dock on Overview ("Continue chat") is built but
- * parked. UI, `/api/chat`, and `chat-pipeline` stay in the tree; flip to
- * `true` and remount `MeetingChatPanel` from `OverviewView` to bring it back.
+ * Post-session text chat (`MeetingChatPanel`, `/api/chat`, `chat-pipeline`)
+ * and the later private Ask Kivo panel (`src/lib/private-chat/`) are both
+ * parked. V1 is the spoken room. Leave the code in the tree; do not remount.
  */
 export const SESSION_CHAT_ENABLED = false;
 

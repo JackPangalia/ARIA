@@ -36,17 +36,10 @@
   html:not(.kivo-desktop) .kivo-overview-tray-actions {
     grid-column: 1 / -1; width: 100%; justify-content: space-between; gap: 0.75rem;
   }
-  html:not(.kivo-desktop) .kivo-overview-tray-tabs {
-    flex: 1; min-width: 0; padding: 3px; gap: 2px; border-radius: 0.9rem; background: var(--app-surface);
+  html:not(.kivo-desktop) .kivo-overview-tray-actions .kivo-overview-tabs--header {
+    flex: 1; min-width: 0; gap: 1.25rem;
   }
-  html:not(.kivo-desktop) .kivo-overview-tray-row { min-height: 2.75rem; padding-inline: 0.75rem; justify-content: center; gap: 0.4rem; border-radius: 0.7rem; }
-  html:not(.kivo-desktop) .kivo-overview-tray-tabs .kivo-overview-tray-row { flex: 1; min-width: 0; }
-  html:not(.kivo-desktop) .kivo-overview-tray-row .kivo-rail-label {
-    position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: nowrap; font-size: 0.8125rem;
-  }
-  html:not(.kivo-desktop) .kivo-overview-tray-tabs .is-active { background: var(--app-workspace); box-shadow: 0 1px 3px var(--app-shadow); }
-  html:not(.kivo-desktop) .kivo-overview-tray-tabs .kivo-rail-icon { display: none; }
-  html:not(.kivo-desktop) .kivo-overview-tray-row.is-primary { flex-shrink: 0; }
+  html:not(.kivo-desktop) .kivo-overview-start { flex-shrink: 0; }
 
   .kivo-mobile-nav {
     height: 100dvh; padding-bottom: 0; border-radius: 0 1.5rem 1.5rem 0;
@@ -73,8 +66,8 @@
   html:not(.kivo-desktop) .kivo-overview-pane-scroll { padding: 1.5rem max(1.25rem, env(safe-area-inset-right)) max(2rem, env(safe-area-inset-bottom)) max(1.25rem, env(safe-area-inset-left)); }
   html:not(.kivo-desktop) .kivo-summary-lead > p { font-size: 1.1875rem; line-height: 1.5; }
   html:not(.kivo-desktop) .kivo-summary-lead { padding-bottom: 1.75rem; }
-  html:not(.kivo-desktop) .kivo-summary-section h2 { font-size: 0.75rem; }
-  html:not(.kivo-desktop) .kivo-summary-list li { gap: 0.65rem; font-size: 0.9rem; }
+  html:not(.kivo-desktop) .kivo-summary-section h2 { font-size: 0.8125rem; }
+  html:not(.kivo-desktop) .kivo-summary-list li { font-size: 0.9375rem; }
   html:not(.kivo-desktop) .kivo-transcript-copy,
   html:not(.kivo-desktop) .kivo-summary-list,
   html:not(.kivo-desktop) .kivo-summary-lead { overflow-wrap: anywhere; }

@@ -7,6 +7,7 @@ import {
 import { HubEmptyState, SessionIcon } from "@/components/sessions/icons";
 import type { TranscriptLine } from "@/lib/sessions/live-transcript";
 import type { MeetingSummaryDoc } from "@/lib/sessions/types";
+import "./overview-header.css";
 
 export type OverviewContentMode = "summary" | "transcript";
 
@@ -57,8 +58,8 @@ function EmptySessionPrompt(props: {
   onStart: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center px-6 text-center">
-      <p className="font-serif text-[2rem] font-normal leading-tight tracking-[-0.04em] text-app sm:text-[2.6rem]">
+    <div className="flex max-w-xl flex-col items-start text-left">
+      <p className="text-[2rem] font-medium leading-tight tracking-[-0.03em] text-app sm:text-[2.25rem]">
         {props.resume ? "Pick up where you left off" : "Ready when you are"}
       </p>
       <p className="mt-4 max-w-sm text-sm leading-relaxed text-app-muted">
@@ -70,7 +71,7 @@ function EmptySessionPrompt(props: {
         type="button"
         onClick={props.onStart}
         disabled={props.busy || props.disabled}
-        className="mt-8 text-sm font-medium text-app-muted transition-colors hover:text-app disabled:cursor-not-allowed disabled:opacity-40"
+        className="kivo-overview-start mt-8"
       >
         {props.disabled
           ? "Archived"
@@ -262,21 +263,25 @@ export function OverviewView(props: {
 
   if (isEmpty) {
     return (
-      <div className="kivo-overview-root flex h-full min-h-0 w-full flex-col overflow-hidden">
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto">
-          <EmptySessionPrompt
-            resume={props.resume}
-            disabled={Boolean(props.archived)}
-            busy={Boolean(props.busy)}
-            onStart={props.onStart}
-          />
+      <div className="kivo-overview-root pointer-events-auto flex h-full min-h-0 w-full flex-col overflow-hidden">
+        <div className="kivo-overview-split">
+          <div className="kivo-overview-pane is-active">
+            <div className="kivo-overview-pane-scroll">
+              <EmptySessionPrompt
+                resume={props.resume}
+                disabled={Boolean(props.archived)}
+                busy={Boolean(props.busy)}
+                onStart={props.onStart}
+              />
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="kivo-overview-root flex h-full min-h-0 w-full flex-col overflow-hidden">
+    <div className="kivo-overview-root pointer-events-auto flex h-full min-h-0 w-full flex-col overflow-hidden">
       <div className="kivo-overview-split">
         <section
           id="overview-panel-summary"

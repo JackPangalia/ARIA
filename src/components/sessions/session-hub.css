@@ -1,5 +1,6 @@
-/* Home keeps its existing navigation and responsive height fitting. Give the
-   content a clearer hierarchy with editorial headings and quiet dividers. */
+/* Home is a quiet start screen. The photographic hero and serif manifesto
+   stay off this surface; projects live in the sidebar. */
+
 @media (min-width: 1024px) {
   .kivo-desktop-main.kivo-desktop-main--home > .kivo-session-topbar {
     height: 0.625rem;
@@ -9,8 +10,6 @@
   .kivo-desktop-main--home > .kivo-session-topbar > * { display: none; }
 }
 
-/* Keep the native drag strip at small Electron window sizes too. Browser
-   mobile layouts retain their navigation button and safe-area padding. */
 html.kivo-desktop .kivo-desktop-main.kivo-desktop-main--home > .kivo-session-topbar {
   height: 0.625rem;
   min-height: 0.625rem;
@@ -18,68 +17,81 @@ html.kivo-desktop .kivo-desktop-main.kivo-desktop-main--home > .kivo-session-top
 }
 html.kivo-desktop .kivo-desktop-main--home > .kivo-session-topbar > * { display: none; }
 
-.kivo-home-scroll .kivo-home-hero { border-radius: 1.25rem; }
+.kivo-home-canvas.kivo-home-canvas--plain {
+  display: block;
+  grid-template: none;
+  max-width: 56rem;
+  min-height: 0;
+  padding: clamp(2.25rem, 8vh, 5.5rem) clamp(1.5rem, 4vw, 3rem) 3.5rem;
+}
 
-.kivo-home-scroll .kivo-home-search {
+.kivo-home-intro {
+  animation: kivo-fade-in 240ms ease-out both;
+}
+
+.kivo-home-title {
+  max-width: 16em;
+  font-size: clamp(1.75rem, 3.4vw, 2.25rem);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--app-fg);
+  text-wrap: balance;
+}
+
+.kivo-home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.35rem;
+}
+
+.kivo-home-actions .kivo-home-search {
+  flex: 1 1 16rem;
+  min-height: 2.6rem;
+  padding-block: 0.55rem;
+}
+
+.kivo-home-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.6rem;
+  padding: 0.55rem 1.05rem 0.55rem 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  transition: transform 180ms ease, background-color 180ms ease;
+}
+.kivo-home-primary:hover { transform: translateY(-1px); }
+.kivo-home-primary:active { transform: scale(0.98); }
+.kivo-home-primary:disabled { cursor: wait; opacity: 0.6; transform: none; }
+.kivo-home-primary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--app-indigo) 72%, var(--app-fg));
+  outline-offset: 3px;
+}
+
+.kivo-home-live-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #34d399;
+}
+
+.kivo-home-canvas--plain .kivo-home-search {
   border: 1px solid var(--app-border-subtle);
   background: transparent;
 }
-.kivo-home-scroll .kivo-home-search:hover { background: var(--app-surface-hover); }
 
-.kivo-home-scroll .kivo-home-panel-title {
-  font-family: var(--font-serif);
-  font-size: 1.5rem;
-  font-weight: 400;
-  line-height: 1.2;
-  letter-spacing: -0.025em;
-}
-
-.kivo-home-scroll .kivo-home-projects li + li {
-  border-top: 1px solid var(--app-border-subtle);
-}
-
-.kivo-home-scroll .kivo-home-projects > ul { flex: 0 1 auto; }
-.kivo-home-scroll .kivo-home-projects li {
-  flex: 0 0 auto;
-  max-height: none;
-}
-.kivo-home-scroll .kivo-home-projects li button {
-  min-height: 2.5rem;
-  padding-block: 0.5rem;
-}
-
-.kivo-home-scroll .kivo-home-secondary { grid-template-rows: minmax(0, 1fr); }
-
-@container (min-width: 54rem) {
-  .kivo-home-scroll .kivo-home-sections {
-    column-gap: 1.75rem;
-    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-  }
-  .kivo-home-scroll .kivo-home-secondary {
-    border-left: 1px solid var(--app-border-subtle);
-    padding-left: 1.25rem;
-  }
-}
-
-/* Grow the banner only when there is room to retain the complete recent list. */
-@media (min-width: 900px) and (min-height: 560px) {
-  @container (min-height: 780px) {
-    .kivo-home-scroll .kivo-home-canvas {
-      grid-template-rows: clamp(19rem, 39cqh, 25rem) 3rem minmax(0, 1fr);
-    }
-    .kivo-home-scroll .kivo-home-hero-title {
-      font-size: clamp(2.5rem, 5.75cqh, 3.5rem);
-    }
-    .kivo-home-scroll .kivo-home-hero-copy > h1 + p { margin-top: 1rem; }
-    .kivo-home-scroll .kivo-home-hero-action {
-      min-height: 3rem;
-      margin-top: 1.125rem;
-      padding-inline: 1.125rem;
-    }
-    .kivo-home-scroll .kivo-home-panel-heading { min-height: 2.5rem; }
-  }
-}
-
-@media (max-width: 639px) {
-  .kivo-home-scroll .kivo-home-panel .kivo-home-panel-title { font-size: 1.25rem; }
+.kivo-home-canvas--plain .kivo-home-panel-title {
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--app-fg-muted);
 }

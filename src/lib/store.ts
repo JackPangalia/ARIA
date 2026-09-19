@@ -3,9 +3,21 @@
 import { create } from "zustand";
 import type { AriaStatus, TranscriptUtterance } from "./types";
 
+/**
+ * The spoken exchange in flight (or the last one finished): the question Kivo
+ * heard and the answer text as it streams. Purely a caption for the live UI —
+ * the persisted turns remain the record.
+ */
+export interface LiveAnswer {
+  id: string;
+  question: string;
+  text: string;
+}
+
 interface AriaState {
   status: AriaStatus;
   utterances: TranscriptUtterance[];
+  liveAnswer: LiveAnswer | null;
   errorMessage: string | null;
   /** Transient status note (e.g. "Reconnecting…") shown without entering error state. */
   notice: string | null;
@@ -21,6 +33,10 @@ interface AriaState {
   setMicLevel: (n: number) => void;
   setPlaybackLevel: (n: number) => void;
   setEffectiveModel: (model: string | null, fallback: string | null) => void;
+  /** A new spoken question was dispatched; the answer caption starts empty. */
+  beginLiveAnswer: (question: string) => void;
+  appendLiveAnswerText: (text: string) => void;
+  clearLiveAnswer: () => void;
   upsertUtterance: (u: TranscriptUtterance) => void;
   patchUtterance: (id: string, patch: Partial<TranscriptUtterance>) => void;
   /** Drop live utterances by id — used to clear wake/command words and
@@ -37,6 +53,7 @@ interface AriaState {
 export const useAriaStore = create<AriaState>((set) => ({
   status: "idle",
   utterances: [],
+  liveAnswer: null,
   errorMessage: null,
   notice: null,
   micLevel: 0,
@@ -53,6 +70,22 @@ export const useAriaStore = create<AriaState>((set) => ({
   setPlaybackLevel: (n) => set({ playbackLevel: n }),
   setEffectiveModel: (effectiveModel, modelFallback) =>
     set({ effectiveModel, modelFallback }),
+
+  beginLiveAnswer: (question) =>
+    set({
+      liveAnswer: {
+        id: `answer:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+        question,
+        text: "",
+      },
+    }),
+  appendLiveAnswerText: (text) =>
+    set((state) =>
+      state.liveAnswer
+        ? { liveAnswer: { ...state.liveAnswer, text: state.liveAnswer.text + text } }
+        : state
+    ),
+  clearLiveAnswer: () => set({ liveAnswer: null }),
 
   upsertUtterance: (u) =>
     set((state) => {
@@ -90,7 +123,7 @@ export const useAriaStore = create<AriaState>((set) => ({
       ),
     })),
 
-  clearTranscript: () => set({ utterances: [] }),
+  clearTranscript: () => set({ utterances: [], liveAnswer: null }),
 }));
 
 function speakerLabel(utterance: TranscriptUtterance): string {

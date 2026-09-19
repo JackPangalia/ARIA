@@ -245,21 +245,29 @@ export function TranscriptLines(props: {
         return (
           <li
             key={line.id}
-            className={`${props.large ? "kivo-transcript-line" : ""} ${
-              props.gutter
-                ? "flex w-full flex-col items-start gap-1 lg:flex-row lg:items-baseline lg:gap-3"
-                : "flex items-baseline gap-2 px-0.5"
-            }`}
+            className={
+              props.large
+                ? "kivo-transcript-line"
+                : props.gutter
+                  ? "flex w-full flex-col items-start gap-1 lg:flex-row lg:items-baseline lg:gap-3"
+                  : "flex items-baseline gap-2 px-0.5"
+            }
           >
             <span
-              className={`flex max-w-full items-center gap-1.5 leading-[1.5] ${labelTextClass} ${props.large ? "kivo-transcript-speaker" : ""} ${
-                line.role === "assistant"
-                  ? "text-app-secondary"
-                  : "text-app-muted"
+              className={`flex max-w-full items-center gap-1.5 leading-[1.5] ${
+                props.large
+                  ? "kivo-transcript-speaker"
+                  : `${labelTextClass} ${
+                      line.role === "assistant"
+                        ? "text-app-secondary"
+                        : "text-app-muted"
+                    }`
               } ${
-                props.gutter
-                  ? "justify-start lg:w-[5.25rem] lg:shrink-0 lg:justify-end"
-                  : "w-[4rem] shrink-0 justify-end"
+                props.large
+                  ? ""
+                  : props.gutter
+                    ? "justify-start lg:w-[5.25rem] lg:shrink-0 lg:justify-end"
+                    : "w-[4rem] shrink-0 justify-end"
               }`}
               title={turnLabel(line)}
             >
@@ -282,13 +290,17 @@ export function TranscriptLines(props: {
               )}
             </span>
             <p
-              className={`w-full min-w-0 font-normal break-words ${bodyTextClass} ${props.large ? "kivo-transcript-copy" : ""} ${
-                line.role === "assistant"
-                  ? "text-app"
-                  : line.isPartial
-                    ? "text-app-muted"
-                    : "text-app-secondary"
-              } ${props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"}`}
+              className={`w-full min-w-0 font-normal break-words ${
+                props.large
+                  ? "kivo-transcript-copy"
+                  : `${bodyTextClass} ${
+                      line.role === "assistant"
+                        ? "text-app"
+                        : line.isPartial
+                          ? "text-app-muted"
+                          : "text-app-secondary"
+                    } ${props.gutter ? "lg:w-[17rem] lg:shrink-0" : "flex-1"}`
+              }`}
             >
               {line.text}
               {line.isPartial ? (

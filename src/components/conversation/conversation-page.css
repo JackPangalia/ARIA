@@ -1,0 +1,663 @@
+/* The conversation page: a document in the middle, one side panel at a time,
+   a quiet control bar along the bottom. Flat paper surfaces, restrained
+   borders, and only the motion the state change needs. */
+
+.kivo-conv {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  background: var(--app-workspace);
+}
+
+/* ---- Header: document switcher, save state, panel actions ---- */
+
+.kivo-conv-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.75rem clamp(1rem, 2.5vw, 1.75rem) 0.5rem;
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+
+.kivo-conv-switcher {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 0.8rem;
+  background: var(--app-surface);
+}
+
+.kivo-conv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2rem;
+  padding: 0.3rem 0.8rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--app-fg-muted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.kivo-conv-tab:hover { color: var(--app-fg); }
+.kivo-conv-tab.is-active {
+  background: var(--app-workspace);
+  color: var(--app-fg);
+  box-shadow: 0 1px 3px var(--app-shadow);
+}
+.kivo-conv-tab.is-muted:not(.is-active) { color: var(--app-fg-subtle); }
+.kivo-conv-tab:focus-visible,
+.kivo-conv-action:focus-visible,
+.kivo-conv-start:focus-visible,
+.kivo-conv-end:focus-visible,
+.kivo-conv-silence:focus-visible,
+.kivo-conv-generate:focus-visible,
+.kivo-conv-panel-close:focus-visible,
+.kivo-conv-chat-send:focus-visible,
+.kivo-conv-chat-stop:focus-visible,
+.kivo-conv-link:focus-visible,
+.kivo-notes-tool:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--app-indigo) 72%, var(--app-fg));
+  outline-offset: 2px;
+}
+
+.kivo-conv-tab-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #aa956c;
+}
+.kivo-conv-tab-dot.is-busy {
+  background: var(--app-indigo);
+  animation: kivo-conv-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes kivo-conv-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.kivo-conv-head-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.kivo-conv-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.75rem;
+  color: var(--app-fg-subtle);
+  white-space: nowrap;
+}
+.kivo-conv-save.is-saved { color: var(--app-fg-subtle); }
+.kivo-conv-save.is-error { color: var(--app-danger-fg); }
+
+.kivo-conv-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-fg-secondary);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--app-border-strong);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.kivo-conv-link:hover { color: var(--app-fg); text-decoration-color: var(--app-fg); }
+
+.kivo-conv-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.kivo-conv-head-divider {
+  width: 1px;
+  height: 1.25rem;
+  margin: 0 0.35rem;
+  background: var(--app-border-subtle);
+}
+
+.kivo-conv-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 0.7rem;
+  background: transparent;
+  color: var(--app-fg-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.kivo-conv-action:hover { background: var(--app-surface-hover); color: var(--app-fg); }
+.kivo-conv-action.is-active {
+  background: var(--app-surface-selected);
+  border-color: var(--app-border-subtle);
+  color: var(--app-fg);
+}
+.kivo-conv-action.is-quiet { color: var(--app-fg-muted); }
+.kivo-conv-action:disabled { opacity: 0.4; cursor: not-allowed; background: transparent; }
+
+/* ---- Body: document + side panel ---- */
+
+.kivo-conv-body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.kivo-conv-doc {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.kivo-conv-doc-inner {
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem clamp(1.25rem, 3vw, 2.5rem) 5rem;
+}
+
+.kivo-conv-doc-error {
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  color: var(--app-danger-fg);
+}
+
+.kivo-conv-editor-loading {
+  min-height: 12rem;
+}
+
+/* The editor itself */
+.kivo-notes-editor { position: relative; }
+
+.kivo-notes-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 0.75rem;
+  padding: 3px;
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--app-workspace) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.kivo-notes-tool {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--app-fg-muted);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.kivo-notes-tool:hover { background: var(--app-surface-hover); color: var(--app-fg); }
+.kivo-notes-tool.is-active { background: var(--app-surface-selected); color: var(--app-fg); }
+.kivo-notes-tool-glyph { font-size: 0.75rem; font-weight: 600; letter-spacing: -0.02em; }
+.kivo-notes-tool-divider { width: 1px; height: 1rem; margin: 0 3px; background: var(--app-border-subtle); }
+
+.kivo-notes-prose {
+  min-height: 14rem;
+  outline: none;
+  color: var(--app-fg);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  letter-spacing: -0.005em;
+  text-wrap: pretty;
+}
+.kivo-notes-prose > * + * { margin-top: 0.7em; }
+.kivo-notes-prose h1,
+.kivo-notes-prose h2,
+.kivo-notes-prose h3 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--app-fg);
+}
+.kivo-notes-prose h1 { font-size: 1.9rem; margin-top: 1.1em; }
+.kivo-notes-prose h2 { font-size: 1.45rem; margin-top: 1.4em; }
+.kivo-notes-prose h3 { font-size: 1.15rem; margin-top: 1.2em; }
+.kivo-notes-prose h1:first-child,
+.kivo-notes-prose h2:first-child,
+.kivo-notes-prose h3:first-child { margin-top: 0; }
+.kivo-notes-prose ul,
+.kivo-notes-prose ol { padding-left: 1.45em; }
+.kivo-notes-prose ul { list-style: disc; }
+.kivo-notes-prose ol { list-style: decimal; }
+.kivo-notes-prose li + li { margin-top: 0.25em; }
+.kivo-notes-prose li > p { margin: 0; }
+.kivo-notes-prose strong { font-weight: 600; }
+.kivo-notes-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: var(--app-fg-subtle);
+  pointer-events: none;
+}
+.kivo-notes-prose ::selection { background: color-mix(in srgb, var(--app-indigo) 22%, transparent); }
+.kivo-notes-editor.is-readonly .kivo-notes-prose { color: var(--app-fg-secondary); }
+
+/* Enhanced document states */
+.kivo-conv-enhanced-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--app-fg-muted);
+}
+.kivo-conv-enhanced-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.75rem;
+  color: var(--app-fg-subtle);
+}
+.kivo-conv-enhanced-error { margin: 0.5rem 0 1rem; font-size: 0.875rem; color: var(--app-danger-fg); }
+.kivo-conv-enhanced-skeleton { display: grid; gap: 1.75rem; }
+.kivo-conv-enhanced-empty h2 {
+  font-family: var(--font-serif);
+  font-size: 1.75rem;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  color: var(--app-fg);
+}
+.kivo-conv-enhanced-empty p {
+  max-width: 34rem;
+  margin-top: 0.75rem;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--app-fg-muted);
+}
+.kivo-conv-generate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  margin-top: 1.5rem;
+  padding: 0.5rem 1rem;
+  border: 0;
+  border-radius: 0.8rem;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: transform 160ms ease, background-color 160ms ease;
+}
+.kivo-conv-generate:hover { transform: translateY(-1px); }
+.kivo-conv-generate:active { transform: scale(0.98); }
+
+.kivo-conv-recap-lead {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+  color: var(--app-fg);
+  text-wrap: pretty;
+}
+.kivo-conv-recap-section { margin-top: 1.75rem; }
+.kivo-conv-recap-section h3 {
+  margin-bottom: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--app-fg-subtle);
+}
+.kivo-conv-recap-section ul { padding-left: 1.2em; list-style: disc; }
+.kivo-conv-recap-section li { margin-top: 0.3em; font-size: 0.95rem; line-height: 1.6; color: var(--app-fg-secondary); }
+
+/* ---- Side panel ---- */
+
+.kivo-conv-panel {
+  display: flex;
+  width: min(26rem, 42vw);
+  min-width: 0;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-left: 1px solid var(--app-border-subtle);
+  background: var(--app-workspace);
+  animation: kivo-fade-in 180ms ease-out both;
+}
+
+.kivo-conv-panel-inner {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.kivo-conv-panel-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--app-border-subtle);
+}
+.kivo-conv-panel-title {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  color: var(--app-fg);
+}
+.kivo-conv-panel-subtitle { margin-top: 0.15rem; font-size: 0.75rem; line-height: 1.4; color: var(--app-fg-muted); }
+.kivo-conv-panel-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--app-fg-muted);
+}
+.kivo-conv-panel-close:hover { background: var(--app-surface-hover); color: var(--app-fg); }
+
+.kivo-conv-panel-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 1rem 1.25rem 2rem;
+}
+
+/* Chat */
+.kivo-conv-chat-note { padding: 0.5rem 0.25rem 1rem; font-size: 0.875rem; line-height: 1.55; color: var(--app-fg-muted); }
+.kivo-conv-chat-list { display: grid; gap: 1rem; list-style: none; margin: 0; padding: 0; }
+.kivo-conv-chat-user { display: flex; justify-content: flex-end; }
+.kivo-conv-chat-bubble {
+  max-width: 85%;
+  padding: 0.5rem 0.85rem;
+  border-radius: 1rem 1rem 0.3rem 1rem;
+  background: var(--app-surface);
+  color: var(--app-fg);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.kivo-conv-chat-answer { font-size: 0.9rem; line-height: 1.65; color: var(--app-fg-secondary); }
+.kivo-conv-chat-answer strong { color: var(--app-fg); }
+.kivo-conv-chat-meta { margin-top: 0.4rem; font-size: 0.7rem; letter-spacing: 0.02em; color: var(--app-fg-subtle); }
+
+.kivo-conv-chat-form {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin: 0 1rem 1rem;
+  padding: 0.4rem 0.4rem 0.4rem 0.85rem;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 1rem;
+  background: var(--app-surface);
+}
+.kivo-conv-chat-form:focus-within { border-color: var(--app-border-strong); }
+.kivo-conv-chat-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 8rem;
+  padding: 0.35rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-fg);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+.kivo-conv-chat-input::placeholder { color: var(--app-fg-subtle); }
+.kivo-conv-chat-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+}
+.kivo-conv-chat-send:disabled { opacity: 0.3; cursor: not-allowed; }
+.kivo-conv-chat-stop {
+  flex: none;
+  min-height: 1.9rem;
+  padding: 0.2rem 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-surface-selected);
+  color: var(--app-fg);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* ---- Spoken answer caption ---- */
+
+.kivo-conv-answer {
+  flex-shrink: 0;
+  margin: 0 clamp(1rem, 2.5vw, 1.75rem) 0.5rem;
+  max-height: 32vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 1rem;
+  background: var(--app-surface);
+}
+.kivo-conv-answer-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem 0.5rem 1rem;
+}
+.kivo-conv-answer-heard { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 0.5rem; }
+.kivo-conv-answer-kicker { flex: none; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--app-fg-subtle); }
+.kivo-conv-answer-question { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8125rem; color: var(--app-fg-muted); }
+.kivo-conv-answer-state { flex: none; font-size: 0.75rem; font-weight: 500; color: var(--app-fg-muted); }
+.kivo-conv-answer-state[data-mode="speak"] { color: #c2417f; }
+.kivo-conv-answer-state[data-mode="search"] { color: #2a86b3; }
+.kivo-conv-answer-stop {
+  flex: none;
+  min-height: 1.9rem;
+  padding: 0.25rem 0.7rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.kivo-conv-answer-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--app-fg-muted);
+}
+.kivo-conv-answer-close:hover { background: var(--app-surface-hover); color: var(--app-fg); }
+.kivo-conv-answer-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 1rem 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--app-fg);
+}
+.kivo-conv-answer-waiting { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: var(--app-fg-muted); }
+
+/* ---- Bottom bar ---- */
+
+.kivo-conv-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem;
+  padding: 0.6rem clamp(1rem, 2.5vw, 1.75rem) max(0.6rem, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--app-border-subtle);
+  background: var(--app-workspace);
+}
+
+.kivo-conv-bar-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.65rem;
+}
+.kivo-conv-bar-label { flex: none; font-size: 0.8125rem; font-weight: 500; letter-spacing: -0.01em; color: var(--app-fg); }
+.kivo-conv-bar-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8125rem; color: var(--app-fg-muted); }
+.kivo-conv-elapsed { flex: none; font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: var(--app-fg-muted); }
+
+.kivo-conv-orb {
+  position: relative;
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: var(--orb, #a1a1aa);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--orb, #a1a1aa) 45%, transparent);
+  transition: background-color 320ms ease;
+}
+.kivo-conv-orb[data-mode="listen"] { --orb: #34d399; animation: kivo-conv-breathe 2.6s ease-in-out infinite; }
+.kivo-conv-orb[data-mode="followup"],
+.kivo-conv-orb[data-mode="wake"] { --orb: #fbbf24; animation: kivo-conv-breathe 1.4s ease-in-out infinite; }
+.kivo-conv-orb[data-mode="think"] { --orb: #8b5cf6; animation: kivo-conv-breathe 1s ease-in-out infinite; }
+.kivo-conv-orb[data-mode="search"] { --orb: #38bdf8; animation: kivo-conv-breathe 1s ease-in-out infinite; }
+.kivo-conv-orb[data-mode="speak"] { --orb: #ec4899; animation: kivo-conv-breathe 0.8s ease-in-out infinite; }
+
+@keyframes kivo-conv-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--orb) 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--orb) 0%, transparent); }
+}
+
+.kivo-conv-meter { display: inline-flex; align-items: center; gap: 2px; height: 1rem; }
+.kivo-conv-meter-bar {
+  width: 3px;
+  height: 1rem;
+  border-radius: 2px;
+  background: var(--app-fg-subtle);
+  transform-origin: center;
+  transition: transform 90ms linear;
+}
+.kivo-conv-meter[data-live="true"] .kivo-conv-meter-bar { background: var(--app-fg-secondary); }
+
+.kivo-conv-bar-actions { display: flex; flex: none; align-items: center; gap: 0.5rem; }
+
+.kivo-conv-start,
+.kivo-conv-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.35rem;
+  padding: 0.4rem 1rem 0.4rem 0.85rem;
+  border: 0;
+  border-radius: 0.85rem;
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
+  font-size: 0.84rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--app-fg) 10%, transparent);
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+.kivo-conv-start:hover,
+.kivo-conv-end:hover { transform: translateY(-1px); }
+.kivo-conv-start:active,
+.kivo-conv-end:active { transform: scale(0.97); }
+.kivo-conv-start:disabled,
+.kivo-conv-end:disabled { cursor: not-allowed; opacity: 0.4; transform: none; }
+
+.kivo-conv-silence {
+  min-height: 2.35rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 0.85rem;
+  background: transparent;
+  color: var(--app-fg);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+.kivo-conv-silence:hover { background: var(--app-surface-hover); }
+
+/* ---- Narrow layouts: the panel becomes a full-height sheet ---- */
+
+@media (max-width: 1023px) {
+  .kivo-conv-head {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "switcher actions" "status status";
+    row-gap: 0.35rem;
+  }
+  .kivo-conv-switcher { grid-area: switcher; }
+  .kivo-conv-head-actions { grid-area: actions; justify-content: flex-end; }
+  .kivo-conv-head-status { grid-area: status; }
+  .kivo-conv-head-status:empty { display: none; }
+  .kivo-conv-action span { display: none; }
+  .kivo-conv-action { padding-inline: 0.55rem; }
+  .kivo-conv-head-divider { display: none; }
+
+  .kivo-conv-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 180;
+    width: auto;
+    border-left: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    animation: kivo-conv-sheet-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .kivo-conv-bar { flex-wrap: wrap; }
+  .kivo-conv-bar-hint { display: none; }
+  .kivo-conv-end span { display: none; }
+  .kivo-conv-end { padding-inline: 0.75rem; }
+  .kivo-conv-answer { max-height: 40vh; }
+}
+
+@keyframes kivo-conv-sheet-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kivo-conv-panel,
+  .kivo-conv-orb,
+  .kivo-conv-tab-dot { animation: none !important; }
+  .kivo-conv-meter-bar { transition: none; }
+}

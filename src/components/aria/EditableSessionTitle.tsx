@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 const SESSION_TITLE_DISPLAY = {
   header:
     "block max-w-[9rem] truncate text-left text-[15px] font-medium tracking-[-0.01em] sm:max-w-[14rem]",
-  tray: "block max-w-[10rem] truncate text-left text-[0.84rem] font-medium tracking-[-0.012em] text-app-muted sm:max-w-[18rem]",
+  tray: "block max-w-[12rem] truncate text-left text-[0.9375rem] font-medium tracking-[-0.02em] text-app sm:max-w-[22rem]",
 } as const;
 
 const SESSION_TITLE_EDIT = {

@@ -19,13 +19,28 @@ frozen and change it only deliberately. (The model layer underneath it was
 rewritten in the Anthropic consolidation — see below — so this is a behavioral
 guarantee, not a literal "never edit these files".)
 
-Everything that happens *after* a session stops — the Overview summary and the
-transcript view — is **shared, live V1 surface**, not leftovers from a notes
-product. It is mode-agnostic and applies to in-person sessions. Don't remove it.
+Everything that happens *after* a session stops — the meeting summary and the
+transcript — is **shared, live V1 surface**. It is mode-agnostic and applies to
+in-person sessions. Don't remove it. The meeting summary
+(`context/meetingSummary`) is still generated on stop; it feeds the voice
+context for ended sessions and is shown on Overview.
 
-The post-session text chat dock (`MeetingChatPanel` / `/api/chat`) is **built
-but parked** — `SESSION_CHAT_ENABLED` is `false` in `src/lib/features.ts`. Do
-not remount it for V1 work.
+The live session is **orb-first**: a particle orb in the center, listening
+status, stop/silence, and a compact caption of what Kivo heard and is saying.
+After stop, Overview (Summary / Transcript) is the session. Do not remount the
+notes-first conversation page as the live surface.
+
+Notes, enhanced notes, and private Ask Kivo chat are **parked** — built in
+`src/components/conversation/`, `src/lib/notes/`, and `src/lib/private-chat/`,
+not wired into `SessionWorkspace`. If you touch that code, keep the hard rule:
+personal notes, enhanced notes, and private chat **never enter a spoken
+answer**. `isolation.test.ts` pins this at the import level; keep it green.
+Read [`docs/notes-first-workspace.md`](docs/notes-first-workspace.md) only as
+history of the parked attempt.
+
+The older post-session text chat dock (`MeetingChatPanel` / `/api/chat` /
+`chat-pipeline`) stays parked — `SESSION_CHAT_ENABLED` is `false` in
+`src/lib/features.ts`. Do not remount it.
 
 ## The AI stack is 100% Anthropic — don't reintroduce a second vendor
 
@@ -76,8 +91,9 @@ Two things to know if you bring it back:
   Re-enabling loopback capture means restoring that handler, the preload
   `supportsSystemAudio` flag, and the Screen Recording permission gate.
 
-**Do not re-add system-audio capture, a "meeting notes" mode, or a Granola-style
-notes product without an explicit request.**
+**Do not re-add system-audio capture or a "meeting notes" (system-audio)
+mode without an explicit request.** The parked notes-first page does not
+bring back loopback capture.
 
 ## Meeting-bot mode (Zoom / Google Meet via Recall.ai) — V2, HARD-DISABLED
 

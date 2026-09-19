@@ -1592,6 +1592,7 @@ export class AriaEngine {
             // provider bothered to report the search as finished.
             this.endSearchState();
             this.liveAnswerText += text;
+            useAriaStore.getState().appendLiveAnswerText(text);
           },
           onEvent: (event) => {
             if (event.type === "tool_started") {
@@ -2257,6 +2258,7 @@ export class AriaEngine {
       // A new answer supersedes the previous one's text — echo checks must
       // compare against what is actually playing.
       this.liveAnswerText = "";
+      store.beginLiveAnswer(question);
 
       let res: Response;
       if (adopted) {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditableSessionTitle } from "@/components/aria/EditableSessionTitle";
 import { ListeningCaption } from "@/components/aria/ListeningCaption";
+import { LiveAnswerCaption } from "@/components/aria/LiveAnswerCaption";
 import { OrbVisualizer } from "@/components/aria/OrbVisualizer";
 import { SessionViewTabs } from "@/components/aria/SessionViewTabs";
 import { useAriaRecording } from "@/lib/audio/use-aria-recording";
@@ -75,7 +76,6 @@ import {
   patchProject,
 } from "@/lib/projects/client";
 import { useAuth } from "@/components/firebase/AuthProvider";
-import { mostRecentActiveSession } from "@/lib/home";
 import { EducationActivity, EducationProvider } from "@/components/education/EducationProvider";
 
 const WORKSPACE_RAIL_STORAGE_KEY = "kivo-workspace-rail-expanded";
@@ -223,6 +223,7 @@ function SessionWorkspaceContent() {
   const ariaStatus = useAriaStore((state) => state.status);
   const ariaNotice = useAriaStore((state) => state.notice);
   const liveUtterances = useAriaStore((state) => state.utterances);
+  const liveAnswer = useAriaStore((state) => state.liveAnswer);
   // Feeds the desktop shell's floating orb widget; no-ops in the browser.
   useOrbStatePublisher();
   const bootstrappedRef = useRef(false);
@@ -741,29 +742,6 @@ function SessionWorkspaceContent() {
     }
   };
 
-  const activeHomeSession = mostRecentActiveSession(sessions);
-
-  const handleHomePrimaryAction = async () => {
-    if (actionBusy || recording.busy || recording.isRunning) return;
-    setActionBusy(true);
-    setError(null);
-    try {
-      if (activeHomeSession) {
-        setSelectedSessionId(activeHomeSession.id);
-        await refreshDetail(activeHomeSession.id);
-        setOverviewMode(false);
-        setPendingAutoStartSessionId(activeHomeSession.id);
-      } else {
-        const created = await ensureSession();
-        setPendingAutoStartSessionId(created.id);
-      }
-    } catch {
-      // The underlying helpers already expose a user-facing error.
-    } finally {
-      setActionBusy(false);
-    }
-  };
-
   const handleRename = async (sessionId: string, title: string) => {
     setActionBusy(true);
     setError(null);
@@ -1163,14 +1141,10 @@ function SessionWorkspaceContent() {
                   displayName={
                     user?.displayName ?? user?.email?.split("@")[0] ?? null
                   }
-                  projects={projects}
                   sessions={filteredSessions}
-                  activeSession={activeHomeSession}
-                  onPrimaryAction={() => void handleHomePrimaryAction()}
+                  onNewConversation={() => void handleNewSessionFromHub()}
                   primaryBusy={actionBusy}
                   onOpenSearch={openSearch}
-                  onSelectProject={selectProject}
-                  onCreateProject={() => setProjectEditor({ mode: "create" })}
                   onSelectSession={(sessionId) =>
                     void handleSelectSession(sessionId)
                   }
@@ -1256,10 +1230,18 @@ function SessionWorkspaceContent() {
                       : "Start"}
                 </button>
               ) : (
-                <ListeningCaption
-                  status={ariaStatus}
-                  elapsedMs={recording.elapsedMs}
-                />
+                <>
+                  <ListeningCaption
+                    status={ariaStatus}
+                    elapsedMs={recording.elapsedMs}
+                  />
+                  {liveAnswer ? (
+                    <LiveAnswerCaption
+                      answer={liveAnswer}
+                      status={ariaStatus}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
           </div>

@@ -11,8 +11,14 @@ const mockStore = vi.hoisted(() => {
     setPlaybackLevel: ReturnType<typeof vi.fn>;
     upsertUtterance: ReturnType<typeof vi.fn>;
     removeUtterances: ReturnType<typeof vi.fn>;
+    beginLiveAnswer: ReturnType<typeof vi.fn>;
+    appendLiveAnswerText: ReturnType<typeof vi.fn>;
+    clearLiveAnswer: ReturnType<typeof vi.fn>;
   } = {
     status: "listening",
+    beginLiveAnswer: vi.fn(),
+    appendLiveAnswerText: vi.fn(),
+    clearLiveAnswer: vi.fn(),
     clearTranscript: vi.fn(),
     setError: vi.fn(),
     setStatus: vi.fn((status: AriaStatus) => {

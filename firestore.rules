@@ -377,6 +377,19 @@ service cloud.firestore {
             request.resource.data.createdAt == request.time;
           allow update, delete: if isOwner(userId);
         }
+
+        // Personal + enhanced notes and the private chat are written only by
+        // the server (Admin SDK) through the notes/chat API routes, which
+        // enforce revisions and sanitize content. Owners may read them.
+        match /notes/{docId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
+
+        match /chat/{messageId} {
+          allow read: if isOwner(userId);
+          allow write: if false;
+        }
       }
     }
 
